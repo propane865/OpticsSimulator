@@ -37,18 +37,27 @@ def _segments_capacity(n_elements: int) -> int:
 
 
 def _plane_columns(planes: "Sequence[MeasurementPlane]") -> "tuple[np.ndarray, ...]":
-    """Stack per-plane geometry into ``(P, 3)`` origins/normals and ``(P,)`` ranges."""
+    """Stack per-plane geometry into ``(P, 3)`` origins/normals, ``(P,)`` ranges
+    and ``(P,)`` in-plane frame coefficient arrays."""
     if not planes:
         empty3 = np.zeros((0, 3), dtype=float)
         empty1 = np.zeros((0,), dtype=float)
-        return empty3, empty3.copy(), empty1.copy(), empty1.copy(), empty1.copy(), empty1.copy()
+        return (
+            empty3, empty3.copy(), empty1.copy(), empty1.copy(), empty1.copy(),
+            empty1.copy(), empty1.copy(), empty1.copy(), empty1.copy(), empty1.copy(),
+        )
     po = np.ascontiguousarray([p.o for p in planes], dtype=float)
     pn = np.ascontiguousarray([p.n for p in planes], dtype=float)
     u_min = np.ascontiguousarray([p.u_min for p in planes], dtype=float)
     u_max = np.ascontiguousarray([p.u_max for p in planes], dtype=float)
     v_min = np.ascontiguousarray([p.v_min for p in planes], dtype=float)
     v_max = np.ascontiguousarray([p.v_max for p in planes], dtype=float)
-    return po, pn, u_min, u_max, v_min, v_max
+    coeffs = [p.frame_coeffs for p in planes]
+    s_u = np.ascontiguousarray([c[0] for c in coeffs], dtype=float)
+    s_v = np.ascontiguousarray([c[1] for c in coeffs], dtype=float)
+    t_u = np.ascontiguousarray([c[2] for c in coeffs], dtype=float)
+    t_v = np.ascontiguousarray([c[3] for c in coeffs], dtype=float)
+    return po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v
 
 
 class OpticalSystem:
@@ -143,14 +152,16 @@ class OpticalSystem:
     ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
         """One trace hitting every plane: ``(us, vs, pws)`` shaped ``(P, N)``.
 
-        An empty stack measures the straight rays directly against each plane.
+        ``(us, vs)`` are detector-local ``(u, v)`` coordinates in each plane's
+        orthonormal in-plane frame. An empty stack measures the straight rays
+        directly against each plane.
         """
         origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
-        po, pn, u_min, u_max, v_min, v_max = _plane_columns(planes)
+        po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = _plane_columns(planes)
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.measure_planes_multi(
             self._stack, origins, dirs, powers, po, pn, u_min, u_max, v_min, v_max,
-            _c.PLANE_EPS, us, vs, pws,
+            s_u, s_v, t_u, t_v, _c.PLANE_EPS, us, vs, pws,
         )
         return us, vs, pws
 
@@ -166,15 +177,16 @@ class OpticalSystem:
 
         Walks every ray through the stack exactly once and produces both the
         rendering segment buffers ``(starts, ends, kinds, counts)`` and the
-        ``(P, N)`` plane hits ``(us, vs, pws)``; an empty stack yields straight
-        incident segments and direct plane hits.
+        ``(P, N)`` plane hits ``(us, vs, pws)`` in detector-local coordinates;
+        an empty stack yields straight incident segments and direct plane hits.
         """
         origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
-        po, pn, u_min, u_max, v_min, v_max = _plane_columns(planes)
+        po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = _plane_columns(planes)
         starts, ends, kinds, counts = self._segment_buffers(origins.shape[0])
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.trace_segments_and_planes(
             self._stack, origins, dirs, powers, float(ray_length), po, pn, u_min, u_max,
-            v_min, v_max, _c.PLANE_EPS, starts, ends, kinds, counts, us, vs, pws,
+            v_min, v_max, s_u, s_v, t_u, t_v, _c.PLANE_EPS, starts, ends, kinds, counts,
+            us, vs, pws,
         )
         return starts, ends, kinds, counts, us, vs, pws

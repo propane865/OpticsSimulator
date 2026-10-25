@@ -530,21 +530,17 @@ class PlaneEditor(_SelectorEditor):
         planes = self._state.planes
         if index < 0 or index >= len(planes):
             return None
-        old = planes[index]
         normal = np.array([spin.value() for spin in self._normal_spins])
-        du, dv = MeasurementPlane.size_to_deltas(
-            float(self._size_spins[0].value()),
-            float(self._size_spins[1].value()),
-            normal,
-        )
-        # Resizing keeps the detector centered on its current world-XY center.
-        u_center = (old.u_min + old.u_max) / 2.0
-        v_center = (old.v_min + old.v_max) / 2.0
+        size_x = float(self._size_spins[0].value())
+        size_y = float(self._size_spins[1].value())
+        # The detector is a rectangle centered on the plane origin, so the
+        # position spins always place its center and the size spins are the
+        # exact in-plane widths.
         updated = MeasurementPlane(
             origin=np.array([spin.value() for spin in self._pos_spins]),
             normal=normal,
-            u_range=(u_center - du / 2.0, u_center + du / 2.0),
-            v_range=(v_center - dv / 2.0, v_center + dv / 2.0),
+            u_range=(-size_x / 2.0, size_x / 2.0),
+            v_range=(-size_y / 2.0, size_y / 2.0),
             resolution=[spin.value() for spin in self._resolution_spins],
         )
         return index, updated

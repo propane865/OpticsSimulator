@@ -10,9 +10,10 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtGui, QtWidgets
 
+from optics.measurement_plane import MeasurementPlane
 from rendering import demo
 from ui.app import OpticsMainWindow, make_display
-from ui.plane_view import _AspectLabel, _fit_rect
+from ui.plane_view import PlaneView, _AspectLabel, _fit_rect
 
 OK = QtWidgets.QDialogButtonBox.StandardButton.Ok
 CANCEL = QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -1038,7 +1039,7 @@ def test_plane_ok_applies_size(window):
     assert "Updated properties for plane1" in window.statusBar().currentMessage()
 
 
-def test_plane_size_is_tilt_corrected(window):
+def test_plane_size_is_exact_in_plane_extent(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
@@ -1048,10 +1049,13 @@ def test_plane_size_is_tilt_corrected(window):
     _click_plane(window, OK)
 
     plane = window.planes[0]
-    assert plane.in_plane_size[0] == pytest.approx(10.0)
-    assert plane.in_plane_size[1] == pytest.approx(20.0)
-    assert plane.interval_u == pytest.approx(10.0 / np.sqrt(2.0))
+    assert plane.in_plane_size == pytest.approx((10.0, 20.0))
+    assert plane.interval_u == pytest.approx(10.0)
     assert plane.interval_v == pytest.approx(20.0)
+    # The world footprint shrinks along the tilt direction by cos(45 deg).
+    edge = plane.point(-5.0, 0.0)
+    assert edge[0] == pytest.approx(-5.0 / np.sqrt(2.0))
+    assert edge[2] == pytest.approx(plane.o[2] + 5.0 / np.sqrt(2.0))
 
 
 def test_plane_size_repopulates_on_switch(window):
@@ -1315,3 +1319,36 @@ def test_plane_view_letterboxes_to_aspect(qt_app, size, aspect, color, fills):
         assert is_painted(2, h // 2) and is_painted(w - 3, h // 2)
         assert not is_painted(w // 2, 2) and not is_painted(w // 2, h - 3)
     label.close()
+
+
+def _plane_view_aspect(container, plane):
+    view = PlaneView(container)
+    view.show_result(plane.new_result())
+    label = container.findChild(QtWidgets.QLabel, "planeImageLabel")
+    return float(label._aspect)
+
+
+def test_plane_view_aspect_uses_in_plane_size(qt_app):
+    container = QtWidgets.QWidget()
+    plane = MeasurementPlane(
+        origin=(0.0, 0.0, 0.0),
+        normal=(1.0, 0.0, 1.0),
+        u_range=(-5.0, 5.0),
+        v_range=(-10.0, 10.0),
+        resolution=(8, 8),
+    )
+    assert _plane_view_aspect(container, plane) == pytest.approx(0.5)
+    container.close()
+
+
+def test_plane_view_aspect_square_under_compound_tilt(qt_app):
+    container = QtWidgets.QWidget()
+    plane = MeasurementPlane(
+        origin=(0.0, 0.0, 0.0),
+        normal=(1.0, 1.0, 1.0),
+        u_range=(-5.0, 5.0),
+        v_range=(-5.0, 5.0),
+        resolution=(8, 8),
+    )
+    assert _plane_view_aspect(container, plane) == pytest.approx(1.0)
+    container.close()

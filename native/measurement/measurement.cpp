@@ -16,21 +16,31 @@
 namespace optics::native {
 namespace {
 
+// Detector-local coordinates of a crossing at world XY ``(uu, vv)``: the
+// affine map from the crossing onto the plane's orthonormal in-plane frame.
+void crossing_local(const PlaneFrame& frame, const Vec3& po, double uu, double vv, double* s,
+                    double* t) {
+    const double du = uu - po[0];
+    const double dv = vv - po[1];
+    *s = frame.s_u * du + frame.s_v * dv;
+    *t = frame.t_u * du + frame.t_v * dv;
+}
+
 // The ray that reaches the plane, read off the shared walk: at each gap, the
 // plane is measured there when no element is entered before the crossing
 // (crossing t <= entry_t, or parallel with no element); otherwise the
 // element's internal segments are checked (in extent and within the segment),
 // continuing to the next gap on exit. Returns ``false`` when the ray never
-// reaches the plane.
+// reaches the plane. ``u``/``v`` receive detector-local ``(s, t)`` coordinates.
 bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
-                        const PlaneRegion& region, double eps, double* u, double* v) {
+                        const PlaneRegion& region, const PlaneFrame& frame, double eps, double* u,
+                        double* v) {
     for (const RayHop& h : hops) {
         const std::optional<std::array<double, 3>> ph = plane_intersect(h.o, h.d, po, pn, eps);
         const bool enter = h.has_element && (!ph.has_value() || ph->at(2) > h.entry_t);
         if (!enter) {
             if (ph.has_value()) {
-                *u = ph->at(0);
-                *v = ph->at(1);
+                crossing_local(frame, po, ph->at(0), ph->at(1), u, v);
                 return true;
             }
             return false;
@@ -46,11 +56,15 @@ bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
             const Vec3 seg_d = diff / seg_len;
             const std::optional<std::array<double, 3>> hit =
                 plane_intersect(seg_o, seg_d, po, pn, eps);
-            if (hit.has_value() && hit->at(0) >= region.u_min && hit->at(0) <= region.u_max &&
-                hit->at(1) >= region.v_min && hit->at(1) <= region.v_max &&
-                hit->at(2) <= seg_len) {
-                *u = hit->at(0);
-                *v = hit->at(1);
+            if (!hit.has_value() || hit->at(2) > seg_len) {
+                continue;
+            }
+            double s = 0.0;
+            double t = 0.0;
+            crossing_local(frame, po, hit->at(0), hit->at(1), &s, &t);
+            if (s >= region.u_min && s <= region.u_max && t >= region.v_min && t <= region.v_max) {
+                *u = s;
+                *v = t;
                 return true;
             }
         }
@@ -71,8 +85,9 @@ void measure_all_planes(const RayHops& hops, const RayBatchView& rays, std::size
         double v = 0.0;
         const PlaneRegion region{planes.u_min[q], planes.u_max[q], planes.v_min[q],
                                  planes.v_max[q]};
+        const PlaneFrame frame{planes.s_u[q], planes.s_v[q], planes.t_u[q], planes.t_v[q]};
         if (measure_hops_plane(hops, as_vec3(planes.origins + 3 * q),
-                               as_vec3(planes.normals + 3 * q), region, eps, &u, &v)) {
+                               as_vec3(planes.normals + 3 * q), region, frame, eps, &u, &v)) {
             const std::size_t idx = q * rays.count + i;
             out.us[idx] = u;
             out.vs[idx] = v;
@@ -108,16 +123,16 @@ double accumulate_power(double* grid, const double* u, const double* v, const do
     return total;
 }
 
-void measure_direct(const RayBatchView& rays, const Vec3& o, const Vec3& nrm, double eps,
-                    MeasurementOutputView out) {
+void measure_direct(const RayBatchView& rays, const Vec3& o, const Vec3& nrm, double s_u,
+                    double s_v, double t_u, double t_v, double eps, MeasurementOutputView out) {
+    const PlaneFrame frame{s_u, s_v, t_u, t_v};
     run_chunks(rays.count, [&](std::size_t lo, std::size_t hi) {
         for (std::size_t i = lo; i < hi; ++i) {
             const std::optional<std::array<double, 3>> hit =
                 plane_intersect(as_vec3(rays.origins + 3 * i), as_vec3(rays.directions + 3 * i), o,
                                 nrm, eps);
             if (hit.has_value()) {
-                out.us[i] = hit->at(0);
-                out.vs[i] = hit->at(1);
+                crossing_local(frame, o, hit->at(0), hit->at(1), &out.us[i], &out.vs[i]);
                 out.powers[i] = rays.powers[i];
             }
         }

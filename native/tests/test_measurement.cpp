@@ -226,11 +226,40 @@ void test_measure_direct() {
     }
     const RayBatchView rays{origins, dirs, powers, 3};
     const MeasurementOutputView out{us, vs, pws};
-    measure_direct(rays, o, nrm, optics::native::PLANE_EPS, out);
+    measure_direct(rays, o, nrm, 1.0, 0.0, 0.0, 1.0, optics::native::PLANE_EPS, out);
     CHECK(close(us[0], 0.0) && close(vs[0], 0.0) && close(pws[0], 1.0));
     CHECK(close(us[1], 5.0) && close(pws[1], 0.25));
     // The parallel ray misses and leaves its entries untouched.
     CHECK(us[2] == kSentinel && vs[2] == kSentinel && pws[2] == kSentinel);
+}
+
+// A compound tilt maps crossings onto the orthonormal in-plane frame: the
+// frame below is built the way ``optics.MeasurementPlane`` derives it from
+// ``n = normalize(1, 1, 2)``, so a straight-down hit at world (1, 1, -1)
+// lands at (s, t) = (e1 . p, e2 . p) with true distance.
+void test_measure_direct_compound_frame() {
+    const double origins[3] = {1.0, 1.0, 5.0};
+    const double dirs[3] = {0.0, 0.0, -1.0};
+    const double powers[1] = {2.0};
+    const Vec3 o = make_vec3(0.0, 0.0, 0.0);
+    const double inv6 = 1.0 / std::sqrt(6.0);
+    const Vec3 nrm = make_vec3(inv6, inv6, 2.0 * inv6);
+    // e1 = normalize(1, 0, -0.5); e2 = n x e1; coeffs a = e1x - e1z/2 etc.
+    const double e1x = 0.8944271909999159;
+    const double e1z = -0.4472135954999579;
+    const double su = e1x - e1z * 0.5;   // 1.118033988749895
+    const double sv = -e1z * 0.5;        // 0.223606797749979
+    const double tu = 0.0;               // e2x - e2z * 0.5
+    const double tv = 1.0954451150103321;
+    double us[1], vs[1], pws[1];
+    us[0] = vs[0] = pws[0] = kSentinel;
+    const RayBatchView rays{origins, dirs, powers, 1};
+    const MeasurementOutputView out{us, vs, pws};
+    measure_direct(rays, o, nrm, su, sv, tu, tv, optics::native::PLANE_EPS, out);
+    const double s_expected = e1x * 1.0 - e1z * 1.0;  // e1 . (1, 1, -1)
+    CHECK(close(us[0], s_expected, 1e-12));
+    CHECK(close(vs[0], tv, 1e-12));  // t_u = 0, t_v * 1
+    CHECK(close(pws[0], 2.0));
 }
 
 void test_planes_multi() {
@@ -244,11 +273,16 @@ void test_planes_multi() {
     const double u_max[2] = {10.0, 10.0};
     const double v_min[2] = {-10.0, -10.0};
     const double v_max[2] = {10.0, 10.0};
+    const double s_u[2] = {1.0, 1.0};
+    const double s_v[2] = {0.0, 0.0};
+    const double t_u[2] = {0.0, 0.0};
+    const double t_v[2] = {1.0, 1.0};
     const std::size_t n = 2;
     const std::size_t p = 2;
     std::vector<double> us(p * n, kNan), vs(p * n, kNan), pws(p * n, 0.0);
     const RayBatchView rays{origins, dirs, powers, n};
-    const PlaneBatchView planes{po, pn, u_min, u_max, v_min, v_max, p};
+    const PlaneBatchView planes{po,   pn,    u_min, u_max, v_min, v_max,
+                                s_u,  s_v,   t_u,   t_v,   p};
     const MeasurementOutputView out{us.data(), vs.data(), pws.data()};
     measure_planes_multi(stack, rays, planes, optics::native::PLANE_EPS, out);
 
@@ -277,6 +311,10 @@ void test_planes_multi() {
     const double trapped_p[1] = {1.0};
     const double r_min[2] = {-10.0, -10.0};
     const double r_max[2] = {10.0, 10.0};
+    const double fr_su[2] = {1.0, 1.0};
+    const double fr_sv[2] = {0.0, 0.0};
+    const double fr_tu[2] = {0.0, 0.0};
+    const double fr_tv[2] = {1.0, 1.0};
     for (double plane_z : {3.0, -3.0}) {
         const double po_t[3] = {0.0, 0.0, plane_z};
         const double pn_t[3] = {0.0, 0.0, 1.0};
@@ -284,7 +322,8 @@ void test_planes_multi() {
         double tv = kSentinel;
         double tp = kSentinel;
         const RayBatchView rays_t{trapped_o, trapped_d, trapped_p, 1};
-        const PlaneBatchView planes_t{po_t, pn_t, r_min, r_max, r_min, r_max, 1};
+        const PlaneBatchView planes_t{po_t,  pn_t,  r_min, r_max, r_min, r_max,
+                                      fr_su, fr_sv, fr_tu, fr_tv, 1};
         const MeasurementOutputView out_t{&tu, &tv, &tp};
         measure_planes_multi(slab, rays_t, planes_t, optics::native::PLANE_EPS, out_t);
         CHECK(tu == kSentinel && tv == kSentinel && tp == kSentinel);
@@ -300,6 +339,10 @@ void test_fused_kernel() {
     const double pn[3] = {0.0, 0.0, 1.0};
     const double range_min[1] = {-10.0};
     const double range_max[1] = {10.0};
+    const double frame_su[1] = {1.0};
+    const double frame_sv[1] = {0.0};
+    const double frame_tu[1] = {0.0};
+    const double frame_tv[1] = {1.0};
     const std::size_t n = 2;
     const std::size_t p = 1;
 
@@ -308,7 +351,8 @@ void test_fused_kernel() {
     std::vector<std::int64_t> f_counts(n, 0);
     std::vector<double> f_us(p * n, kNan), f_vs(p * n, kNan), f_pws(p * n, 0.0);
     const RayBatchView rays{origins, dirs, powers, n};
-    const PlaneBatchView planes{po, pn, range_min, range_max, range_min, range_max, p};
+    const PlaneBatchView planes{po,    pn,    range_min, range_max, range_min,
+                                range_max, frame_su, frame_sv, frame_tu, frame_tv, p};
     const TraceOptions options{2.0, optics::native::PLANE_EPS};
     const SegmentOutputView segs{f_starts.data(), f_ends.data(), f_kinds.data(), f_counts.data(),
                                  kCap};
@@ -346,6 +390,7 @@ void test_fused_kernel() {
 void test_measurement() {
     test_accumulate();
     test_measure_direct();
+    test_measure_direct_compound_frame();
     test_planes_multi();
     test_fused_kernel();
 }

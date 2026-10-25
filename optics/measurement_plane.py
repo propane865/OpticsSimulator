@@ -1,4 +1,3 @@
-import math
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -37,7 +36,7 @@ def _direct_hits(
     dirs: np.ndarray,
     powers: np.ndarray,
 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
-    """Hit parameters ``(u, v)`` and powers for every straight ray.
+    """Detector-local hit parameters ``(u, v)`` and powers for every straight ray.
 
     Direct (untraced) measurement against ``plane``; rays travelling through
     an optical system are measured via
@@ -47,8 +46,9 @@ def _direct_hits(
     us = np.full(n, np.nan)
     vs = np.full(n, np.nan)
     pws = np.zeros(n)
+    s_u, s_v, t_u, t_v = plane.frame_coeffs
     _native.measure_direct(
-        origins, dirs, powers, plane.o, plane.n, _EPS, us, vs, pws
+        origins, dirs, powers, plane.o, plane.n, s_u, s_v, t_u, t_v, _EPS, us, vs, pws
     )
     return us, vs, pws
 
@@ -80,11 +80,18 @@ def results_from_hits(
 
 
 class MeasurementPlane:
-    """A planar detector parametrized as a graph over world XY.
+    """A planar detector: a rectangle in an orthonormal in-plane frame.
 
-    A point on the plane is ``(u, v, z(u, v))`` where ``u``/``v`` are the
-    world X/Y coordinates and ``z`` follows the plane equation through
-    ``origin`` with ``normal``. This requires a non-zero normal Z component.
+    The detector is a true rectangle centered on ``origin`` (a point on the
+    plane) whose pixel grid is uniform in world length along two perpendicular
+    in-plane unit vectors derived from the normal: ``e1`` is the (normalized)
+    steepest in-plane direction in the XZ sense, ``(1, 0, -nx/nz)``, and
+    ``e2 = n x e1`` completes the right-handed frame. Detector parameters
+    ``(u, v)`` are distances along ``e1``/``e2``, so a point on the plane is
+    ``origin + u * e1 + v * e2`` and the image bins are isotropic pixels of
+    the plane's own surface -- the raw image the plane encounters, not its
+    world XY projection. Ray/plane intersection still solves the plane as a
+    graph over world XY, which requires a non-zero normal Z component.
     """
 
     o: np.ndarray
@@ -116,6 +123,21 @@ class MeasurementPlane:
                 "Measurement plane normal must have a non-zero Z component"
             )
 
+        nx, ny, nz = self.n
+        e1 = np.array([1.0, 0.0, -nx / nz], dtype=float)
+        e1 /= np.linalg.norm(e1)
+        self._e1 = e1
+        self._e2 = np.cross(self.n, e1)
+        # Affine map from a crossing's world XY coordinates to detector-local
+        # (u, v): a point above (u0, v0) world offsets sits at
+        # (u0, v0, -(nx/nz) u0 - (ny/nz) v0) relative to the origin.
+        self._coeffs = (
+            float(e1[0] - e1[2] * nx / nz),
+            float(e1[1] - e1[2] * ny / nz),
+            float(self._e2[0] - self._e2[2] * nx / nz),
+            float(self._e2[1] - self._e2[2] * ny / nz),
+        )
+
         self.ru, self.rv = int(resolution[0]), int(resolution[1])
         if self.ru < 1 or self.rv < 1:
             raise ValueError("Resolution must be at least 1 in each direction")
@@ -124,6 +146,26 @@ class MeasurementPlane:
         self.v_min, self.v_max = float(v_range[0]), float(v_range[1])
         if not (self.u_max > self.u_min and self.v_max > self.v_min):
             raise ValueError("Parameter ranges must be increasing")
+
+    @property
+    def e1(self) -> np.ndarray:
+        """Unit vector along the detector's first in-plane axis."""
+        return self._e1
+
+    @property
+    def e2(self) -> np.ndarray:
+        """Unit vector along the detector's second in-plane axis."""
+        return self._e2
+
+    @property
+    def frame_coeffs(self) -> "tuple[float, float, float, float]":
+        """Affine ``(s_u, s_v, t_u, t_v)`` mapping world XY offsets to ``(u, v)``.
+
+        For a plane crossing at world ``(u_w, v_w)``, the detector-local
+        coordinates are ``u = s_u * (u_w - o_x) + s_v * (v_w - o_y)`` and
+        ``v = t_u * (u_w - o_x) + t_v * (v_w - o_y)``.
+        """
+        return self._coeffs
 
     def new_result(self) -> "MeasurementResult":
         """A fresh, zeroed detector image accumulated against this plane."""
@@ -143,48 +185,25 @@ class MeasurementPlane:
 
     @property
     def in_plane_size(self) -> "tuple[float, float]":
-        """Physical extent ``(sx, sy)`` along the plane's own x/y unit vectors.
+        """Physical extent ``(sx, sy)`` along the plane's own in-plane axes.
 
-        The in-plane axes are the unit vectors along the graph
-        parameterization, ``(1, 0, -nx/nz)`` and ``(0, 1, -ny/nz)``, so they
-        rotate with the plane's orientation; a world XY interval ``du`` along
-        them measures ``du * hypot(nz, nx) / |nz|`` on the plane. For an
-        axis-aligned normal these equal the world XY intervals.
+        The detector is a rectangle in the orthonormal frame
+        (:attr:`e1`, :attr:`e2`), so the in-plane sizes are exactly the
+        parameter intervals; a square pair of sizes is a square detector
+        however the plane is tilted.
         """
-        nx, ny, nz = self.n
-        return (
-            self.interval_u * math.hypot(nz, nx) / abs(nz),
-            self.interval_v * math.hypot(nz, ny) / abs(nz),
-        )
-
-    @staticmethod
-    def size_to_deltas(
-        size_x: float, size_y: float, normal: np.ndarray | Sequence[float]
-    ) -> "tuple[float, float]":
-        """World XY intervals ``(du, dv)`` for in-plane sizes ``size_x``/``size_y``.
-
-        Inverse of :attr:`in_plane_size`: converts physical widths along the
-        plane's (orientation-tilted) x/y unit vectors into the graph-over-XY
-        parameter intervals used for binning.
-        """
-        n = normalize(normal)
-        if abs(n[2]) <= _EPS:
-            raise ValueError(
-                "Measurement plane normal must have a non-zero Z component"
-            )
-        return (
-            float(size_x) * abs(n[2]) / math.hypot(n[2], n[0]),
-            float(size_y) * abs(n[2]) / math.hypot(n[2], n[1]),
-        )
+        return (self.interval_u, self.interval_v)
 
     def point(self, u: Any, v: Any) -> np.ndarray:
-        """World-space point on the plane for parameters (u, v)."""
+        """World-space point on the plane for detector parameters (u, v).
+
+        ``u``/``v`` are distances along the in-plane unit axes
+        :attr:`e1`/:attr:`e2`: the point is ``origin + u * e1 + v * e2``.
+        """
         u = np.asarray(u, dtype=float)
         v = np.asarray(v, dtype=float)
-        nxnz = self.n[0] / self.n[2]
-        nynz = self.n[1] / self.n[2]
-        z = self.o[2] - nxnz * (u - self.o[0]) - nynz * (v - self.o[1])
-        return np.stack(np.broadcast_arrays(u, v, z), axis=-1)
+        u, v = np.broadcast_arrays(u, v)
+        return self.o + u[..., np.newaxis] * self._e1 + v[..., np.newaxis] * self._e2
 
     def intersect(self, ray: Ray) -> "tuple[np.ndarray, float, float] | None":
         d = ray.direction
@@ -192,7 +211,7 @@ class MeasurementPlane:
         if not (np.all(np.isfinite(ro)) and np.all(np.isfinite(d))):
             return None
 
-        u, v, t, ok = _native.plane_intersect(
+        _u, _v, t, ok = _native.plane_intersect(
             np.ascontiguousarray(ro, dtype=float),
             np.ascontiguousarray(d, dtype=float),
             np.ascontiguousarray(self.o, dtype=float),
@@ -202,7 +221,9 @@ class MeasurementPlane:
         if not ok:
             return None
 
-        return ray.at(t), float(u), float(v)
+        point = ray.at(t)
+        offset = point - self.o
+        return point, float(offset @ self._e1), float(offset @ self._e2)
 
     def contains(self, u: Any, v: Any) -> Any:
         """Boolean mask for parameters inside the plane extent."""
@@ -381,6 +402,9 @@ class MeasurementResult:
         return added
 
     def irradiance(self) -> np.ndarray:
-        """Power per unit true plane area for each bin."""
-        area = self._plane.bin_area / abs(self._plane.n[2])
-        return self.grid / area
+        """Power per unit detector area for each bin.
+
+        Bin areas are true in-plane areas (the detector is a rectangle in an
+        orthonormal frame), so this is the irradiance on the plane itself.
+        """
+        return self.grid / self._plane.bin_area

@@ -2,8 +2,9 @@
 
 :class:`PlaneView` renders a :class:`~optics.measurement_plane.MeasurementResult`
 irradiance grid into the ``planeView`` placeholder of ``main.ui`` as a QImage
-raster, letterboxed to the measurement plane's own aspect ratio, using the same
-viridis normalization as the 3D detector mesh.
+raster, letterboxed to the aspect ratio of the plane's in-plane sizes so the
+display shows the raw image the plane encounters rather than its world XY
+projection, using the same viridis normalization as the 3D detector mesh.
 """
 
 from __future__ import annotations
@@ -115,7 +116,6 @@ class PlaneView:
         rows, cols = int(rgba.shape[0]), int(rgba.shape[1])
         image = QtGui.QImage(rgba.data, cols, rows, 4 * cols, QtGui.QImage.Format.Format_RGBA8888)
         plane = result.plane
-        self._label.set_aspect(
-            plane.interval_u / plane.interval_v if plane.interval_v > 0.0 else 1.0
-        )
+        size_x, size_y = plane.in_plane_size
+        self._label.set_aspect(size_x / size_y if size_y > 0.0 else 1.0)
         self._label.setPixmap(QtGui.QPixmap.fromImage(image.copy()))

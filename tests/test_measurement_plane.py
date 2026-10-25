@@ -21,39 +21,50 @@ def test_vertical_normal_raises():
         _plane(normal=(1.0, 0.0, 0.0))
 
 
-def test_in_plane_size_matches_intervals_when_flat():
-    plane = _plane()
-    assert plane.in_plane_size == pytest.approx((4.0, 4.0))
+def test_in_plane_size_matches_intervals():
+    for normal in ((0.0, 0.0, 1.0), (1.0, 0.0, 1.0), (1.0, 1.0, 2.0)):
+        plane = _plane(normal=normal)
+        assert plane.in_plane_size == pytest.approx((4.0, 4.0))
 
 
-def test_in_plane_size_stretches_with_tilt():
-    plane = _plane(normal=(1.0, 0.0, 1.0))
-    sx, sy = plane.in_plane_size
-    assert sx == pytest.approx(4.0 * np.sqrt(2.0))
-    assert sy == pytest.approx(4.0)
+def test_in_plane_axes_are_orthonormal():
+    plane = _plane(normal=(0.3, -0.5, 1.2))
+    assert np.linalg.norm(plane.e1) == pytest.approx(1.0)
+    assert np.linalg.norm(plane.e2) == pytest.approx(1.0)
+    assert np.dot(plane.e1, plane.e2) == pytest.approx(0.0, abs=1e-12)
+    assert np.dot(plane.e1, plane.n) == pytest.approx(0.0, abs=1e-12)
+    assert np.dot(plane.e2, plane.n) == pytest.approx(0.0, abs=1e-12)
 
 
-def test_size_to_deltas_inverts_in_plane_size():
-    normal = (0.3, -0.5, 1.2)
-    du, dv = MeasurementPlane.size_to_deltas(10.0, 6.0, normal)
-    plane = MeasurementPlane(
-        origin=np.array([0.0, 0.0, -1.0]),
-        normal=np.array(normal, dtype=float),
-        u_range=(-du / 2.0, du / 2.0),
-        v_range=(-dv / 2.0, dv / 2.0),
-        resolution=(4, 4),
-    )
-    assert plane.in_plane_size == pytest.approx((10.0, 6.0))
+def test_detector_is_a_rectangle_under_compound_tilt():
+    plane = _plane(normal=(1.0, 1.0, 2.0))
+    corners = [
+        plane.point(plane.u_min, plane.v_min),
+        plane.point(plane.u_max, plane.v_min),
+        plane.point(plane.u_max, plane.v_max),
+        plane.point(plane.u_min, plane.v_max),
+    ]
+    a, b, c, d = corners
+    edge_u = b - a
+    edge_v = d - a
+    assert np.dot(edge_u, edge_v) == pytest.approx(0.0, abs=1e-12)
+    assert np.linalg.norm(edge_u) == pytest.approx(4.0)
+    assert np.linalg.norm(edge_v) == pytest.approx(4.0)
+    assert np.linalg.norm(c - b) == pytest.approx(4.0)
+    assert np.linalg.norm(c - d) == pytest.approx(4.0)
+    for point in corners:
+        assert np.dot(plane.n, point - plane.o) == pytest.approx(0.0, abs=1e-12)
 
 
-def test_size_to_deltas_rejects_vertical_normal():
-    with pytest.raises(ValueError):
-        MeasurementPlane.size_to_deltas(1.0, 1.0, (1.0, 0.0, 0.0))
-
-
-def test_size_to_deltas_rejects_zero_normal():
-    with pytest.raises(ValueError):
-        MeasurementPlane.size_to_deltas(1.0, 1.0, (0.0, 0.0, 0.0))
+def test_frame_coeffs_map_world_crossings():
+    plane = _plane(normal=(1.0, 1.0, 2.0), origin=(0.0, 0.0, 0.0))
+    s_u, s_v, t_u, t_v = plane.frame_coeffs
+    for u, v in ((0.5, -0.25), (-1.5, 1.75), (0.0, 0.0)):
+        point = plane.point(u, v)
+        du = point[0] - plane.o[0]
+        dv = point[1] - plane.o[1]
+        assert s_u * du + s_v * dv == pytest.approx(u)
+        assert t_u * du + t_v * dv == pytest.approx(v)
 
 
 def test_intersect_straight_down_hits_correct_point():
@@ -85,7 +96,8 @@ def test_intersect_horizontal_ray_on_tilted_plane():
     point, u, v = hit
     np.testing.assert_allclose(point, [0.0, -4.0 / 3.0, 1.0], atol=1e-9)
     assert u == pytest.approx(0.0)
-    assert v == pytest.approx(-4.0 / 3.0)
+    # v is the true in-plane distance along e2 = (0, 0.8, -0.6).
+    assert v == pytest.approx(-4.0 / 3.0 * 0.8 + 1.0 * -0.6)
 
 
 def test_intersect_ray_parallel_to_tilted_plane_returns_none():
@@ -106,7 +118,8 @@ def test_intersect_tilted_plane_matches_parameters():
     ray = Ray(np.array([0.4, -0.5, 5.0]), np.array([0.0, 0.0, -1.0]), 1.0)
     point, u, v = plane.intersect(ray)
     assert u == pytest.approx(0.4)
-    assert v == pytest.approx(-0.5)
+    # In-plane v is the XY v stretched onto the tilted surface by 1/|nz|.
+    assert v == pytest.approx(-0.5 / 0.8)
     assert point[2] == pytest.approx(-0.75 * -0.5)
 
 
@@ -166,8 +179,17 @@ def test_irradiance_uniform_beam():
     ]
     result = plane.measure(rays)
     irr = result.irradiance()
-    bin_area = plane.bin_area / abs(plane.n[2])
-    assert np.allclose(irr, 1.0 / bin_area)
+    assert np.allclose(irr, 1.0 / plane.bin_area)
+
+
+def test_intersect_compound_tilt_returns_in_plane_parameters():
+    plane = _plane(normal=(1.0, 1.0, 2.0), origin=(0.0, 0.0, 0.0))
+    target = plane.point(0.5, -0.25)
+    ray = Ray(target + np.array([0.0, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+    point, u, v = plane.intersect(ray)
+    np.testing.assert_allclose(point, target, atol=1e-9)
+    assert u == pytest.approx(0.5)
+    assert v == pytest.approx(-0.25)
 
 
 def test_measure_traces_through_elements(make_element):
