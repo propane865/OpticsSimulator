@@ -87,7 +87,7 @@ class _SelectorEditor:
             find_child(window, QtWidgets.QDoubleSpinBox, f"{normal_prefix}{axis}Spin") for axis in "XYZ"
         )
         for spin in self._pos_spins:
-            configure_spin(spin, -100.0, 100.0, 0.1)
+            configure_spin(spin, -1000.0, 1000.0, 0.1)
         for spin in self._normal_spins:
             configure_spin(spin, -1.0, 1.0, 0.1, decimals=3)
 
@@ -346,7 +346,7 @@ class SourceEditor:
         configure_spin(self._pitch_spin, 0.0001, 10.0, 0.01, 4)
         configure_spin(self._max_grid_spin, 1, 256)
         for spin in (self._x_spin, self._y_spin, self._z_spin):
-            configure_spin(spin, -100.0, 100.0, 0.1)
+            configure_spin(spin, -1000.0, 1000.0, 0.1)
 
         self._image_b64: str | None = None
         self._full_grid: np.ndarray | None = None
