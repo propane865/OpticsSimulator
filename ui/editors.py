@@ -223,8 +223,8 @@ class ElementEditor(_SelectorEditor):
         self._surface2_edit = find_child(window, QtWidgets.QLineEdit, "surface2Edit")
 
         configure_spin(self._index_spin, 1.0, 3.0, 0.01)
-        configure_spin(self._radius_spin, 0.01, 10.0, 0.05)
-        configure_spin(self._radius2_spin, 0.01, 10.0, 0.05)
+        configure_spin(self._radius_spin, 0.01, 100.0, 0.05)
+        configure_spin(self._radius2_spin, 0.01, 100.0, 0.05)
         self.set_enabled(False)
 
     def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
