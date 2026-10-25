@@ -25,6 +25,14 @@ from optics.system import OpticalSystem
 
 ZMX_DIR = Path(__file__).parent / "zmx"
 
+ASL_PATH = Path(__file__).resolve().parents[1] / "ASL10142-Zemax-ZMX.zmx"
+AX_PATH = Path(__file__).resolve().parents[1] / "AX2530-C-Zemax-ZMX.zmx"
+
+# Vendor sample prescriptions live at the repo root and are not tracked in
+# git: integration tests against them run only when the samples are present.
+requires_asl = pytest.mark.skipif(not ASL_PATH.exists(), reason=f"missing {ASL_PATH.name}")
+requires_ax = pytest.mark.skipif(not AX_PATH.exists(), reason=f"missing {AX_PATH.name}")
+
 N_BK7 = '"N-BK7" 1.5168 64.17 "N-BK7"'
 
 
@@ -55,7 +63,7 @@ def _surf(
         block.append(f"  GLAS {glass}")
     block.append(f'  DIAM {diam!r} 0 0 0 1 ""')
     if parm is not None:
-        block.append(f"  PARM {parm!r}")
+        block.append(f"  PARM 2 {parm!r}")
     return block
 
 
@@ -338,6 +346,148 @@ def test_conic_expression_evaluates_natively() -> None:
     assert compiled.eval_local(u, v)[2] == pytest.approx(expected)
 
 
+# -- aspheres (EVENASPH/ODDASPHE) --------------------------------------------------
+def test_parm_slots_are_positional(tmp_path: Path) -> None:
+    # Zemax writes ``PARM n value``: slot n = 2 is the r^4 coefficient, so a
+    # lone ``PARM 3`` must land in the r^6 slot with the r^4 slot padded zero.
+    block = _surf(1, stype="EVENASPH", curv=0.02, disz=5.0, glass=N_BK7)
+    block.append("  PARM 3 5.0E-09")
+    path = _modern_case(tmp_path, block + _surf(2, curv=-0.02, disz=10.0))
+    prescription = parse_zmx(path)
+    assert prescription.surfaces[1].coefficients == [0.0, 5.0e-09]
+    assert prescription.warnings == []
+
+
+def test_glas_long_form_record(tmp_path: Path) -> None:
+    # Full Zemax glass record ``GLAS model t p nd abbe dPgF pk1..pk4``: the
+    # index must come from the nd column, not the leading model flags.
+    path = _modern_case(
+        tmp_path,
+        _surf(1, curv=0.02, disz=5.0, glass="C79-80 0 0 1.5 4.0E+1 0 0 0 0 0 0")
+        + _surf(2, curv=-0.02, disz=10.0),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        elements, _ = load_zmx_elements(path)
+    assert elements["lens1"]["material"]["refractive_index"] == pytest.approx(1.5)
+
+
+def test_evenasph_sag_mirrored_into_element(tmp_path: Path) -> None:
+    block = _surf(1, stype="EVENASPH", curv=0.02, disz=4.0, glass=N_BK7, parm=1.44e-7)
+    block.append("  CONI -0.5")
+    path = _modern_case(tmp_path, block + _surf(2, curv=-0.02, disz=10.0))
+    elements, _ = _load_quiet_elements(path)
+    assert "(-1.44e-07 * ((u**2 + v**2) ** 2))" in elements["lens1"]["surface1"]["z"]
+    front = stack_from_config(elements)[0].surface1
+    u, v = 0.7, -1.3
+    r2 = u * u + v * v
+    zemax_sag = 0.02 * r2 / (1 + math.sqrt(1 - 0.5 * 0.02**2 * r2)) + 1.44e-7 * r2**2
+    assert front.evaluate_local(u, v)[2] == pytest.approx(-zemax_sag)
+
+
+def test_odd_asph_slot_is_power_base(tmp_path: Path) -> None:
+    # ODDASPHE counts PARM slots from 1: PARM 1 is the r^1 (cone) coefficient.
+    block = _surf(2, stype="ODDASPHE")
+    block.append("  PARM 1 -0.5773")
+    path = _modern_case(tmp_path, _surf(1, curv=0.0, disz=5.0, glass=N_BK7) + block)
+    prescription = parse_zmx(path)
+    assert prescription.surfaces[2].coefficients == [-0.5773]
+    assert prescription.warnings == []
+
+
+def test_odasph_alias_normalized(tmp_path: Path) -> None:
+    # Legacy ODASPH spellings normalize to ODDASPHE and follow its slot rule.
+    block = _surf(2, stype="ODASPH")
+    block.append("  PARM 1 -0.5")
+    path = _modern_case(tmp_path, _surf(1, curv=0.0, disz=5.0, glass=N_BK7) + block)
+    prescription = parse_zmx(path)
+    assert prescription.surfaces[2].surface_type == "ODDASPHE"
+    assert prescription.surfaces[2].coefficients == [-0.5]
+
+
+def test_odd_asph_cone_sag_mirrored(tmp_path: Path) -> None:
+    block = _surf(2, stype="ODDASPHE", disz=10.0)
+    block.append("  PARM 1 -0.5773")
+    path = _modern_case(tmp_path, _surf(1, curv=0.0, disz=12.33171, glass=N_BK7) + block)
+    elements, _ = _load_quiet_elements(path)
+    assert "0.5773 * ((u**2 + v**2) ** 0.5)" in elements["lens1"]["surface2"]["z"]
+    rear = stack_from_config(elements)[0].surface2
+    u, v = 3.0, 4.0
+    assert rear.evaluate_local(u, v)[2] == pytest.approx(-12.33171 + 0.5773 * math.hypot(u, v))
+
+
+def test_catalog_record_with_zero_nd_uses_builtin_table(tmp_path: Path) -> None:
+    # Catalog models are written with a zero nd column (e.g. F_SILICA); the
+    # index must fall back to the built-in table instead of the zeros.
+    path = _modern_case(
+        tmp_path,
+        _surf(1, curv=0.02, disz=5.0, glass="F_SILICA 0 0 0 0 0 0 0 0 0 0")
+        + _surf(2, curv=-0.02, disz=10.0),
+    )
+    with pytest.warns(UserWarning, match="built-in table"):
+        elements, _ = load_zmx_elements(path)
+    assert elements["lens1"]["material"]["refractive_index"] == pytest.approx(1.4585)
+
+
+def test_reject_conic_on_rear_standard_surface(tmp_path: Path) -> None:
+    # Coefficients are only meaningful on EVENASPH: a STANDARD surface
+    # carrying PARM data stays rejected.
+    path = _modern_case(
+        tmp_path,
+        _surf(1, stype="EVENASPH", curv=0.02, disz=5.0, glass=N_BK7, parm=1.0e-4)
+        + _surf(2, curv=-0.02, disz=10.0, parm=1.0e-4),
+    )
+    with pytest.raises(UnsupportedZmxError, match="STANDARD surface 2"):
+        load_zmx_elements(path)
+
+
+# -- the repo-root Thorlabs prescriptions ----------------------------------------
+@requires_asl
+def test_load_root_aspheric_file() -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        elements, geometry = load_zmx_elements(ASL_PATH)
+    assert not [w for w in caught if "ignored" in str(w.message)]
+    assert list(elements) == ["lens1"]
+    lens = elements["lens1"]
+    assert lens["material"]["refractive_index"] == pytest.approx(1.5)
+    assert lens["position"][2] == pytest.approx(-2.0)
+    assert lens["surface2"]["z"] == "-6.0"
+    assert geometry.length == pytest.approx(6.0)
+    assert geometry.radius == pytest.approx(12.7)
+    front = stack_from_config(elements)[0].surface1
+    u, v = 2.5, 2.5
+    r2 = u * u + v * v
+    curvature, conic, quartic = 2.791296370293013e-2, -0.6291250563026, 1.439837307613e-7
+    zemax_sag = (
+        curvature * r2 / (1 + math.sqrt(1 - (1 + conic) * curvature**2 * r2))
+        + quartic * r2**2
+    )
+    assert front.evaluate_local(u, v)[2] == pytest.approx(-zemax_sag)
+
+
+@requires_ax
+def test_load_root_axicon_file() -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        elements, geometry = load_zmx_elements(AX_PATH)
+    assert not [w for w in caught if "ignored" in str(w.message)]
+    assert list(elements) == ["lens1"]
+    lens = elements["lens1"]
+    # F_SILICA is a zero-nd catalog record: index from the built-in table.
+    assert lens["material"]["refractive_index"] == pytest.approx(1.4585)
+    assert lens["surface1"]["z"] == "0"
+    z = lens["surface2"]["z"]
+    assert z.startswith("-12.331710000000001 + ")
+    assert "0.5773 * ((u**2 + v**2) ** 0.5)" in z
+    assert geometry.length == pytest.approx(12.33171)
+    assert geometry.radius == pytest.approx(12.7)
+    rear = stack_from_config(elements)[0].surface2
+    u, v = 2.0, 3.0
+    r = math.hypot(u, v)
+    assert rear.evaluate_local(u, v)[2] == pytest.approx(-12.33171 + 0.5773 * r)
+
+
 # -- end-to-end trace smoke ------------------------------------------------------
 def _trace_total(elements: dict[str, Any], geometry: Any) -> float:
     """Trace the imported stack against a beam sized from ``geometry``."""
@@ -373,6 +523,18 @@ def test_trace_smoke_biconvex() -> None:
 
 def test_trace_smoke_cemented_zero_gap_interface() -> None:
     elements, geometry = _load_quiet_elements(ZMX_DIR / "cemented_doublet.zmx")
+    assert _trace_total(elements, geometry) > 0.5
+
+
+@requires_asl
+def test_trace_smoke_root_aspheric_file() -> None:
+    elements, geometry = _load_quiet_elements(ASL_PATH)
+    assert _trace_total(elements, geometry) > 0.5
+
+
+@requires_ax
+def test_trace_smoke_root_axicon_file() -> None:
+    elements, geometry = _load_quiet_elements(AX_PATH)
     assert _trace_total(elements, geometry) > 0.5
 
 

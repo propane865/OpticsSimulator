@@ -24,22 +24,30 @@ BOM-sniffs UTF-16/UTF-32/UTF-8 and falls back to UTF-8.
 
 Dialect: sequential, multi-line prescriptions (``SURF n`` followed by indented
 ``TYPE``/``CURV``/``DISZ``/``GLAS``/``DIAM`` keyword lines, where ``DISZ`` is the
-thickness to the next surface and ``DIAM`` the semi-diameter). Glass is either a
-catalog name (``GLAS "N-BK7" nd abbe name``) or an anonymous blank
+thickness to the next surface and ``DIAM`` the semi-diameter). Aspheric
+surfaces carry their polynomial coefficients in ``PARM n value`` lines:
+EVENASPH slots are ``n`` = 2, 3, ... for r^4, r^6, ..., ODDASPHE slots are
+``n`` = 1, 2, ... for r^1, r^2, ... (the legacy ``ODASPH`` spelling is
+normalized). Glass is either a catalog name in the short form
+(``GLAS "N-BK7" nd abbe name``), a full Zemax glass record
+(``GLAS model t p nd abbe dPgF pk1..pk4`` whose two leading numbers are
+model flags, e.g. ``GLAS C79-80 0 0 1.5 40 ...``), or an anonymous blank
 (``GLAS ___BLANK 1 0 nd abbe ...``) whose index is attached to the surface.
+A catalog record written with a zero ``nd`` (e.g. ``F_SILICA 0 0 0 0 ...``)
+falls back to the built-in index table.
 
-Supported subset (v1): sequential mode, STANDARD surfaces (spherical and
-conic), air-spaced and cemented singlets/doublets/triplets, constant
-reference index from ``GLAS`` ``nd`` (or a small built-in table).
-Everything else (mirrors, aspheres, coordinate breaks, diffractive
-surfaces, non-sequential mode, ...) is rejected with an explicit error.
+Supported subset (v1): sequential mode, STANDARD (spherical/conic), EVENASPH
+and ODDASPHE surfaces, air-spaced and cemented singlets/doublets/triplets,
+constant reference index from ``GLAS`` ``nd`` (or a small built-in table).
+Everything else (mirrors, toroids, coordinate breaks, diffractive surfaces,
+non-sequential mode, ...) is rejected with an explicit error.
 """
 
 import copy
 import math
 import re
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -109,16 +117,26 @@ _MIRROR = "MIRROR"
 # pair rather than a catalog name; the numeric layout differs from named glass.
 _GLASS_BLANK = "___BLANK"
 
+# Surface types whose (conic + polynomial) sag the importer can express.
+_IMPORTABLE_TYPES = {"STANDARD", "EVENASPH", "ODDASPHE"}
+
+# Historic spellings normalized to the modern keyword written by OpticStudio.
+_TYPE_ALIASES = {"ODASPH": "ODDASPHE"}
+
+_ODD_ASPHERE = "ODDASPHE"
+
 _KNOWN_GLOBAL_TAGS = {
-    "APD", "APX", "APY", "BLNK", "BLKR", "CHNI", "COFN", "CTC", "DECN",
-    "DESC", "END", "ENPD", "ENVD", "FIELD", "FIEL", "FILE", "FWGN", "FTYP",
-    "FIMP", "GFAC", "GLRS", "GSTD", "GCAT", "HIDE", "IGNR", "LANG", "LDMF",
-    "MAZH", "MIRR", "MODE", "MNUM", "MOFF", "NAME", "NFRA", "NONSEQ",
-    "NONX", "NSCD", "OBJS", "OBRA", "OPRI", "ODSC", "PATH", "PATW", "PDVA",
-    "PERF", "PICB", "PFIL", "POPS", "POLS", "PUSH", "PUPO", "PWAV", "PWTC",
-    "RAGL", "RAND", "RAIM", "RAYC", "ROPD", "SDMA", "SEQ", "SOLV", "SLAB",
-    "STOP", "TOL", "USER", "VERS", "VDXN", "VDYN", "VCXN", "VCYN", "VANN",
-    "WWGT", "WAVM", "XFLN", "YFLN",
+    "APD", "APX", "APY", "AUTH", "BLNK", "BLKR", "CHNI", "COAT", "COFN",
+    "COMM", "CTC", "DECN", "DESC", "EDGE", "EERA", "END", "ENPD", "ENVD",
+    "FIELD", "FIEL", "FILE", "FLAP", "FWGN", "FTYP", "FIMP", "GFAC", "GLRS",
+    "GSTD", "GCAT", "HIDE", "HYPR", "IGNR", "IWDP", "LANG", "LDMF", "LUID",
+    "MAZH", "MEMA", "MIRR", "MODE", "MNUM", "MOFF", "NAME", "NFRA", "NONSEQ",
+    "NONX", "NOTE", "NSCD", "OBJS", "OBRA", "OMMA", "OPRI", "ODSC", "PATH",
+    "PATW", "PDVA", "PERF", "PICB", "PFIL", "POPS", "POLS", "PUSH", "PUPO",
+    "PWAV", "PWTC",
+    "RAGL", "RAND", "RAIM", "RAYC", "ROPD", "SDMA", "SEQ", "SLAB", "SOLV",
+    "SSID", "STOP", "TCMM", "TOL", "USER", "VERS", "VDXN", "VDYN", "VCXN",
+    "VCYN", "VANN", "WWGT", "WAVM", "XFLN", "YFLN",
 }
 
 _SURFACE_TAGS = {"TYPE", "CURV", "DISZ", "DIAM", "CONI", "PARM"}
@@ -127,7 +145,7 @@ _COMMON_GLASS_INDICES = {
     "N-BK7": 1.5168, "BK7": 1.5168, "N-SF11": 1.7847, "SF11": 1.7847,
     "N-SF10": 1.72827, "N-SF5": 1.6727, "SF5": 1.6727, "N-F2": 1.64997,
     "F2": 1.64997, "N-BAK4": 1.56883, "N-SK16": 1.62041, "N-LAK22": 1.744,
-    "N-LASF9": 1.85025,
+    "N-LASF9": 1.85025, "F_SILICA": 1.4585,
 }
 
 
@@ -214,14 +232,36 @@ def _register_glass(
     if not parts:
         return
     model = parts[0].strip()
-    if model.upper() == _GLASS_BLANK:
-        index = _float(parts[3]) if len(parts) > 3 else None
-        abbe = _float(parts[4]) if len(parts) > 4 else None
-        if current is not None and current.glass == "" and index is not None:
-            current.glass = _GLASS_BLANK
-            current.refractive_index = index
-            if abbe is not None:
-                prescription.glasses.setdefault(_GLASS_BLANK, (index, abbe))
+    # Two glass-record layouts share the GLAS line: the long Zemax form
+    # ``model t p nd abbe dPgF pk1..pk4`` (t/p are 0/1 model flags, e.g.
+    # ``C79-80 0 0 1.5 40 ...``) and the short legacy form
+    # ``name nd abbe [fullname]``.  In the short form the second field is nd
+    # (always > 1), so numeric t/p flags identify the long form cleanly.
+    long_form = (
+        len(parts) > 4
+        and _float(parts[3]) is not None
+        and all(
+            (flag := _float(parts[i])) is not None and 0.0 <= flag <= 1.0
+            for i in (1, 2)
+        )
+    )
+    if model.upper() == _GLASS_BLANK and not long_form:
+        return
+    if long_form:
+        index = _float(parts[3])
+        abbe = _float(parts[4])
+        if model.upper() == _GLASS_BLANK or not model:
+            if current is not None and current.glass == "" and index is not None:
+                current.glass = _GLASS_BLANK
+                current.refractive_index = index
+                if abbe is not None:
+                    prescription.glasses.setdefault(_GLASS_BLANK, (index, abbe))
+            return
+        if index is not None:
+            entry = (index, abbe if abbe is not None else 0.0)
+            prescription.glasses.setdefault(model.upper(), entry)
+        if current is not None and current.glass == "":
+            current.glass = model
         return
     index = _float(parts[1]) if len(parts) > 1 else None
     abbe = _float(parts[2]) if len(parts) > 2 else None
@@ -240,11 +280,31 @@ def _apply_surface_keyword(
     current: ZmxSurface,
     warn: Callable[[str], None],
 ) -> None:
-    value = fields[1] if len(fields) > 1 else ""
     if tag == "TYPE":
+        value = fields[1] if len(fields) > 1 else ""
         if value:
-            current.surface_type = value.upper()
+            value = value.upper()
+            current.surface_type = _TYPE_ALIASES.get(value, value)
         return
+    if tag == "PARM":
+        # Zemax writes ``PARM n value``: for EVENASPH, n = 2, 3, ... are the
+        # r^4, r^6, ... slots (n - 2); for ODDASPHE, n = 1, 2, ... are the
+        # r^1, r^2, ... slots (n - 1).  TYPE precedes PARM in every
+        # Zemax-written surface block.
+        parameter = _float(fields[1]) if len(fields) > 1 else None
+        coefficient = _float(fields[2]) if len(fields) > 2 else None
+        if parameter is None or coefficient is None or not math.isfinite(coefficient):
+            warn("Ignored malformed PARM line in ZMX")
+            return
+        base = 1 if current.surface_type == _ODD_ASPHERE else 2
+        slot = int(parameter) - base
+        if slot < 0:
+            return
+        while len(current.coefficients) <= slot:
+            current.coefficients.append(0.0)
+        current.coefficients[slot] = coefficient
+        return
+    value = fields[1] if len(fields) > 1 else ""
     number = _float(value)
     if number is None or not math.isfinite(number):
         if tag == "DISZ":
@@ -259,9 +319,6 @@ def _apply_surface_keyword(
         current.conic = number
     elif tag == "DIAM":
         current.semi_diameter = max(current.semi_diameter, number)
-    elif tag == "PARM":
-        if number != 0.0:
-            current.coefficients.append(number)
 
 
 def _apply_keyword(
@@ -354,7 +411,7 @@ def _flatten_dummy_surfaces(
             and _is_glass(previous.glass)
             and surface.glass.strip().upper() == previous.glass.strip().upper()
         ):
-            if surface.curvature != 0.0:
+            if surface.curvature != 0.0 or any(surface.coefficients):
                 raise UnsupportedZmxError(
                     f"Curved surface {surface.index} inside a single glass is not "
                     "supported (glass blanks with more than two surfaces)"
@@ -367,18 +424,48 @@ def _flatten_dummy_surfaces(
     return kept
 
 
-def conic_sag_expression(curvature: float, conic: float) -> str:
-    """Simulator-space conic sag ``z = c r^2 / (1 + sqrt(1 - (1+k) c^2 r^2))``."""
-    if curvature == 0.0:
-        return "0"
+def conic_sag_expression(
+    curvature: float,
+    conic: float,
+    coefficients: Sequence[float] | None = None,
+    powers: Sequence[int] | None = None,
+) -> str:
+    """Simulator-space conic + polynomial sag for a Zemax aspheric surface.
+
+    Conic term ``z = c r^2 / (1 + sqrt(1 - (1+k) c^2 r^2))`` plus, for each
+    nonzero ``coefficients[i]``, the term ``coefficients[i] * r^p``, where the
+    power ``p`` is ``powers[i]`` or, by default, ``2i + 4`` (the EVENASPH
+    r^4, r^6, ... slots).  Odd powers (the ODDASPHE series) are emitted as
+    half-integer powers of ``u**2 + v**2``.
+    """
     r2 = "(u**2 + v**2)"
-    factor = (1.0 + conic) * curvature * curvature
-    return f"({curvature!r} * {r2}) / (1 + sqrt(1 - {factor!r} * {r2}))"
+    terms: list[str] = []
+    if curvature != 0.0:
+        factor = (1.0 + conic) * curvature * curvature
+        terms.append(f"({curvature!r} * {r2}) / (1 + sqrt(1 - {factor!r} * {r2}))")
+    for slot, coefficient in enumerate(coefficients or ()):
+        if coefficient:
+            power = powers[slot] if powers is not None else 2 * slot + 4
+            exponent = power // 2 if power % 2 == 0 else power / 2
+            terms.append(f"({coefficient!r} * ({r2} ** {exponent!r}))")
+    if not terms:
+        return "0"
+    return " + ".join(terms)
 
 
 def _surface_z_expression(surface: ZmxSurface, vertex_offset: float) -> str:
-    # z_sim = -z_zemax mirrors the sag: pass the negated Zemax curvature.
-    sag = conic_sag_expression(-surface.curvature, surface.conic)
+    # z_sim = -z_zemax mirrors the sag: pass the negated Zemax curvature and
+    # polynomial coefficients (the conic constant is invariant).
+    if surface.surface_type == _ODD_ASPHERE:
+        powers: list[int] | None = list(range(1, len(surface.coefficients) + 1))
+    else:
+        powers = None
+    sag = conic_sag_expression(
+        -surface.curvature,
+        surface.conic,
+        [-value for value in surface.coefficients],
+        powers,
+    )
     if vertex_offset == 0.0:
         return sag
     if sag == "0":
@@ -464,16 +551,21 @@ def zmx_to_elements(
     for front, rear in zip(surfaces, surfaces[1:]):
         if not _is_glass(front.glass):
             continue
-        if front.surface_type != "STANDARD" or rear.surface_type != "STANDARD":
+        if (
+            front.surface_type not in _IMPORTABLE_TYPES
+            or rear.surface_type not in _IMPORTABLE_TYPES
+        ):
             raise UnsupportedZmxError(
-                f"Surface types {front.surface_type!r}/{rear.surface_type!r} around "
-                f"surface {front.index} are outside the import subset (STANDARD only)"
+                f"Surface types {front.surface_type!r}/{rear.surface_type!r} "
+                f"around surface {front.index} are outside the import subset "
+                "(STANDARD/EVENASPH only)"
             )
-        if front.coefficients or rear.coefficients:
-            raise UnsupportedZmxError(
-                f"Aspheric coefficients at surfaces {front.index}..{rear.index} are "
-                "not supported (spherical/conic only)"
-            )
+        for surface in (front, rear):
+            if surface.coefficients and surface.surface_type == "STANDARD":
+                raise UnsupportedZmxError(
+                    f"Aspheric coefficients on STANDARD surface {surface.index} "
+                    "are not supported (EVENASPH/ODDASPHE only)"
+                )
         semi = max(front.semi_diameter, rear.semi_diameter)
         if semi > radius:
             radius = semi
