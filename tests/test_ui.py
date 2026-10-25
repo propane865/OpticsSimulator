@@ -185,6 +185,7 @@ def _editor(window):
         "remove": window.findChild(QtWidgets.QPushButton, "removeElementButton"),
         "index": window.findChild(QtWidgets.QDoubleSpinBox, "refractiveIndexSpin"),
         "radius": window.findChild(QtWidgets.QDoubleSpinBox, "apertureRadiusSpin"),
+        "radius2": window.findChild(QtWidgets.QDoubleSpinBox, "apertureRadius2Spin"),
         "s1": window.findChild(QtWidgets.QLineEdit, "surface1Edit"),
         "s2": window.findChild(QtWidgets.QLineEdit, "surface2Edit"),
         "pos": [
@@ -223,6 +224,7 @@ def test_load_stack_populates_lens_selector(window, repo_root):
     assert items == ["lens1", "lens2"]
     assert editor["index"].value() == pytest.approx(1.5)
     assert editor["radius"].value() == pytest.approx(0.75)
+    assert editor["radius2"].value() == pytest.approx(0.75)
     assert editor["s1"].text() == "-1 + sqrt(9 - (u**2) - (v**2))"
     assert editor["s2"].text() == "4.6 - sqrt(9 - (u**2) - (v**2))"
 
@@ -242,6 +244,7 @@ def test_ok_applies_changes(window, repo_root):
     editor = _editor(window)
     editor["index"].setValue(1.8)
     editor["radius"].setValue(0.5)
+    editor["radius2"].setValue(0.5)
     _click(window, OK)
 
     element = window.elements[0]
@@ -249,6 +252,23 @@ def test_ok_applies_changes(window, repo_root):
     assert element.surface1.aperture.radius == pytest.approx(0.5)
     assert element.surface2.aperture.radius == pytest.approx(0.5)
     assert _mesh_count(window.canvas.view) >= 6
+    assert "Updated properties for lens1" in window.statusBar().currentMessage()
+
+
+def test_ok_applies_separate_surface_apertures(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    editor = _editor(window)
+    editor["radius"].setValue(0.9)
+    editor["radius2"].setValue(0.4)
+    _click(window, OK)
+
+    element = window.elements[0]
+    assert element.surface1.aperture.radius == pytest.approx(0.9)
+    assert element.surface2.aperture.radius == pytest.approx(0.4)
+    schema = window._state.schema["lens1"]
+    assert schema["surface1"]["aperture"]["radius"] == pytest.approx(0.9)
+    assert schema["surface2"]["aperture"]["radius"] == pytest.approx(0.4)
     assert "Updated properties for lens1" in window.statusBar().currentMessage()
 
 
@@ -912,6 +932,10 @@ def _plane_editor(window):
             window.findChild(QtWidgets.QSpinBox, "planeResUSpin"),
             window.findChild(QtWidgets.QSpinBox, "planeResVSpin"),
         ],
+        "size": [
+            window.findChild(QtWidgets.QDoubleSpinBox, "planeSizeXSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "planeSizeYSpin"),
+        ],
         "buttons": window.findChild(QtWidgets.QDialogButtonBox, "planeButtonBox"),
     }
 
@@ -925,6 +949,7 @@ def test_plane_editor_disabled_without_planes(window):
     assert not editor["selector"].isEnabled()
     assert not editor["remove"].isEnabled()
     assert not editor["resolution"][0].isEnabled()
+    assert not editor["size"][0].isEnabled()
     assert not editor["buttons"].isEnabled()
 
 
@@ -987,6 +1012,60 @@ def test_plane_resolution_repopulates_on_switch(window):
     assert editor["resolution"][0].value() == 64
     editor["selector"].setCurrentText("plane1")
     assert editor["resolution"][0].value() == 8
+
+
+def test_add_plane_populates_size_fields(window):
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    assert [spin.value() for spin in editor["size"]] == [40.0, 40.0]
+
+
+def test_plane_ok_applies_size(window):
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["pos"][0].setValue(1.0)
+    editor["size"][0].setValue(10.0)
+    editor["size"][1].setValue(20.0)
+    _click_plane(window, OK)
+
+    plane = window.planes[0]
+    assert plane.interval_u == pytest.approx(10.0)
+    assert plane.interval_v == pytest.approx(20.0)
+    assert (plane.u_min + plane.u_max) / 2.0 == pytest.approx(0.0)
+    assert (plane.v_min + plane.v_max) / 2.0 == pytest.approx(0.0)
+    assert "Updated properties for plane1" in window.statusBar().currentMessage()
+
+
+def test_plane_size_is_tilt_corrected(window):
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["normal"][0].setValue(1.0)
+    editor["size"][0].setValue(10.0)
+    editor["size"][1].setValue(20.0)
+    _click_plane(window, OK)
+
+    plane = window.planes[0]
+    assert plane.in_plane_size[0] == pytest.approx(10.0)
+    assert plane.in_plane_size[1] == pytest.approx(20.0)
+    assert plane.interval_u == pytest.approx(10.0 / np.sqrt(2.0))
+    assert plane.interval_v == pytest.approx(20.0)
+
+
+def test_plane_size_repopulates_on_switch(window):
+    _trigger_measurement_plane(window)
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["size"][0].setValue(8.0)
+    _click_plane(window, OK)
+
+    editor["selector"].setCurrentText("plane1")
+    assert editor["size"][0].value() == pytest.approx(40.0)
+    editor["selector"].setCurrentText("plane2")
+    assert editor["size"][0].value() == pytest.approx(8.0)
 
 
 def test_plane_invalid_normal_warns_and_keeps(window, captured_warnings):

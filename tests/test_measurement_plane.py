@@ -21,6 +21,41 @@ def test_vertical_normal_raises():
         _plane(normal=(1.0, 0.0, 0.0))
 
 
+def test_in_plane_size_matches_intervals_when_flat():
+    plane = _plane()
+    assert plane.in_plane_size == pytest.approx((4.0, 4.0))
+
+
+def test_in_plane_size_stretches_with_tilt():
+    plane = _plane(normal=(1.0, 0.0, 1.0))
+    sx, sy = plane.in_plane_size
+    assert sx == pytest.approx(4.0 * np.sqrt(2.0))
+    assert sy == pytest.approx(4.0)
+
+
+def test_size_to_deltas_inverts_in_plane_size():
+    normal = (0.3, -0.5, 1.2)
+    du, dv = MeasurementPlane.size_to_deltas(10.0, 6.0, normal)
+    plane = MeasurementPlane(
+        origin=np.array([0.0, 0.0, -1.0]),
+        normal=np.array(normal, dtype=float),
+        u_range=(-du / 2.0, du / 2.0),
+        v_range=(-dv / 2.0, dv / 2.0),
+        resolution=(4, 4),
+    )
+    assert plane.in_plane_size == pytest.approx((10.0, 6.0))
+
+
+def test_size_to_deltas_rejects_vertical_normal():
+    with pytest.raises(ValueError):
+        MeasurementPlane.size_to_deltas(1.0, 1.0, (1.0, 0.0, 0.0))
+
+
+def test_size_to_deltas_rejects_zero_normal():
+    with pytest.raises(ValueError):
+        MeasurementPlane.size_to_deltas(1.0, 1.0, (0.0, 0.0, 0.0))
+
+
 def test_intersect_straight_down_hits_correct_point():
     plane = _plane()
     ray = Ray(np.array([0.3, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)

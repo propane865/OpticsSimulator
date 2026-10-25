@@ -45,6 +45,8 @@ SOURCE_TYPE_BY_LABEL = {
 }
 LABEL_BY_SOURCE_TYPE = {value: key for key, value in SOURCE_TYPE_BY_LABEL.items()}
 
+_DEFAULT_APERTURE_RADIUS = float(DEFAULT_ELEMENT_CONFIG["surface1"]["aperture"]["radius"])
+
 
 class _SelectorEditor:
     """Controller skeleton for editors driven by a selection combo box.
@@ -216,15 +218,23 @@ class ElementEditor(_SelectorEditor):
 
         self._index_spin = find_child(window, QtWidgets.QDoubleSpinBox, "refractiveIndexSpin")
         self._radius_spin = find_child(window, QtWidgets.QDoubleSpinBox, "apertureRadiusSpin")
+        self._radius2_spin = find_child(window, QtWidgets.QDoubleSpinBox, "apertureRadius2Spin")
         self._surface1_edit = find_child(window, QtWidgets.QLineEdit, "surface1Edit")
         self._surface2_edit = find_child(window, QtWidgets.QLineEdit, "surface2Edit")
 
         configure_spin(self._index_spin, 1.0, 3.0, 0.01)
         configure_spin(self._radius_spin, 0.01, 10.0, 0.05)
+        configure_spin(self._radius2_spin, 0.01, 10.0, 0.05)
         self.set_enabled(False)
 
     def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
-        return (self._index_spin, self._radius_spin, self._surface1_edit, self._surface2_edit)
+        return (
+            self._index_spin,
+            self._radius_spin,
+            self._radius2_spin,
+            self._surface1_edit,
+            self._surface2_edit,
+        )
 
     def _selector_names(self) -> list[str]:
         return list((self._state.schema or {}).keys())
@@ -237,9 +247,16 @@ class ElementEditor(_SelectorEditor):
         if config is None:
             return
         self._index_spin.setValue(float(config["material"]["refractive_index"]))
-        aperture = config["surface1"].get("aperture") or {}
-        if "radius" in aperture:
-            self._radius_spin.setValue(float(aperture["radius"]))
+        aperture1 = config["surface1"].get("aperture") or {}
+        aperture2 = config["surface2"].get("aperture") or {}
+        radius1 = aperture1.get("radius")
+        radius2 = aperture2.get("radius")
+        if radius1 is None:
+            radius1 = radius2 if radius2 is not None else _DEFAULT_APERTURE_RADIUS
+        if radius2 is None:
+            radius2 = radius1
+        self._radius_spin.setValue(float(radius1))
+        self._radius2_spin.setValue(float(radius2))
         self._surface1_edit.setText(str(config["surface1"]["z"]))
         self._surface2_edit.setText(str(config["surface2"]["z"]))
         position = config.get("position", [0.0, 0.0, 0.0])
@@ -262,13 +279,12 @@ class ElementEditor(_SelectorEditor):
         config["surface2"]["z"] = self._surface2_edit.text()
         config["position"] = [float(spin.value()) for spin in self._pos_spins]
         config["orientation"] = [float(spin.value()) for spin in self._normal_spins]
-        radius = float(self._radius_spin.value())
-        for key in ("surface1", "surface2"):
+        for key, spin in (("surface1", self._radius_spin), ("surface2", self._radius2_spin)):
             aperture = config[key].get("aperture")
             if aperture is None:
                 aperture = {"type": "circular"}
                 config[key]["aperture"] = aperture
-            aperture["radius"] = radius
+            aperture["radius"] = float(spin.value())
         return name, config, refractive_element_from_config(config)
 
     def _commit_current(self, built: tuple[str, dict[str, Any], Any]) -> None:
@@ -470,12 +486,18 @@ class PlaneEditor(_SelectorEditor):
             find_child(window, QtWidgets.QSpinBox, "planeResUSpin"),
             find_child(window, QtWidgets.QSpinBox, "planeResVSpin"),
         )
+        self._size_spins: tuple[QtWidgets.QDoubleSpinBox, ...] = (
+            find_child(window, QtWidgets.QDoubleSpinBox, "planeSizeXSpin"),
+            find_child(window, QtWidgets.QDoubleSpinBox, "planeSizeYSpin"),
+        )
         for res_spin in self._resolution_spins:
             configure_spin(res_spin, 1, 512)
+        for size_spin in self._size_spins:
+            configure_spin(size_spin, 0.01, 1000.0, 1.0, decimals=2)
         self.set_enabled(False)
 
     def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
-        return self._resolution_spins
+        return (*self._resolution_spins, *self._size_spins)
 
     def _selector_names(self) -> list[str]:
         return list(self._state.plane_names)
@@ -499,6 +521,8 @@ class PlaneEditor(_SelectorEditor):
             spin.setValue(float(value))
         for res_spin, value in zip(self._resolution_spins, (plane.ru, plane.rv)):
             res_spin.setValue(int(value))
+        for size_spin, value in zip(self._size_spins, plane.in_plane_size):
+            size_spin.setValue(float(value))
         self._update_view()
 
     def _build_current(self) -> tuple[int, MeasurementPlane] | None:
@@ -507,11 +531,20 @@ class PlaneEditor(_SelectorEditor):
         if index < 0 or index >= len(planes):
             return None
         old = planes[index]
+        normal = np.array([spin.value() for spin in self._normal_spins])
+        du, dv = MeasurementPlane.size_to_deltas(
+            float(self._size_spins[0].value()),
+            float(self._size_spins[1].value()),
+            normal,
+        )
+        # Resizing keeps the detector centered on its current world-XY center.
+        u_center = (old.u_min + old.u_max) / 2.0
+        v_center = (old.v_min + old.v_max) / 2.0
         updated = MeasurementPlane(
             origin=np.array([spin.value() for spin in self._pos_spins]),
-            normal=np.array([spin.value() for spin in self._normal_spins]),
-            u_range=(old.u_min, old.u_max),
-            v_range=(old.v_min, old.v_max),
+            normal=normal,
+            u_range=(u_center - du / 2.0, u_center + du / 2.0),
+            v_range=(v_center - dv / 2.0, v_center + dv / 2.0),
             resolution=[spin.value() for spin in self._resolution_spins],
         )
         return index, updated

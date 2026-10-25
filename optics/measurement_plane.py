@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -139,6 +140,42 @@ class MeasurementPlane:
     @property
     def bin_area(self) -> float:
         return (self.interval_u / self.ru) * (self.interval_v / self.rv)
+
+    @property
+    def in_plane_size(self) -> "tuple[float, float]":
+        """Physical extent ``(sx, sy)`` along the plane's own x/y unit vectors.
+
+        The in-plane axes are the unit vectors along the graph
+        parameterization, ``(1, 0, -nx/nz)`` and ``(0, 1, -ny/nz)``, so they
+        rotate with the plane's orientation; a world XY interval ``du`` along
+        them measures ``du * hypot(nz, nx) / |nz|`` on the plane. For an
+        axis-aligned normal these equal the world XY intervals.
+        """
+        nx, ny, nz = self.n
+        return (
+            self.interval_u * math.hypot(nz, nx) / abs(nz),
+            self.interval_v * math.hypot(nz, ny) / abs(nz),
+        )
+
+    @staticmethod
+    def size_to_deltas(
+        size_x: float, size_y: float, normal: np.ndarray | Sequence[float]
+    ) -> "tuple[float, float]":
+        """World XY intervals ``(du, dv)`` for in-plane sizes ``size_x``/``size_y``.
+
+        Inverse of :attr:`in_plane_size`: converts physical widths along the
+        plane's (orientation-tilted) x/y unit vectors into the graph-over-XY
+        parameter intervals used for binning.
+        """
+        n = normalize(normal)
+        if abs(n[2]) <= _EPS:
+            raise ValueError(
+                "Measurement plane normal must have a non-zero Z component"
+            )
+        return (
+            float(size_x) * abs(n[2]) / math.hypot(n[2], n[0]),
+            float(size_y) * abs(n[2]) / math.hypot(n[2], n[1]),
+        )
 
     def point(self, u: Any, v: Any) -> np.ndarray:
         """World-space point on the plane for parameters (u, v)."""
