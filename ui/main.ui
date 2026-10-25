@@ -42,16 +42,10 @@
      <string>New</string>
     </property>
     <addaction name="actionOptical_Element"/>
-   </widget>
-   <widget class="QMenu" name="menuMeasure">
-    <property name="title">
-     <string>Measure</string>
-    </property>
     <addaction name="actionMeasurement_Plane"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuNew"/>
-   <addaction name="menuMeasure"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <widget class="QDockWidget" name="dockWidget">
