@@ -862,15 +862,15 @@ def test_source_cone_angle_cancel_reverts(window):
 
 
 def _trigger_measurement_plane(window):
-    _trigger(window, "menuMeasure", "actionMeasurement_Plane")
+    _trigger(window, "menuNew", "actionMeasurement_Plane")
 
 
-def test_measure_menu_has_action(window):
+def test_new_menu_has_measurement_plane_action(window):
     menu_bar = window.findChild(QtWidgets.QMenuBar, "menubar")
-    measure_menu = menu_bar.findChild(QtWidgets.QMenu, "menuMeasure")
-    assert measure_menu is not None
-    assert not measure_menu.isEmpty()
-    assert any(a.objectName() == "actionMeasurement_Plane" for a in measure_menu.actions())
+    new_menu = menu_bar.findChild(QtWidgets.QMenu, "menuNew")
+    assert new_menu is not None
+    assert not new_menu.isEmpty()
+    assert any(a.objectName() == "actionMeasurement_Plane" for a in new_menu.actions())
 
 
 def test_measurement_plane_action_adds_plane(window, repo_root):
