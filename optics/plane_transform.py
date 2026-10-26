@@ -4,16 +4,24 @@ A ray fan traced once through two :class:`MeasurementPlane` detectors
 yields matched per-ray hits: ray ``n`` hits plane ``a`` at
 ``(u_a[n], v_a[n])`` and plane ``b`` at ``(u_b[n], v_b[n])``, so the
 shared hits form a point correspondence between the two detector
-images. A homography is the exact map between the images an ideal
-(stigmatic) system forms on two planes, so the fitted homography is
-the reference transform and its residuals are the geometric
-distortion, while the fitted affine decomposes into magnification,
-rotation, shear and translation.
+images. The reported transform is the best 2D similarity
 
-Fits run in detector-local ``(u, v)``; the plane frame convention
-(``e1`` is the steepest in-plane XZ direction, see
-:class:`~optics.measurement_plane.MeasurementPlane`) is folded into
-the reported rotation for tilted planes.
+``p_b = scale * R @ p_a + translation``
+
+fitted to that correspondence: a single magnification, rotation and
+offset, with ``rms_error`` measuring how little of the observed mapping
+is rotation + scale + translation (distortion, shear, nonuniform
+magnification — and, for detector planes tilted relative to each
+other, the projective foreshortening of the tilt itself, which a
+similarity cannot represent).
+
+Fits run in detector-local ``(u, v)``; the reported rotation is image
+rotation between the two detector frames (``e1`` is the steepest
+in-plane XZ direction, ``e2 = n x e1``; see
+:class:`~optics.measurement_plane.MeasurementPlane`), so for planes
+with different normals it is entangled with the frame convention
+rather than a physical rotation of one detector frame relative to the
+other.
 """
 
 from collections.abc import Sequence
@@ -33,98 +41,62 @@ __all__ = ["PlaneTransform", "plane_transform"]
 
 @dataclass(frozen=True, eq=False)
 class PlaneTransform:
-    """Geometric characterization of the plane ``a`` -> plane ``b`` mapping.
+    """Best similarity ``p_b = scale * R @ p_a + translation`` between two planes.
 
-    Matrices are homogeneous ``(3, 3)`` operators on detector-local column
-    vectors ``(u, v, 1)``; the affine is the least-squares 6-DOF fit and the
-    homography the normalized 8-DOF DLT fit of the same correspondences.
-    ``residual`` holds the plane-b-unit offsets of the observed hits from the
-    homography prediction (the distortion field), and ``rms_residual`` /
-    ``max_residual`` its norms. ``n_used`` counts the correspondences that
-    survived outlier clipping out of ``n_total`` traced rays.
+    ``scale`` is the magnification, ``rotation_deg`` (counter-clockwise
+    positive in the detector-local ``u, v`` axes) the image rotation, and
+    ``translation`` the offset of the plane ``a`` -> ``b`` mapping.
+    ``rms_error`` is the root-mean-square distance (in plane-b units) of the
+    kept hits from the similarity prediction, i.e. how much of the mapping is
+    *not* rotation + scale + translation. ``n_used`` counts the
+    correspondences that survived outlier clipping out of ``n_total`` traced
+    rays.
     """
 
-    affine: np.ndarray
-    homography: np.ndarray
-    magnification: float
+    scale: float
     rotation_deg: float
-    shear: float
     translation: np.ndarray
-    rms_residual: float
-    max_residual: float
-    residual: np.ndarray
+    rms_error: float
     n_used: int
     n_total: int
 
 
-def _normalize_2d(pts: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
-    """Hartley-normalize ``pts``; return normalized points and ``(3, 3)`` T."""
-    c = pts.mean(axis=0)
-    d = pts - c
-    scale = float(np.sqrt(2.0) / max(float(np.linalg.norm(d, axis=1).mean()), 1e-12))
-    T = np.array([[scale, 0.0, -scale * c[0]], [0.0, scale, -scale * c[1]], [0.0, 0.0, 1.0]])
-    return d * scale, T
+def _fit_similarity(src: np.ndarray, dst: np.ndarray) -> "tuple[np.ndarray, float, np.ndarray]":
+    """Umeyama fit of ``dst ~= scale * R @ src + translation``.
 
-
-def _apply_homography(H: np.ndarray, pts: np.ndarray) -> np.ndarray:
-    w = H @ np.hstack([pts, np.ones((len(pts), 1))]).T
-    return (w[:2] / w[2]).T
-
-
-def _fit_affine(src: np.ndarray, dst: np.ndarray) -> np.ndarray:
-    """Least-squares 6-DOF affine as a homogeneous ``(3, 3)`` matrix."""
-    c_s = src.mean(axis=0)
-    c_d = dst.mean(axis=0)
-    M, *_ = np.linalg.lstsq(src - c_s, dst - c_d, rcond=None)
-    H = np.eye(3)
-    H[:2, :2] = M.T
-    H[:2, 2] = c_d - M.T @ c_s
-    return H
-
-
-def _fit_homography(src: np.ndarray, dst: np.ndarray) -> np.ndarray:
-    """Normalized DLT fit of the 8-DOF homography mapping ``src`` to ``dst``."""
-    n_s, T_s = _normalize_2d(src)
-    n_d, T_d = _normalize_2d(dst)
-    ones = np.ones((len(n_s), 1))
-    zeros3 = np.zeros((len(n_s), 3))
-    rows = np.empty((2 * len(n_s), 9))
-    rows[0::2] = np.column_stack(
-        [n_s, ones, zeros3, -n_d[:, [0]] * n_s, -n_d[:, [0]]]
-    )
-    rows[1::2] = np.column_stack(
-        [zeros3, n_s, ones, -n_d[:, [1]] * n_s, -n_d[:, [1]]]
-    )
-    _, _, vh = np.linalg.svd(rows)
-    H = np.linalg.inv(T_d) @ vh[-1].reshape(3, 3) @ T_s
-    scale = H[2, 2] if abs(H[2, 2]) > 1e-12 else float(np.abs(H).max())
-    return H / scale
-
-
-def _residuals(H: np.ndarray, src: np.ndarray, dst: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
-    err = dst - _apply_homography(H, src)
-    err = np.where(np.isfinite(err), err, np.inf)
-    return err, np.linalg.norm(err, axis=1)
-
-
-def _decompose(A: np.ndarray) -> "tuple[float, float, float]":
-    """``(magnification, rotation_deg, shear)`` of a 2x2 linear map."""
-    U, s, Vt = np.linalg.svd(A)
+    Returns ``(R, scale, translation)`` with ``R`` a proper ``(2, 2)``
+    rotation; reflections are rejected via the determinant sign
+    correction, so a mirrored correspondence (e.g. detector frames
+    with opposite normals) degrades into a large residual instead of
+    being fitted as a flip. Raises :class:`ValueError` when the source
+    correspondence has no spatial spread.
+    """
+    src_mean = src.mean(axis=0)
+    dst_mean = dst.mean(axis=0)
+    X = src - src_mean
+    Y = dst - dst_mean
+    sxx = float(np.sum(X**2))
+    if not np.isfinite(sxx) or sxx <= 1e-24:
+        raise ValueError("correspondences have no spatial spread; similarity fit is degenerate")
+    U, s, Vt = np.linalg.svd(Y.T @ X)
     R = U @ Vt
     if np.linalg.det(R) < 0.0:
         U = U.copy()
-        U[:, 1] *= -1.0
+        U[:, -1] *= -1.0
         s = s.copy()
-        s[1] *= -1.0
+        s[-1] *= -1.0
         R = U @ Vt
-    magnification = float(np.sqrt(abs(s[0] * s[1])))
-    rotation = float(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
-    n0 = float(np.linalg.norm(A[:, 0]))
-    u0 = A[:, 0] / n0
-    r01 = float(u0 @ A[:, 1])
-    n1 = float(np.linalg.norm(A[:, 1] - r01 * u0))
-    shear = float(r01 / (0.5 * (n0 + n1))) if n1 > 0.0 else 0.0
-    return magnification, rotation, shear
+    scale = float(s.sum() / sxx)
+    translation = dst_mean - scale * (R @ src_mean)
+    return R, scale, translation
+
+
+def _residual_norms(
+    R: np.ndarray, scale: float, translation: np.ndarray, src: np.ndarray, dst: np.ndarray
+) -> np.ndarray:
+    """Per-point distance of ``dst`` from the similarity prediction of ``src``."""
+    err = dst - (scale * (src @ R.T) + translation)
+    return np.linalg.norm(err, axis=1)
 
 
 def plane_transform(
@@ -140,18 +112,19 @@ def plane_transform(
     Traces ``rays`` through ``system`` (or straight, when ``system`` is
     ``None``) exactly once against both planes, pairs the per-ray hits into a
     correspondence, and fits the plane ``planes[0]`` -> ``planes[1]``
-    transform in detector-local ``(u, v)``: an affine for the magnification /
-    rotation / shear / translation report and a homography whose residuals
-    quantify distortion (see :class:`PlaneTransform`).
+    similarity — magnification, rotation and translation in detector-local
+    ``(u, v)`` — with the Umeyama/Kabsch SVD solution; the residual against
+    that fit quantifies everything the similarity cannot express (see
+    :class:`PlaneTransform`).
 
     Hits outside either plane extent (or with non-positive power) never
     pair. Rays clipped by one plane (blocked, vignetted) are outliers of
     the common mapping, so correspondences are median-absolute-deviation
-    sigma-clipped against the homography residual for ``iters`` rounds at
+    sigma-clipped against the similarity residual for ``iters`` rounds at
     ``sigma`` median deviations, but only while the residual is above
     double-precision fit noise; a fit keeps at least four correspondences.
-    Raises :class:`ValueError` when ``planes`` is not a pair or fewer than
-    four rays reach both planes.
+    Raises :class:`ValueError` when ``planes`` is not a pair, fewer than
+    four rays reach both planes, or the shared hits have no spatial spread.
     """
     plane_list = list(planes)
     if len(plane_list) != 2:
@@ -190,7 +163,8 @@ def plane_transform(
     scale = float(np.sqrt(np.mean(np.sum((dst - dst.mean(axis=0)) ** 2, axis=1))))
     keep = np.ones(len(src), dtype=bool)
     for _ in range(int(iters)):
-        _, err = _residuals(_fit_homography(src[keep], dst[keep]), src, dst)
+        R, s, t = _fit_similarity(src[keep], dst[keep])
+        err = _residual_norms(R, s, t, src, dst)
         if float(np.sqrt(np.mean(err[keep] ** 2))) <= 1e-9 * max(scale, 1e-12):
             break
         median = float(np.median(err[keep]))
@@ -200,20 +174,13 @@ def plane_transform(
             break
         keep = new
 
-    homography = _fit_homography(src[keep], dst[keep])
-    affine = _fit_affine(src[keep], dst[keep])
-    _, err = _residuals(homography, src[keep], dst[keep])
-    magnification, rotation_deg, shear = _decompose(affine[:2, :2])
+    R, fit_scale, translation = _fit_similarity(src[keep], dst[keep])
+    err = _residual_norms(R, fit_scale, translation, src[keep], dst[keep])
     return PlaneTransform(
-        affine=affine,
-        homography=homography,
-        magnification=magnification,
-        rotation_deg=rotation_deg,
-        shear=shear,
-        translation=affine[:2, 2].copy(),
-        rms_residual=float(np.sqrt(np.mean(err**2))),
-        max_residual=float(err.max()),
-        residual=dst[keep] - _apply_homography(homography, src[keep]),
+        scale=fit_scale,
+        rotation_deg=float(np.degrees(np.arctan2(R[1, 0], R[0, 0]))),
+        translation=translation,
+        rms_error=float(np.sqrt(np.mean(err**2))),
         n_used=int(np.count_nonzero(keep)),
         n_total=n_total,
     )

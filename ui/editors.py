@@ -591,11 +591,11 @@ class AnalysisEditor:
 
     Reads a source and an image measurement plane, runs
     :func:`optics.plane_transform.plane_transform` over the current ray fan and
-    element stack, and shows the affine decomposition (magnification, rotation,
-    shear, translation) plus the homography distortion (RMS / max residual) and
-    the number of correspondences used. The transform is computed on demand via
-    the Analyze button rather than on every trace; results are recomputed (and
-    cleared) whenever the plane list changes so stale numbers never linger.
+    element stack, and shows the best similarity fit (magnification, rotation,
+    translation) plus its RMS alignment residual and the number of
+    correspondences used. The transform is computed on demand via the Analyze
+    button rather than on every trace; results are recomputed (and cleared)
+    whenever the plane list changes so stale numbers never linger.
     """
 
     PLACEHOLDER = "\u2014"
@@ -603,10 +603,8 @@ class AnalysisEditor:
     _LABEL_NAMES: tuple[tuple[str, str], ...] = (
         ("magnification", "analysisMagnificationLabel"),
         ("rotation", "analysisRotationLabel"),
-        ("shear", "analysisShearLabel"),
         ("translation", "analysisTranslationLabel"),
         ("rms", "analysisRmsLabel"),
-        ("maximum", "analysisMaxLabel"),
         ("rays", "analysisRaysLabel"),
     )
 
@@ -677,12 +675,10 @@ class AnalysisEditor:
             return
 
         tu, tv = transform.translation
-        self._labels["magnification"].setText(f"{transform.magnification:.4g}")
+        self._labels["magnification"].setText(f"{transform.scale:.4g}")
         self._labels["rotation"].setText(f"{transform.rotation_deg:.3f}\u00b0")
-        self._labels["shear"].setText(f"{transform.shear:.4g}")
         self._labels["translation"].setText(f"({tu:.3f}, {tv:.3f}) mm")
-        self._labels["rms"].setText(f"{transform.rms_residual:.3g} mm")
-        self._labels["maximum"].setText(f"{transform.max_residual:.3g} mm")
+        self._labels["rms"].setText(f"{transform.rms_error:.3g} mm")
         self._labels["rays"].setText(f"{transform.n_used} / {transform.n_total}")
         self._set_status(
             f"Analyzed {planes[source]} \u2192 {planes[image]} ({transform.n_used}/{transform.n_total} rays)"
