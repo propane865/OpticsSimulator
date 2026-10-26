@@ -114,7 +114,9 @@ def optimize_layout(
     positions minimizing the magnification-target deviation plus the clipped
     similarity RMS (see :class:`LensOptimization` for weights). Free elements
     default to every stack element; explicit ``element_bounds`` /
-    ``image_bounds`` override the default windows. Raises :class:`ValueError`
+    ``image_bounds`` override the default windows. A degenerate
+    ``image_bounds=(z, z)`` window pins the image plane (locks its z) so only
+    the elements are searched. Raises :class:`ValueError`
     for an invalid problem (no elements, identical planes, fewer than four
     base correspondences, or a degenerate parameter window).
     """
@@ -176,7 +178,7 @@ def optimize_layout(
         # A fixed stack tail hard-clips the plane below it; when the tail is
         # free the consecutive-parameter gap penalty keeps the order.
         p_hi = min(p_hi, base_z[tail] - gap)
-    if not p_hi > p_lo:
+    if p_hi < p_lo:
         raise ValueError("image plane has no feasible z window")
     lo.append(p_lo)
     hi.append(p_hi)

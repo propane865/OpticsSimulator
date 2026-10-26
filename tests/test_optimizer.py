@@ -154,3 +154,41 @@ def test_infeasible_window_rejected():
             free_element_names=["lens1"],
             element_bounds={"lens1": (-30.0, -12.0)},
         )
+
+
+def test_infeasible_image_window_rejected():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    # Pinning the image plane above the fixed lens2 tail leaves no feasible
+    # window once the tail clip is applied.
+    with pytest.raises(ValueError, match="image plane has no feasible z window"):
+        optimize_layout(
+            schema,
+            p1,
+            p2,
+            origins,
+            dirs,
+            powers,
+            free_element_names=["lens1"],
+            image_bounds=(5.0, 5.0),
+        )
+
+
+def test_locked_image_plane_is_pinned():
+    schema, source, p1, p2 = _problem()
+    base = _base_transform(schema, source, p1, p2)
+    origins, dirs, powers = source.emit_arrays()
+    z_image = float(p2.o[2])
+    result = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_BOUNDS,
+        image_bounds=(z_image, z_image),
+        optimization=replace(_FAST, magnification_target=base.scale),
+    )
+    assert result.best_z[-1] == pytest.approx(z_image, abs=0.0)
+    assert result.image_plane_config["origin"][2] == z_image

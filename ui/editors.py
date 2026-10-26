@@ -608,9 +608,11 @@ class AnalysisEditor:
 
     "Optimize Layout" additionally sweeps every element's z and the image
     plane's z (:func:`optics.optimizer.optimize_layout`) toward the target
-    magnification with minimal RMS. The search runs on a worker thread (the
-    native loop never touches Qt); the winning layout is committed through the
-    normal element/plane replace paths when it arrives on the UI thread.
+    magnification with minimal RMS; checking "Lock Image Plane" pins the image
+    plane's z so only the elements are searched. The search runs on a worker
+    thread (the native loop never touches Qt); the winning layout is committed
+    through the normal element/plane replace paths when it arrives on the UI
+    thread.
     """
 
     PLACEHOLDER = "\u2014"
@@ -642,6 +644,7 @@ class AnalysisEditor:
             window, QtWidgets.QPushButton, "analysisOptimizeButton"
         )
         self._target_spin = find_child(window, QtWidgets.QDoubleSpinBox, "analysisTargetMagSpin")
+        self._lock_image_check = find_child(window, QtWidgets.QCheckBox, "analysisLockImageCheck")
         self._progress = find_child(window, QtWidgets.QProgressBar, "analysisOptimizeProgress")
         self._labels = {
             key: find_child(window, QtWidgets.QLabel, name) for key, name in self._LABEL_NAMES
@@ -750,6 +753,10 @@ class AnalysisEditor:
         schema_snapshot = copy.deepcopy(schema)
         origins, dirs, powers = self._state.rays_arrays()
         spec = LensOptimization(magnification_target=float(self._target_spin.value()))
+        image_bounds: tuple[float, float] | None = None
+        if self._lock_image_check.isChecked():
+            z_image = float(image_plane.o[2])
+            image_bounds = (z_image, z_image)
         self._set_optimizing(True)
         self._set_status("Optimizing layout (this can take a minute)...")
 
@@ -762,6 +769,7 @@ class AnalysisEditor:
                     origins,
                     dirs,
                     powers,
+                    image_bounds=image_bounds,
                     optimization=spec,
                 )
             except Exception as exc:  # surfaced verbatim on the UI thread
@@ -775,6 +783,7 @@ class AnalysisEditor:
         self._optimizing = running
         enable_widgets([self._source_combo, self._image_combo], not running)
         self._target_spin.setEnabled(not running)
+        self._lock_image_check.setEnabled(not running)
         self._progress.setVisible(running)
         if running:
             self._run_button.setEnabled(False)
@@ -797,7 +806,7 @@ class AnalysisEditor:
             self._state.replace_element(name, config, element)
             self._scene.replace_element_nodes(index, element)
         image = self._image_combo.currentIndex()
-        if image < len(self._state.planes):
+        if not self._lock_image_check.isChecked() and image < len(self._state.planes):
             self._state.replace_plane(image, plane_from_config(result.image_plane_config))
         self._refresh_trace()
         self.run()

@@ -1555,3 +1555,43 @@ def test_analysis_optimize_reports_failure(window, qt_app, monkeypatch):
         qt_app,
     )
     assert button.isEnabled()
+
+
+def _optimize_lock_probe(window, monkeypatch, qt_app, locked):
+    """Run one Optimize Layout with the lock box in ``locked`` and return the
+    ``image_bounds`` the controller handed to the optimizer."""
+    captured: dict[str, object] = {}
+    stub = _stub_optimize(1.0, 5.0)
+
+    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+        captured["image_bounds"] = kwargs.get("image_bounds", "MISSING")
+        return stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+
+    monkeypatch.setattr("ui.editors.optimize_layout", spy)
+    check = window.findChild(QtWidgets.QCheckBox, "analysisLockImageCheck")
+    check.setChecked(locked)
+    button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
+    button.click()
+    _wait_until(
+        lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(),
+        qt_app,
+    )
+    return captured["image_bounds"]
+
+
+def test_analysis_optimize_lock_sends_image_bounds(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    assert _optimize_lock_probe(window, monkeypatch, qt_app, locked=False) is None
+
+
+def test_analysis_optimize_locked_keeps_image_plane(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    z_before = float(window._state.planes[1].o[2])
+    bounds = _optimize_lock_probe(window, monkeypatch, qt_app, locked=True)
+    assert bounds == (z_before, z_before)
+    # the winning layout is committed for the elements but the locked image
+    # plane is left untouched
+    assert window._state.schema["lens1"]["position"] == [0.0, 0.0, 1.0]
+    assert window._state.planes[1].o[2] == z_before
+    check = window.findChild(QtWidgets.QCheckBox, "analysisLockImageCheck")
+    assert check.isEnabled()

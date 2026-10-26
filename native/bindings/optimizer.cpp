@@ -51,8 +51,8 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
     require(free_indices.size() == d - 1, "gaps count implies one plane parameter");
     for (std::size_t i = 0; i < d; ++i) {
         require(std::isfinite(lower.data[i]) && std::isfinite(upper.data[i]) &&
-                    upper.data[i] > lower.data[i],
-                "lo/hi: per-parameter bound must be finite with hi > lo");
+                    upper.data[i] >= lower.data[i],
+                "lo/hi: per-parameter bound must be finite with hi >= lo");
         require(std::isfinite(x0.data[i]), "x_init: expected finite values");
     }
     std::vector<std::size_t> free_slots;
