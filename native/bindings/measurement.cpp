@@ -20,18 +20,8 @@ namespace {
 using optics::native::TraceStack;
 using namespace optics::bindings;
 
-// Shared ray-fan validation: ``(N, 3)`` origins/directions and ``(N,)``
-// powers read into an SoA view.
-optics::native::RayBatchView read_ray_batch(const py::array_t<double>& origins,
-                                            const py::array_t<double>& dirs,
-                                            const py::array_t<double>& powers) {
-    const ConstDoubles od = read_doubles(origins, 2, "origins");
-    const ConstDoubles dd = read_doubles(dirs, 2, "dirs");
-    const ConstDoubles pw = read_doubles(powers, 1, "powers");
-    const std::size_t n = pw.size;
-    require(od.size == 3 * n && dd.size == 3 * n, "origins/dirs: expected (N, 3)");
-    return {od.data, dd.data, pw.data, n};
-}
+// Ray-fan and plane-array validation live in ``support.hpp``
+// (``read_ray_batch`` / ``read_planes``).
 
 double py_accumulate(const py::array_t<double>& grid, const py::array_t<double>& u,
                      const py::array_t<double>& v, const py::array_t<double>& power, double u_min,
@@ -91,46 +81,7 @@ void py_measure_direct(const py::array_t<double>& origins, const py::array_t<dou
     optics::native::measure_direct(rays, ov, nv, s_u, s_v, t_u, t_v, eps, out);
 }
 
-// Shared plane-array validation: reads ``(P, 3)`` origins/normals, ``(P,)``
-// range arrays and ``(P,)`` in-plane frame coefficient arrays into raw
-// pointers, returning the plane count ``P``.
-struct PlaneArrays {
-    std::size_t p;
-    const double* po;
-    const double* pn;
-    const double* u_min;
-    const double* u_max;
-    const double* v_min;
-    const double* v_max;
-    const double* s_u;
-    const double* s_v;
-    const double* t_u;
-    const double* t_v;
-};
-
-PlaneArrays read_planes(const py::array_t<double>& po, const py::array_t<double>& pn,
-                        const py::array_t<double>& u_min, const py::array_t<double>& u_max,
-                        const py::array_t<double>& v_min, const py::array_t<double>& v_max,
-                        const py::array_t<double>& s_u, const py::array_t<double>& s_v,
-                        const py::array_t<double>& t_u, const py::array_t<double>& t_v) {
-    const ConstDoubles pov = read_doubles(po, 2, "plane origins");
-    const ConstDoubles pnv = read_doubles(pn, 2, "plane normals");
-    const ConstDoubles u0 = read_doubles(u_min, 1, "u_min");
-    const ConstDoubles u1 = read_doubles(u_max, 1, "u_max");
-    const ConstDoubles v0 = read_doubles(v_min, 1, "v_min");
-    const ConstDoubles v1 = read_doubles(v_max, 1, "v_max");
-    const ConstDoubles su = read_doubles(s_u, 1, "s_u");
-    const ConstDoubles sv = read_doubles(s_v, 1, "s_v");
-    const ConstDoubles tu = read_doubles(t_u, 1, "t_u");
-    const ConstDoubles tv = read_doubles(t_v, 1, "t_v");
-    const std::size_t p = u0.size;
-    require(pov.size == 3 * p && pnv.size == 3 * p, "plane origins/normals: expected (P, 3)");
-    require(u1.size == p && v0.size == p && v1.size == p, "plane range arrays: expected (P,)");
-    require(su.size == p && sv.size == p && tu.size == p && tv.size == p,
-            "plane frame arrays: expected (P,)");
-    return {p,    pov.data, pnv.data, u0.data, u1.data,   v0.data, v1.data,
-            su.data, sv.data, tu.data, tv.data};
-}
+// Shared plane-array validation lives in ``support.hpp`` (``read_planes``).
 
 void py_measure_planes_multi(const TraceStack& stack, const py::array_t<double>& origins,
                              const py::array_t<double>& dirs, const py::array_t<double>& powers,

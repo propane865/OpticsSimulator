@@ -27,6 +27,13 @@ class Element {
                                                  std::vector<double> tri,
                                                  std::vector<double> normals);
 
+    // Pure-translation variant of an existing element: surfaces via the
+    // transform-only fast path, world-space wall triangles shifted by
+    // ``delta``, and the world box and wall band rebuilt from the shifted
+    // data. Equivalent to an element built with both transforms translated
+    // by ``delta``; the layout-optimizer sweep path.
+    static std::shared_ptr<const Element> translated(const Element& base, const Vec3& delta);
+
     std::shared_ptr<const Surface> surface1;
     std::shared_ptr<const Surface> surface2;
     double index = 1.0;

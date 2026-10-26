@@ -266,6 +266,44 @@ std::shared_ptr<const Surface> Surface::create_with_model(std::shared_ptr<const 
     return std::shared_ptr<const Surface>(new Surface(std::move(model), std::move(options)));
 }
 
+// Transform-only variant. Local geometry (model, domain, aperture, membership
+// and the grid's local arrays) is identical, so only the world seed points
+// change: ``p_old = rot_o l + t_o`` and ``p_new = rot_n l + t_n`` give
+// ``p_new = A p_old + b`` with ``A = rot_n rot_o^T`` and ``b = t_n - A t_o``.
+Surface::Surface(const Surface& base, const Transform& transform)
+    : desc_(std::make_shared<SurfaceDesc>(*base.desc_)),
+      grid_(std::make_shared<SeedGrid>()),
+      graph_xy_(base.graph_xy_) {
+    desc_->transform = transform;
+    grid_->pts = base.grid_->pts;
+    grid_->finite = base.grid_->finite;
+    grid_->uf = base.grid_->uf;
+    grid_->vf = base.grid_->vf;
+    grid_->uf_valid = base.grid_->uf_valid;
+    grid_->vf_valid = base.grid_->vf_valid;
+    Mat3 rot_old_t;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            rot_old_t.m[i][j] = base.desc_->transform.rot.m[j][i];
+        }
+    }
+    const Mat3 a = mat3_mul(transform.rot, rot_old_t);
+    const Vec3 b = transform.trans - a * base.desc_->transform.trans;
+    const std::vector<double>& old = base.grid_->p_world;
+    grid_->p_world.reserve(old.size());
+    for (std::size_t k = 0; k + 2 < old.size(); k += 3) {
+        const Vec3 p = a * make_vec3(old[k], old[k + 1], old[k + 2]) + b;
+        grid_->p_world.push_back(p[0]);
+        grid_->p_world.push_back(p[1]);
+        grid_->p_world.push_back(p[2]);
+    }
+}
+
+std::shared_ptr<const Surface> Surface::with_transform(const Surface& base,
+                                                       const Transform& transform) {
+    return std::shared_ptr<const Surface>(new Surface(base, transform));
+}
+
 std::pair<Vec3, Vec3> Surface::derivatives(double u, double v) const {
     return desc_derivatives(*desc_, u, v);
 }

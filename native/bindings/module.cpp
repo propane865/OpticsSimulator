@@ -113,4 +113,5 @@ PYBIND11_MODULE(_native, m) {
     optics::bindings::register_kernels(m);
     optics::bindings::register_tracing(m);
     optics::bindings::register_measurement(m);
+    optics::bindings::register_optimizer(m);
 }

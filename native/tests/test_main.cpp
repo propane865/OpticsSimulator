@@ -9,6 +9,7 @@ void test_surface();
 void test_element();
 void test_stack();
 void test_measurement();
+void test_optimizer();
 
 int main() {
     test_expression();
@@ -17,6 +18,7 @@ int main() {
     test_element();
     test_stack();
     test_measurement();
+    test_optimizer();
     if (g_failures == 0) {
         std::printf("native tests passed\n");
         return 0;

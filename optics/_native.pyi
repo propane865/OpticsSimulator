@@ -8,6 +8,8 @@ cross the boundary only through the builder functions below; ``Element`` and
 the trace/measurement kernels are reached through ``OpticalSystem``.
 """
 
+from typing import Any
+
 import numpy as np
 
 class SurfaceModel:
@@ -159,6 +161,47 @@ def measure_planes_multi(
     vs: np.ndarray,
     pws: np.ndarray,
 ) -> None: ...
+def optimize_layout(
+    stack: TraceStack,
+    free_indices: list[int],
+    x_init: np.ndarray,
+    lo: np.ndarray,
+    hi: np.ndarray,
+    gaps: np.ndarray,
+    origins: np.ndarray,
+    dirs: np.ndarray,
+    powers: np.ndarray,
+    po: np.ndarray,
+    pn: np.ndarray,
+    u_min: np.ndarray,
+    u_max: np.ndarray,
+    v_min: np.ndarray,
+    v_max: np.ndarray,
+    s_u: np.ndarray,
+    s_v: np.ndarray,
+    t_u: np.ndarray,
+    t_v: np.ndarray,
+    dest_plane: int = 1,
+    eps: float = 1e-12,
+    target: float = 1.0,
+    w_mag: float = 1.0,
+    w_rms: float = 1.0,
+    rms_ref: float = 1.0,
+    min_fraction: float = 0.5,
+    w_vignette: float = 1.0,
+    w_order: float = 1e3,
+    w_anchor: float = 0.0,
+    clip_iters: int = 3,
+    clip_sigma: float = 3.0,
+    seed: int = 0,
+    population: int = 0,
+    generations: int = 300,
+    max_evals: int = 6000,
+    nm_iterations: int = 1500,
+    stall_generations: int = 60,
+    xatol: float = 1e-6,
+    fatol: float = 1e-10,
+) -> dict[str, Any]: ...
 def trace_segments_and_planes(
     stack: TraceStack,
     origins: np.ndarray,

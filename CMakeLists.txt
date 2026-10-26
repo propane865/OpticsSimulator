@@ -28,7 +28,9 @@ add_library(optics_core OBJECT
   native/tracing/element.cpp
   native/tracing/stack.cpp
   native/measurement/measurement.cpp
-  native/measurement/reconstruct.cpp)
+  native/measurement/reconstruct.cpp
+  native/optimizing/fit.cpp
+  native/optimizing/optimizer.cpp)
 target_include_directories(optics_core PUBLIC native/include)
 target_compile_options(optics_core PUBLIC
   $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffp-contract=off>)
@@ -43,7 +45,8 @@ if(OPTICS_BUILD_TESTS)
  native/tests/test_surface.cpp
  native/tests/test_element.cpp
     native/tests/test_stack.cpp
-    native/tests/test_measurement.cpp)
+    native/tests/test_measurement.cpp
+    native/tests/test_optimizer.cpp)
   target_link_libraries(optics_native_tests PRIVATE optics_core)
   add_test(NAME native_tests COMMAND optics_native_tests)
 endif()
@@ -79,7 +82,8 @@ pybind11_add_module(_native
   native/bindings/builders.cpp
   native/bindings/kernels.cpp
   native/bindings/tracing.cpp
-  native/bindings/measurement.cpp)
+  native/bindings/measurement.cpp
+  native/bindings/optimizer.cpp)
 target_link_libraries(_native PRIVATE optics_core)
 target_include_directories(_native SYSTEM PRIVATE "${NUMPY_INCLUDE_DIR}")
 # Pin the module output so multi-config generators (Visual Studio) do not

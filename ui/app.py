@@ -70,7 +70,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._update_plane_view,
             on_planes_changed=lambda: self._analysis_editor.populate(),
         )
-        self._analysis_editor = AnalysisEditor(self, self._state, self._set_status)
+        self._analysis_editor = AnalysisEditor(
+            self, self._state, self._scene, self._set_status, self._refresh_trace
+        )
         self._connect_actions()
         self._scene.refresh_source(self._state.source)
 

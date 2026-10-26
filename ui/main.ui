@@ -918,12 +918,91 @@
              </widget>
             </item>
            </layout>
-          </widget>
-         </item>
-        </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QWidget" name="widget_24" native="true">
+            <layout class="QVBoxLayout" name="verticalLayout_13">
+             <item>
+              <widget class="QLabel" name="label_36">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Layout Optimization</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="Line" name="line_7">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QFormLayout" name="formLayout_8">
+               <item row="0" column="0">
+                <widget class="QLabel" name="label_37">
+                 <property name="text">
+                  <string>Target Magnification</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QDoubleSpinBox" name="analysisTargetMagSpin">
+                 <property name="toolTip">
+                  <string>Magnification the source-&gt;image mapping is optimized toward</string>
+                 </property>
+                 <property name="decimals">
+                  <number>4</number>
+                 </property>
+                 <property name="minimum">
+                  <double>0.000100</double>
+                 </property>
+                 <property name="maximum">
+                  <double>1000.000000</double>
+                 </property>
+                 <property name="singleStep">
+                  <double>0.100000</double>
+                 </property>
+                 <property name="value">
+                  <double>1.000000</double>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QPushButton" name="analysisOptimizeButton">
+               <property name="text">
+                <string>Optimize Layout</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QProgressBar" name="analysisOptimizeProgress">
+               <property name="visible">
+                <bool>false</bool>
+               </property>
+               <property name="maximum">
+                <number>0</number>
+               </property>
+               <property name="textVisible">
+                <bool>false</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
        </widget>
-      </widget>
-     </item>
+      </item>
     </layout>
    </widget>
   </widget>

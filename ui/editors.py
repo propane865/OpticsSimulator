@@ -16,17 +16,19 @@ from __future__ import annotations
 
 import base64
 import copy
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from optics.config import refractive_element_from_config
 from optics.measurement_plane import MeasurementPlane
+from optics.optimizer import LensOptimization, OptimizationResult, optimize_layout
 from optics.plane_transform import plane_transform
-from optics.project import DEFAULT_MEASUREMENT_CONFIG
+from optics.project import DEFAULT_MEASUREMENT_CONFIG, plane_from_config
 from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource, resample_grid
 
 from . import imagecodec
@@ -586,6 +588,13 @@ class PlaneEditor(_SelectorEditor):
         return name
 
 
+class _OptimizeSignals(QtCore.QObject):
+    """Worker-thread -> UI-thread marshalling for the layout optimizer."""
+
+    finished = QtCore.Signal(object)
+    failed = QtCore.Signal(str)
+
+
 class AnalysisEditor:
     """Controller for the Analysis tab's plane-to-plane image transform.
 
@@ -596,6 +605,12 @@ class AnalysisEditor:
     correspondences used. The transform is computed on demand via the Analyze
     button rather than on every trace; results are recomputed (and cleared)
     whenever the plane list changes so stale numbers never linger.
+
+    "Optimize Layout" additionally sweeps every element's z and the image
+    plane's z (:func:`optics.optimizer.optimize_layout`) toward the target
+    magnification with minimal RMS. The search runs on a worker thread (the
+    native loop never touches Qt); the winning layout is committed through the
+    normal element/plane replace paths when it arrives on the UI thread.
     """
 
     PLACEHOLDER = "\u2014"
@@ -612,18 +627,33 @@ class AnalysisEditor:
         self,
         window: QtWidgets.QMainWindow,
         state: ProjectState,
+        scene: SceneController,
         set_status: Callable[[str], None],
+        refresh_trace: Callable[[], None],
     ) -> None:
         self._state = state
+        self._scene = scene
         self._set_status = set_status
+        self._refresh_trace = refresh_trace
         self._source_combo = find_child(window, QtWidgets.QComboBox, "analysisSourcePlaneCombo")
         self._image_combo = find_child(window, QtWidgets.QComboBox, "analysisImagePlaneCombo")
         self._run_button = find_child(window, QtWidgets.QPushButton, "analysisRunButton")
+        self._optimize_button = find_child(
+            window, QtWidgets.QPushButton, "analysisOptimizeButton"
+        )
+        self._target_spin = find_child(window, QtWidgets.QDoubleSpinBox, "analysisTargetMagSpin")
+        self._progress = find_child(window, QtWidgets.QProgressBar, "analysisOptimizeProgress")
         self._labels = {
             key: find_child(window, QtWidgets.QLabel, name) for key, name in self._LABEL_NAMES
         }
 
+        self._optimizing = False
+        self._signals = _OptimizeSignals()
+        self._signals.finished.connect(self._on_optimized)
+        self._signals.failed.connect(self._on_optimize_failed)
+
         self._run_button.clicked.connect(self.run)
+        self._optimize_button.clicked.connect(self._on_optimize)
         self._source_combo.currentIndexChanged.connect(self._update_run_enabled)
         self._image_combo.currentIndexChanged.connect(self._update_run_enabled)
         self.populate()
@@ -692,8 +722,91 @@ class AnalysisEditor:
         return source >= 0 and image >= 0 and source != image
 
     def _update_run_enabled(self, *_: object) -> None:
-        self._run_button.setEnabled(self._valid_selection())
+        # Analyze works on any (even empty) stack; optimizing needs elements.
+        selection = self._valid_selection()
+        self._run_button.setEnabled(selection and not self._optimizing)
+        self._optimize_button.setEnabled(
+            selection and self._state.schema is not None and not self._optimizing
+        )
 
     def _clear_results(self) -> None:
         for label in self._labels.values():
             label.setText(self.PLACEHOLDER)
+
+    # -- layout optimization ---------------------------------------------------
+    def _on_optimize(self) -> None:
+        """Sweep free z positions on a worker thread toward the target fit."""
+        if self._optimizing or not self._valid_selection():
+            return
+        schema = self._state.schema
+        if not schema:
+            self._set_status("Load an optical stack before optimizing")
+            return
+        planes = self._state.planes
+        source_plane = planes[self._source_combo.currentIndex()]
+        image_plane = planes[self._image_combo.currentIndex()]
+        # Snapshot everything the worker reads: UI edits are disabled while it
+        # runs, but this keeps the worker free of any shared mutable state.
+        schema_snapshot = copy.deepcopy(schema)
+        origins, dirs, powers = self._state.rays_arrays()
+        spec = LensOptimization(magnification_target=float(self._target_spin.value()))
+        self._set_optimizing(True)
+        self._set_status("Optimizing layout (this can take a minute)...")
+
+        def worker() -> None:
+            try:
+                result = optimize_layout(
+                    schema_snapshot,
+                    source_plane,
+                    image_plane,
+                    origins,
+                    dirs,
+                    powers,
+                    optimization=spec,
+                )
+            except Exception as exc:  # surfaced verbatim on the UI thread
+                self._signals.failed.emit(str(exc))
+            else:
+                self._signals.finished.emit(result)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_optimizing(self, running: bool) -> None:
+        self._optimizing = running
+        enable_widgets([self._source_combo, self._image_combo], not running)
+        self._target_spin.setEnabled(not running)
+        self._progress.setVisible(running)
+        if running:
+            self._run_button.setEnabled(False)
+            self._optimize_button.setEnabled(False)
+        else:
+            self._update_run_enabled()
+
+    def _on_optimized(self, result: OptimizationResult) -> None:
+        """Commit the winning layout through the normal replace paths."""
+        self._set_optimizing(False)
+        schema = self._state.schema
+        if schema is None:
+            return
+        names = list(schema.keys())
+        for name, config in result.elements_config.items():
+            if name not in names or config == schema[name]:
+                continue
+            index = names.index(name)
+            element = refractive_element_from_config(config)
+            self._state.replace_element(name, config, element)
+            self._scene.replace_element_nodes(index, element)
+        image = self._image_combo.currentIndex()
+        if image < len(self._state.planes):
+            self._state.replace_plane(image, plane_from_config(result.image_plane_config))
+        self._refresh_trace()
+        self.run()
+        fit = result.transform
+        self._set_status(
+            f"Optimized in {result.evaluations} evaluations: "
+            f"M={fit.scale:.4g}, RMS={fit.rms_error:.3g} mm"
+        )
+
+    def _on_optimize_failed(self, message: str) -> None:
+        self._set_optimizing(False)
+        self._set_status(f"Optimization failed: {message}")

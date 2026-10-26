@@ -129,6 +129,13 @@ class Surface {
     static std::shared_ptr<const Surface> create_with_model(std::shared_ptr<const SurfaceModel> model,
                                                             Options options);
 
+    // Transform-only variant: shares the compiled model, keeps the local seed
+    // grid arrays and re-derives the world seed points through the new
+    // transform. Equivalent to rebuilding with the same options and a
+    // different transform; the cheap path for layout sweeps.
+    static std::shared_ptr<const Surface> with_transform(const Surface& base,
+                                                         const Transform& transform);
+
     // The flattened kernel descriptor and the seed grid; local geometry,
     // membership (``desc_accepts``) and world/local mapping go through them.
     const SurfaceDesc& desc() const { return *desc_; }
@@ -156,6 +163,7 @@ class Surface {
 
   private:
     explicit Surface(std::shared_ptr<const SurfaceModel> model, Options&& options);
+    Surface(const Surface& base, const Transform& transform);
 
     std::shared_ptr<SurfaceDesc> desc_;
     std::shared_ptr<SeedGrid> grid_;

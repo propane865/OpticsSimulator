@@ -1453,3 +1453,105 @@ def test_analysis_clears_when_planes_drop_below_two(window):
     editor["remove"].click()
     assert not w["run"].isEnabled()
     assert w["magnification"].text() == AnalysisEditor.PLACEHOLDER
+
+
+# -- Analysis tab: layout optimization ---------------------------------------
+
+
+def _wait_until(predicate, qt_app, timeout=15.0):
+    import time
+
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        qt_app.processEvents()
+        if time.monotonic() > deadline:
+            pytest.fail("condition not met before timeout")
+        time.sleep(0.005)
+
+
+def _stub_optimize(lens_z, plane_z):
+    """Replacement for editors.optimize_layout with a fixed winning layout."""
+
+    def fake(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+        import copy
+
+        from optics.optimizer import OptimizationResult
+        from optics.plane_transform import PlaneTransform
+
+        config = copy.deepcopy(dict(elements_schema))
+        first = next(iter(config))
+        config[first]["position"] = [0.0, 0.0, lens_z]
+        plane_config = {
+            "origin": [0.0, 0.0, plane_z],
+            "normal": [0.0, 0.0, 1.0],
+            "u_range": [image_plane.u_min, image_plane.u_max],
+            "v_range": [image_plane.v_min, image_plane.v_max],
+            "resolution": [image_plane.ru, image_plane.rv],
+        }
+        transform = PlaneTransform(
+            scale=1.0,
+            rotation_deg=0.0,
+            translation=np.zeros(2),
+            rms_error=0.001,
+            n_used=len(powers),
+            n_total=len(powers),
+        )
+        return OptimizationResult(
+            best_z=(lens_z, plane_z),
+            elements_config=config,
+            image_plane_config=plane_config,
+            transform=transform,
+            cost=0.0,
+            evaluations=123,
+            history=np.array([1.0, 0.5]),
+            status="ok",
+        )
+
+    return fake
+
+
+def _add_element_and_two_planes(window):
+    _trigger_new_element(window)
+    _add_plane_at_z(window, 20.0)
+    _add_plane_at_z(window, 10.0)
+
+
+def test_analysis_optimize_button_state(window):
+    _add_element_and_two_planes(window)
+    button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
+    assert button.isEnabled()
+    _analysis(window)["image"].setCurrentText("plane1")
+    assert not button.isEnabled()
+
+
+def test_analysis_optimize_commits_layout(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    monkeypatch.setattr("ui.editors.optimize_layout", _stub_optimize(1.0, 5.0))
+    button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
+    button.click()
+    _wait_until(
+        lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(),
+        qt_app,
+    )
+    assert window._state.schema["lens1"]["position"] == [0.0, 0.0, 1.0]
+    assert window._state.planes[1].o[2] == 5.0
+    assert button.isEnabled()
+    # the labels were re-analyzed on the committed layout: straight rays from
+    # the default source (z=30) give (30-5)/(30-20) = 2.5 magnification
+    assert float(_analysis(window)["magnification"].text()) == pytest.approx(2.5, rel=1e-6)
+
+
+def test_analysis_optimize_reports_failure(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+
+    def boom(*args, **kwargs):
+        raise ValueError("kaboom")
+
+    monkeypatch.setattr("ui.editors.optimize_layout", boom)
+    button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
+    button.click()
+    _wait_until(
+        lambda: "Optimization failed: kaboom" in window.statusBar().currentMessage(),
+        qt_app,
+    )
+    assert button.isEnabled()

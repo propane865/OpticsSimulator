@@ -12,5 +12,6 @@ void register_builders(py::module_& m);
 void register_kernels(py::module_& m);
 void register_tracing(py::module_& m);
 void register_measurement(py::module_& m);
+void register_optimizer(py::module_& m);
 
 }  // namespace optics::bindings
