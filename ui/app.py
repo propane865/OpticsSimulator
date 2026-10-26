@@ -25,7 +25,7 @@ from optics.project import DEFAULT_MEASUREMENT_CONFIG, DEFAULT_SOURCE_CONFIG
 from optics.source import PointSource
 
 from . import imagecodec
-from .editors import ElementEditor, PlaneEditor, SourceEditor
+from .editors import AnalysisEditor, ElementEditor, PlaneEditor, SourceEditor
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
 from .plane_view import PlaneView
 from .scene import RAY_LENGTH, SceneController, make_display
@@ -63,8 +63,14 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self, self._state, self._scene, self._set_status, self._refresh_trace
         )
         self._plane_editor = PlaneEditor(
-            self, self._state, self._scene, self._set_status, self._update_plane_view
+            self,
+            self._state,
+            self._scene,
+            self._set_status,
+            self._update_plane_view,
+            on_planes_changed=lambda: self._analysis_editor.populate(),
         )
+        self._analysis_editor = AnalysisEditor(self, self._state, self._set_status)
         self._connect_actions()
         self._scene.refresh_source(self._state.source)
 

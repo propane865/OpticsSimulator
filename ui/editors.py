@@ -25,6 +25,7 @@ from PySide6 import QtWidgets
 
 from optics.config import refractive_element_from_config
 from optics.measurement_plane import MeasurementPlane
+from optics.plane_transform import plane_transform
 from optics.project import DEFAULT_MEASUREMENT_CONFIG
 from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource, resample_grid
 
@@ -34,6 +35,7 @@ from .scene import SceneController
 from .widgets import configure_spin, enable_widgets, find_child, run_validated
 
 __all__ = [
+    "AnalysisEditor",
     "ElementEditor",
     "PlaneEditor",
     "SourceEditor",
@@ -74,11 +76,13 @@ class _SelectorEditor:
         button_box_name: str,
         pos_prefix: str,
         normal_prefix: str,
+        on_planes_changed: Callable[[], None] | None = None,
     ) -> None:
         self._window = window
         self._state = state
         self._scene = scene
         self._set_status = set_status
+        self._on_planes_changed = on_planes_changed
         self._selector = find_child(window, QtWidgets.QComboBox, selector_name)
         self._remove_button = find_child(window, QtWidgets.QPushButton, remove_name)
         self._button_box = find_child(window, QtWidgets.QDialogButtonBox, button_box_name)
@@ -113,6 +117,8 @@ class _SelectorEditor:
             self.populate_fields()
         else:
             self._on_no_selection()
+        if self._on_planes_changed is not None:
+            self._on_planes_changed()
 
     def select(self, name: str) -> None:
         self._selector.setCurrentText(name)
@@ -475,10 +481,11 @@ class PlaneEditor(_SelectorEditor):
         scene: SceneController,
         set_status: Callable[[str], None],
         update_view: Callable[[], None],
+        on_planes_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
             window, state, scene, set_status, "planeSelectorCombo", "removePlaneButton", "planeButtonBox",
-            "planePos", "planeNormal",
+            "planePos", "planeNormal", on_planes_changed=on_planes_changed,
         )
         self._update_view = update_view
 
@@ -577,3 +584,120 @@ class PlaneEditor(_SelectorEditor):
         result = self._state.add_plane(name, built)
         self._scene.add_plane_nodes(built, result)
         return name
+
+
+class AnalysisEditor:
+    """Controller for the Analysis tab's plane-to-plane image transform.
+
+    Reads a source and an image measurement plane, runs
+    :func:`optics.plane_transform.plane_transform` over the current ray fan and
+    element stack, and shows the affine decomposition (magnification, rotation,
+    shear, translation) plus the homography distortion (RMS / max residual) and
+    the number of correspondences used. The transform is computed on demand via
+    the Analyze button rather than on every trace; results are recomputed (and
+    cleared) whenever the plane list changes so stale numbers never linger.
+    """
+
+    PLACEHOLDER = "\u2014"
+
+    _LABEL_NAMES: tuple[tuple[str, str], ...] = (
+        ("magnification", "analysisMagnificationLabel"),
+        ("rotation", "analysisRotationLabel"),
+        ("shear", "analysisShearLabel"),
+        ("translation", "analysisTranslationLabel"),
+        ("rms", "analysisRmsLabel"),
+        ("maximum", "analysisMaxLabel"),
+        ("rays", "analysisRaysLabel"),
+    )
+
+    def __init__(
+        self,
+        window: QtWidgets.QMainWindow,
+        state: ProjectState,
+        set_status: Callable[[str], None],
+    ) -> None:
+        self._state = state
+        self._set_status = set_status
+        self._source_combo = find_child(window, QtWidgets.QComboBox, "analysisSourcePlaneCombo")
+        self._image_combo = find_child(window, QtWidgets.QComboBox, "analysisImagePlaneCombo")
+        self._run_button = find_child(window, QtWidgets.QPushButton, "analysisRunButton")
+        self._labels = {
+            key: find_child(window, QtWidgets.QLabel, name) for key, name in self._LABEL_NAMES
+        }
+
+        self._run_button.clicked.connect(self.run)
+        self._source_combo.currentIndexChanged.connect(self._update_run_enabled)
+        self._image_combo.currentIndexChanged.connect(self._update_run_enabled)
+        self.populate()
+
+    def populate(self) -> None:
+        """Refill both plane combos from the current plane names.
+
+        Selections are preserved by name; the image plane defaults to a plane
+        different from the source so the default selection is analyzable. Fewer
+        than two planes disables the controls and clears any results.
+        """
+        names = list(self._state.plane_names)
+        source_sel = self._source_combo.currentText()
+        image_sel = self._image_combo.currentText()
+        for combo in (self._source_combo, self._image_combo):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(names)
+            combo.blockSignals(False)
+
+        enabled = len(names) >= 2
+        for combo in (self._source_combo, self._image_combo):
+            combo.setEnabled(enabled)
+        if enabled:
+            if source_sel not in names:
+                source_sel = names[0]
+            self._source_combo.setCurrentText(source_sel)
+            if image_sel not in names or image_sel == source_sel:
+                image_sel = next((name for name in names if name != source_sel), names[1])
+            self._image_combo.setCurrentText(image_sel)
+        self._clear_results()
+        self._update_run_enabled()
+
+    def run(self) -> None:
+        """Compute and display the source -> image plane transform."""
+        if not self._valid_selection():
+            self._clear_results()
+            return
+        planes = self._state.planes
+        source = self._source_combo.currentIndex()
+        image = self._image_combo.currentIndex()
+        try:
+            transform = plane_transform(
+                self._state.rays, [planes[source], planes[image]], self._state.system
+            )
+        except ValueError as exc:
+            self._clear_results()
+            self._set_status(f"Image analysis unavailable: {exc}")
+            return
+
+        tu, tv = transform.translation
+        self._labels["magnification"].setText(f"{transform.magnification:.4g}")
+        self._labels["rotation"].setText(f"{transform.rotation_deg:.3f}\u00b0")
+        self._labels["shear"].setText(f"{transform.shear:.4g}")
+        self._labels["translation"].setText(f"({tu:.3f}, {tv:.3f}) mm")
+        self._labels["rms"].setText(f"{transform.rms_residual:.3g} mm")
+        self._labels["maximum"].setText(f"{transform.max_residual:.3g} mm")
+        self._labels["rays"].setText(f"{transform.n_used} / {transform.n_total}")
+        self._set_status(
+            f"Analyzed {planes[source]} \u2192 {planes[image]} ({transform.n_used}/{transform.n_total} rays)"
+        )
+
+    def _valid_selection(self) -> bool:
+        if len(self._state.planes) < 2:
+            return False
+        source = self._source_combo.currentIndex()
+        image = self._image_combo.currentIndex()
+        return source >= 0 and image >= 0 and source != image
+
+    def _update_run_enabled(self, *_: object) -> None:
+        self._run_button.setEnabled(self._valid_selection())
+
+    def _clear_results(self) -> None:
+        for label in self._labels.values():
+            label.setText(self.PLACEHOLDER)

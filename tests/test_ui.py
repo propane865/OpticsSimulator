@@ -13,6 +13,7 @@ from PySide6 import QtGui, QtWidgets
 from optics.measurement_plane import MeasurementPlane
 from rendering import demo
 from ui.app import OpticsMainWindow, make_display
+from ui.editors import AnalysisEditor
 from ui.plane_view import PlaneView, _AspectLabel, _fit_rect
 
 OK = QtWidgets.QDialogButtonBox.StandardButton.Ok
@@ -1352,3 +1353,103 @@ def test_plane_view_aspect_square_under_compound_tilt(qt_app):
     )
     assert _plane_view_aspect(container, plane) == pytest.approx(1.0)
     container.close()
+
+
+# -- Analysis tab: plane-to-plane image transform ---------------------------
+
+
+def _analysis(window):
+    return {
+        "source": window.findChild(QtWidgets.QComboBox, "analysisSourcePlaneCombo"),
+        "image": window.findChild(QtWidgets.QComboBox, "analysisImagePlaneCombo"),
+        "run": window.findChild(QtWidgets.QPushButton, "analysisRunButton"),
+        "magnification": window.findChild(QtWidgets.QLabel, "analysisMagnificationLabel"),
+        "rays": window.findChild(QtWidgets.QLabel, "analysisRaysLabel"),
+    }
+
+
+def _add_plane_at_z(window, z):
+    _trigger_measurement_plane(window)
+    editor = _plane_editor(window)
+    editor["pos"][2].setValue(z)
+    _click_plane(window, OK)
+
+
+def _set_plane_z(window, name, z):
+    editor = _plane_editor(window)
+    editor["selector"].setCurrentText(name)
+    editor["pos"][2].setValue(z)
+    _click_plane(window, OK)
+
+
+def test_analysis_disabled_without_planes(window):
+    w = _analysis(window)
+    assert not w["source"].isEnabled()
+    assert not w["image"].isEnabled()
+    assert not w["run"].isEnabled()
+
+
+def test_analysis_single_plane_disables(window):
+    _trigger_measurement_plane(window)
+    w = _analysis(window)
+    assert not w["source"].isEnabled()
+    assert not w["run"].isEnabled()
+
+
+def test_analysis_combos_list_planes(window):
+    _add_plane_at_z(window, 20.0)
+    _add_plane_at_z(window, 10.0)
+    w = _analysis(window)
+    source = [w["source"].itemText(i) for i in range(w["source"].count())]
+    image = [w["image"].itemText(i) for i in range(w["image"].count())]
+    assert source == ["plane1", "plane2"]
+    assert image == ["plane1", "plane2"]
+    assert w["source"].currentText() == "plane1"
+    assert w["image"].currentText() == "plane2"
+    assert w["run"].isEnabled()
+
+
+def test_analysis_reports_magnification(window):
+    # Point source at z=30; straight rays give magnification = dist ratio 20/10.
+    _add_plane_at_z(window, 20.0)
+    _add_plane_at_z(window, 10.0)
+    w = _analysis(window)
+    w["run"].click()
+    assert float(w["magnification"].text()) == pytest.approx(2.0, rel=1e-6)
+    assert w["rays"].text() == "16 / 16"
+
+
+def test_analysis_updates_after_plane_move(window):
+    _add_plane_at_z(window, 20.0)
+    _add_plane_at_z(window, 10.0)
+    w = _analysis(window)
+    w["run"].click()
+    before = float(w["magnification"].text())
+
+    _set_plane_z(window, "plane2", 0.0)  # image now 30 from source -> magnification 3
+    w["run"].click()
+    assert float(w["magnification"].text()) == pytest.approx(3.0, rel=1e-6)
+    assert float(w["magnification"].text()) > before
+
+
+def test_analysis_blocks_identical_selection(window):
+    _add_plane_at_z(window, 20.0)
+    _add_plane_at_z(window, 10.0)
+    w = _analysis(window)
+    assert w["run"].isEnabled()
+    w["image"].setCurrentText("plane1")
+    assert not w["run"].isEnabled()
+
+
+def test_analysis_clears_when_planes_drop_below_two(window):
+    _add_plane_at_z(window, 20.0)
+    _add_plane_at_z(window, 10.0)
+    w = _analysis(window)
+    w["run"].click()
+    assert w["magnification"].text() != AnalysisEditor.PLACEHOLDER
+
+    editor = _plane_editor(window)
+    editor["selector"].setCurrentText("plane2")
+    editor["remove"].click()
+    assert not w["run"].isEnabled()
+    assert w["magnification"].text() == AnalysisEditor.PLACEHOLDER
