@@ -1,9 +1,11 @@
 // Least-squares 2D similarity fit with MAD sigma clipping (native mirror of
-// the Umeyama core in ``optics/plane_transform.py``).
+// the Umeyama core in ``optics/plane_transform.py``) and the pooled per-object
+// -point spot radius used as the focus measure.
 #include "optics/optimizing/fit.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace optics::native {
@@ -100,8 +102,11 @@ void similarity_residuals(const SimilarityCore& fit, const double* src, const do
 }
 
 ClippedSimilarity fit_clipped_similarity(const double* src, const double* dst, std::size_t n,
-                                         int iters, double sigma) {
+                                         int iters, double sigma, unsigned char* keep_out) {
     ClippedSimilarity out{false, 0.0, 0.0, 0};
+    if (keep_out != nullptr) {
+        std::fill_n(keep_out, n, static_cast<unsigned char>(1));
+    }
     if (n < 4) {
         return out;
     }
@@ -184,7 +189,83 @@ ClippedSimilarity fit_clipped_similarity(const double* src, const double* dst, s
     out.scale = core.scale;
     out.rms = std::sqrt(sum_keep / static_cast<double>(n_keep));
     out.n_used = n_keep;
+    if (keep_out != nullptr) {
+        std::copy(keep.begin(), keep.end(), keep_out);
+    }
     return out;
+}
+
+double spot_radius(const double* dst, const unsigned char* keep, const std::int32_t* groups,
+                   const double* power, std::size_t n, std::size_t n_groups,
+                   std::vector<double>& scratch) {
+    const std::size_t ng = groups == nullptr ? 1 : std::max<std::size_t>(n_groups, 1);
+    scratch.assign(3 * ng, 0.0);
+    double* wsum = scratch.data();
+    double* su = wsum + ng;
+    double* sv = su + ng;
+    double total = 0.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (keep != nullptr && keep[i] == 0) {
+            continue;
+        }
+        const double w = power != nullptr ? power[i] : 1.0;
+        if (!(w > 0.0) || !std::isfinite(w)) {
+            continue;
+        }
+        const double u = dst[2 * i + 0];
+        const double v = dst[2 * i + 1];
+        if (!std::isfinite(u) || !std::isfinite(v)) {
+            continue;
+        }
+        std::int32_t g = 0;
+        if (groups != nullptr) {
+            g = groups[i];
+            if (g < 0 || static_cast<std::size_t>(g) >= ng) {
+                continue;
+            }
+        }
+        const std::size_t slot = static_cast<std::size_t>(g);
+        wsum[slot] += w;
+        su[slot] += w * u;
+        sv[slot] += w * v;
+        total += w;
+    }
+    if (!(total > 0.0)) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    for (std::size_t slot = 0; slot < ng; ++slot) {
+        if (wsum[slot] > 0.0) {
+            su[slot] /= wsum[slot];
+            sv[slot] /= wsum[slot];
+        }
+    }
+    double sum = 0.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (keep != nullptr && keep[i] == 0) {
+            continue;
+        }
+        const double w = power != nullptr ? power[i] : 1.0;
+        if (!(w > 0.0) || !std::isfinite(w)) {
+            continue;
+        }
+        const double u = dst[2 * i + 0];
+        const double v = dst[2 * i + 1];
+        if (!std::isfinite(u) || !std::isfinite(v)) {
+            continue;
+        }
+        std::int32_t g = 0;
+        if (groups != nullptr) {
+            g = groups[i];
+            if (g < 0 || static_cast<std::size_t>(g) >= ng) {
+                continue;
+            }
+        }
+        const std::size_t slot = static_cast<std::size_t>(g);
+        const double du = u - su[slot];
+        const double dv = v - sv[slot];
+        sum += w * (du * du + dv * dv);
+    }
+    return std::sqrt(sum / total);
 }
 
 }  // namespace optics::native

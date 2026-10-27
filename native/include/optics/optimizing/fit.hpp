@@ -1,9 +1,12 @@
 // Least-squares 2D similarity fit (proper rotation + positive scale) with
 // MAD sigma clipping: the native mirror of ``optics.plane_transform``'s
-// Umeyama/Kabsch core, evaluated per layout candidate without Python.
+// Umeyama/Kabsch core, evaluated per layout candidate without Python, plus the
+// per-object-point spot radius used as the focus measure.
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <vector>
 
 namespace optics::native {
 
@@ -38,8 +41,23 @@ struct ClippedSimilarity {
 // Mirror of ``plane_transform``'s clipping loop: refit for ``iters`` rounds,
 // clip residuals above ``sigma`` median deviations (1.4826 MAD scaling), keep
 // at least four correspondences, and stop early once the residual is at
-// double-precision fit noise.
+// double-precision fit noise. When ``keep_out`` is non-null it receives the
+// final ``n``-byte keep mask (also written for an invalid fit, where every
+// point is kept).
 ClippedSimilarity fit_clipped_similarity(const double* src, const double* dst, std::size_t n,
-                                         int iters, double sigma);
+                                         int iters, double sigma, unsigned char* keep_out = nullptr);
+
+// Pooled within-group power-weighted RMS spot radius (an ISO-style RMS spot
+// size) of interleaved ``(2, n)`` destination hits: every object point's hits
+// are averaged about their own centroid, and the squared radii are pooled over
+// the total weight, so the value measures blur rather than the size or
+// magnification of the image as a whole. ``keep == nullptr`` keeps every point,
+// ``groups == nullptr`` treats all points as one object point, and
+// ``power == nullptr`` weights every hit equally. Non-positive or non-finite
+// weights are dropped. ``scratch`` is caller-owned work space, resized to
+// ``3 * n_groups``; returns NaN when no weighted point is kept.
+double spot_radius(const double* dst, const unsigned char* keep, const std::int32_t* groups,
+                   const double* power, std::size_t n, std::size_t n_groups,
+                   std::vector<double>& scratch);
 
 }  // namespace optics::native

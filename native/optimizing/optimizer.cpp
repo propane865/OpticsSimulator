@@ -1,9 +1,11 @@
 // Layout objective (transform-only variant stack + one trace + clipped
-// similarity fit) and the bounded DE / Nelder-Mead driver.
+// similarity fit + per-object-point spot radius) and the bounded DE /
+// Nelder-Mead driver.
 #include "optics/optimizing/optimizer.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <random>
 #include <utility>
@@ -28,6 +30,7 @@ class LayoutObjective {
         double cost = kBadCost;
         double scale = 0.0;
         double rms = 0.0;
+        double blur = 0.0;
         std::size_t n_used = 0;
     };
 
@@ -63,6 +66,9 @@ class LayoutObjective {
         pws_.resize(2 * n_rays_);
         src_.reserve(2 * n_rays_);
         dst_.reserve(2 * n_rays_);
+        dst_group_.reserve(n_rays_);
+        dst_power_.reserve(n_rays_);
+        keep_.assign(n_rays_, 1);
     }
 
     std::int64_t evals() const { return evals_; }
@@ -125,6 +131,8 @@ class LayoutObjective {
         const double* pb = pws_.data() + n;
         src_.clear();
         dst_.clear();
+        dst_group_.clear();
+        dst_power_.clear();
         for (std::size_t i = 0; i < n; ++i) {
             if (!(std::isfinite(ua[i]) && std::isfinite(va[i]) && ua[i] >= umin_[0] &&
                   ua[i] <= umax_[0] && va[i] >= vmin_[0] && va[i] <= vmax_[0] && pa[i] > 0.0 &&
@@ -136,30 +144,34 @@ class LayoutObjective {
             src_.push_back(va[i]);
             dst_.push_back(ub[i]);
             dst_.push_back(vb[i]);
+            dst_group_.push_back(spec_.groups != nullptr ? spec_.groups[i] : 0);
+            dst_power_.push_back(pb[i]);
         }
         const std::size_t shared = src_.size() / 2;
         if (shared < 4) {
             return stats;
         }
-        const ClippedSimilarity fit =
-            fit_clipped_similarity(src_.data(), dst_.data(), shared, spec_.clip_iters,
-                                   spec_.clip_sigma);
-        if (!fit.valid) {
-            return stats;
-        }
-        const double mdenom = std::max(std::abs(spec_.target), 1e-12);
-        const double dm = (fit.scale - spec_.target) / mdenom;
-        const double dr = fit.rms / std::max(spec_.rms_ref, 1e-12);
+        // The clipped fit supplies the outlier mask the spot radius pools over
+        // (stray blocked or vignetted hits would otherwise dominate a second
+        // moment) and the reported magnification; a degenerate fit leaves the
+        // mask all-kept, so the focus term stays defined.
+        const ClippedSimilarity fit = fit_clipped_similarity(src_.data(), dst_.data(), shared,
+                                                             spec_.clip_iters, spec_.clip_sigma,
+                                                             keep_.data());
+        const double blur = spot_radius(dst_.data(), keep_.data(),
+                                        spec_.groups != nullptr ? dst_group_.data() : nullptr,
+                                        dst_power_.data(), shared, spec_.n_groups, blur_scratch_);
+        const double db = blur / std::max(spec_.blur_ref, 1e-12);
         const double frac = n > 0 ? static_cast<double>(fit.n_used) / static_cast<double>(n) : 0.0;
         const double vig = std::max(0.0, spec_.min_fraction - frac);
-        double cost = spec_.w_mag * dm * dm + spec_.w_rms * dr * dr + spec_.w_vignette * vig * vig +
-                      geo;
+        double cost = spec_.w_focus * db * db + spec_.w_vignette * vig * vig + geo;
         if (!std::isfinite(cost)) {
             cost = kBadCost + geo;
         }
         stats.cost = cost;
-        stats.scale = fit.scale;
-        stats.rms = fit.rms;
+        stats.scale = fit.valid ? fit.scale : std::numeric_limits<double>::quiet_NaN();
+        stats.rms = fit.valid ? fit.rms : std::numeric_limits<double>::quiet_NaN();
+        stats.blur = blur;
         stats.n_used = fit.n_used;
         return stats;
     }
@@ -174,6 +186,10 @@ class LayoutObjective {
     std::size_t n_rays_;
     std::vector<double> us_, vs_, pws_;
     std::vector<double> src_, dst_;
+    std::vector<std::int32_t> dst_group_;
+    std::vector<double> dst_power_;
+    std::vector<unsigned char> keep_;
+    std::vector<double> blur_scratch_;
     std::int64_t evals_ = 0;
 };
 
@@ -426,6 +442,7 @@ OptimizerOutcome optimize_layout(const OptimizerSpec& spec) {
     out.cost = best_stats.cost;
     out.scale = best_stats.scale;
     out.rms = best_stats.rms;
+    out.blur = best_stats.blur;
     out.n_used = best_stats.n_used;
     out.evals = obj.evals();
     if (out.cost >= kBadCost) {

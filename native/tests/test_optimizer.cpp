@@ -1,7 +1,9 @@
 // Optimizing-kernel suite: the closed-form 2D similarity fit (exactness,
-// outlier clipping) and the transform-only surface/element variants (trace
-// equivalence against from-scratch rebuilds).
+// outlier clipping), the per-object-point spot radius used as the focus
+// measure, and the transform-only surface/element variants (trace equivalence
+// against from-scratch rebuilds).
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <vector>
 
@@ -22,6 +24,7 @@ using optics::native::ClippedSimilarity;
 using optics::native::fit_clipped_similarity;
 using optics::native::make_vec3;
 using optics::native::rotation_from_z;
+using optics::native::spot_radius;
 using optics::native::Surface;
 using optics::native::trace_element;
 using optics::native::element_first_hit;
@@ -68,11 +71,46 @@ void test_fit_clips_outliers() {
     src.push_back(-0.4);
     dst.push_back(50.0);
     dst.push_back(-70.0);
-    const ClippedSimilarity fit = fit_clipped_similarity(src.data(), dst.data(), 13, 3, 3.0);
+    std::vector<unsigned char> keep(13, 0);
+    const ClippedSimilarity fit =
+        fit_clipped_similarity(src.data(), dst.data(), 13, 3, 3.0, keep.data());
     CHECK(fit.valid);
     CHECK(close(fit.scale, s, 1e-6));
     CHECK(fit.rms < 1e-6);
     CHECK(fit.n_used == 12);
+    // The exposed mask is what the focus term pools over: exactly the outlier
+    // is dropped.
+    int kept = 0;
+    for (const unsigned char k : keep) {
+        kept += k;
+    }
+    CHECK(kept == 12);
+    CHECK(keep[12] == 0);
+}
+
+void test_spot_radius_pools_per_object_point() {
+    // Two object points, imaged 10 mm apart as tight spots of radius 0.1 and
+    // 0.2: the focus measure is the pooled within-spot radius, not the spread
+    // of the image as a whole.
+    const double dst[16] = {0.1, 0.0,  -0.1, 0.0,  0.0, 0.1,  0.0, -0.1,
+                            10.2, 0.0, 9.8,  0.0,  10.0, 0.2, 10.0, -0.2};
+    const std::int32_t groups[8] = {0, 0, 0, 0, 1, 1, 1, 1};
+    std::vector<double> scratch;
+    const double equal = spot_radius(dst, nullptr, groups, nullptr, 8, 2, scratch);
+    CHECK(close(equal, std::sqrt(0.2 / 8.0), 1e-12));
+    // Pooling every hit into one group instead measures the 5 mm pattern spread.
+    const double ungrouped = spot_radius(dst, nullptr, nullptr, nullptr, 8, 1, scratch);
+    CHECK(close(ungrouped, std::sqrt(200.2 / 8.0), 1e-12));
+    // Powers weight each hit's contribution.
+    const double power[8] = {1.0, 1.0, 1.0, 1.0, 3.0, 3.0, 3.0, 3.0};
+    const double weighted = spot_radius(dst, nullptr, groups, power, 8, 2, scratch);
+    CHECK(close(weighted, std::sqrt((0.04 + 3.0 * 0.16) / 16.0), 1e-12));
+    // A mask drops hits, and zero weight drops them too.
+    const unsigned char keep[8] = {1, 1, 1, 1, 0, 0, 0, 0};
+    const double masked = spot_radius(dst, keep, groups, nullptr, 8, 2, scratch);
+    CHECK(close(masked, 0.1, 1e-12));
+    const std::vector<double> dead(8, 0.0);
+    CHECK(std::isnan(spot_radius(dst, keep, groups, dead.data(), 8, 2, scratch)));
 }
 
 void test_variant_trace_equivalence() {
@@ -152,6 +190,7 @@ void test_surface_variant_with_rotation() {
 void test_optimizer() {
     test_fit_exact_similarity();
     test_fit_clips_outliers();
+    test_spot_radius_pools_per_object_point();
     test_variant_trace_equivalence();
     test_surface_variant_with_rotation();
 }

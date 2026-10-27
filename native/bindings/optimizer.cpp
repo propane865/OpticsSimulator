@@ -1,11 +1,12 @@
 // Layout-optimization entry point: validates the problem (stack, free
-// elements, parameter box, two planes, ray fan) and runs the native
-// DE + Nelder-Mead driver with the GIL released.
+// elements, parameter box, two planes, ray fan with object-point ids) and runs
+// the native DE + Nelder-Mead best-focus driver with the GIL released.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -32,8 +33,8 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
                             const py::array_t<double>& u_max, const py::array_t<double>& v_min,
                             const py::array_t<double>& v_max, const py::array_t<double>& s_u,
                             const py::array_t<double>& s_v, const py::array_t<double>& t_u,
-                            const py::array_t<double>& t_v, std::int64_t dest_plane, double eps,
-                            double target, double w_mag, double w_rms, double rms_ref,
+                            const py::array_t<double>& t_v, const py::array_t<std::int32_t>& groups,
+                            std::int64_t dest_plane, double eps, double w_focus, double blur_ref,
                             double min_fraction, double w_vignette, double w_order, double w_anchor,
                             std::int64_t clip_iters, double clip_sigma, std::int64_t seed,
                             std::int64_t population, std::int64_t generations,
@@ -71,6 +72,17 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
         read_planes(po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v);
     require(planes.p == 2, "optimize_layout needs exactly two measurement planes");
     require(dest_plane == 0 || dest_plane == 1, "dest_plane: expected 0 or 1");
+    const py::buffer_info group_info = groups.request();
+    require(group_info.ndim == 1 && static_cast<std::size_t>(group_info.size) == rays.count,
+            "groups: expected one object-point id per ray");
+    require(is_contiguous(group_info), "groups: array must be contiguous");
+    const auto* group_ids = static_cast<const std::int32_t*>(group_info.ptr);
+    std::size_t n_groups = 0;
+    for (std::size_t i = 0; i < rays.count; ++i) {
+        require(group_ids[i] >= 0, "groups: object-point ids must be non-negative");
+        n_groups = std::max(n_groups, static_cast<std::size_t>(group_ids[i]) + 1);
+    }
+    require(n_groups >= 1, "groups: expected at least one object point");
 
     OptimizerSpec spec;
     spec.stack = &stack;
@@ -85,10 +97,10 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
                    planes.v_max, planes.s_u,  planes.s_v,   planes.t_u,   planes.t_v,
                    planes.p};
     spec.plane_eps = eps;
-    spec.target = target;
-    spec.w_mag = w_mag;
-    spec.w_rms = w_rms;
-    spec.rms_ref = rms_ref;
+    spec.groups = group_ids;
+    spec.n_groups = n_groups;
+    spec.w_focus = w_focus;
+    spec.blur_ref = blur_ref;
     spec.min_fraction = min_fraction;
     spec.w_vignette = w_vignette;
     spec.w_order = w_order;
@@ -104,6 +116,10 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
     spec.xatol = xatol;
     spec.fatol = fatol;
     require(spec.max_evals >= 8, "max_evals: expected at least 8");
+    require(std::isfinite(spec.blur_ref) && spec.blur_ref > 0.0,
+            "blur_ref: expected a positive finite normalization length");
+    require(std::isfinite(spec.w_focus) && spec.w_focus >= 0.0,
+            "w_focus: expected a finite non-negative weight");
 
     const optics::native::OptimizerOutcome outcome = [&] {
         const py::gil_scoped_release release;
@@ -128,6 +144,7 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
     result["cost"] = outcome.cost;
     result["scale"] = outcome.scale;
     result["rms"] = outcome.rms;
+    result["blur"] = outcome.blur;
     result["n_used"] = outcome.n_used;
     result["n_total"] = outcome.n_total;
     result["evals"] = outcome.evals;
@@ -145,9 +162,9 @@ void register_optimizer(py::module_& m) {
           py::arg("x_init"), py::arg("lo"), py::arg("hi"), py::arg("gaps"), py::arg("origins"),
           py::arg("dirs"), py::arg("powers"), py::arg("po"), py::arg("pn"), py::arg("u_min"),
           py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("s_u"), py::arg("s_v"),
-          py::arg("t_u"), py::arg("t_v"), py::arg("dest_plane") = 1, py::arg("eps") = 1e-12,
-          py::arg("target") = 1.0, py::arg("w_mag") = 1.0, py::arg("w_rms") = 1.0,
-          py::arg("rms_ref") = 1.0, py::arg("min_fraction") = 0.5, py::arg("w_vignette") = 1.0,
+          py::arg("t_u"), py::arg("t_v"), py::arg("groups"), py::arg("dest_plane") = 1,
+          py::arg("eps") = 1e-12, py::arg("w_focus") = 1.0, py::arg("blur_ref") = 1.0,
+          py::arg("min_fraction") = 0.5, py::arg("w_vignette") = 1.0,
           py::arg("w_order") = 1e3, py::arg("w_anchor") = 0.0, py::arg("clip_iters") = 3,
           py::arg("clip_sigma") = 3.0, py::arg("seed") = 0, py::arg("population") = 0,
           py::arg("generations") = 300, py::arg("max_evals") = 6000,

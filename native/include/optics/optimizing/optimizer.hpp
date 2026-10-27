@@ -1,12 +1,15 @@
-// Derivative-free optical layout optimization: moves the z of a chosen set
-// of stack elements and the destination measurement plane to minimize a
-// weighted magnification-target deviation plus the clipped similarity RMS
-// between two detector planes (the native mirror of the
-// ``optics.plane_transform`` metric). The landscape is piecewise
-// discontinuous (sigma clipping, vignetting, total internal reflection), so
-// the solver is a bounded differential evolution followed by a
+// Derivative-free optical layout optimization for best focus: moves the z of a
+// chosen set of stack elements and the destination measurement plane to
+// minimize the pooled per-object-point RMS spot radius (see
+// ``optics/optimizing/fit.hpp``) on the destination plane, with smooth
+// penalties for lost correspondences and stacking violations. The fitted
+// magnification is reported at the winning layout but is not part of the cost,
+// so the layout settles wherever it images a point most sharply. The landscape
+// is piecewise discontinuous (sigma clipping, vignetting, total internal
+// reflection), so the solver is a bounded differential evolution followed by a
 // box-constrained Nelder-Mead polish; every evaluation is a transform-only
-// stack variant plus one shared-walk trace and one 2D fit.
+// stack variant plus one shared-walk trace, one 2D fit and one spot-radius
+// pass.
 #pragma once
 
 #include <cstddef>
@@ -35,11 +38,14 @@ struct OptimizerSpec {
     RayBatchView rays{nullptr, nullptr, nullptr, 0};
     PlaneBatchView planes{};  // exactly two planes
     double plane_eps = PLANE_EPS;
+    // Per-ray object-point id (``rays.count`` entries in [0, n_groups)) used to
+    // pool the spot radius per object point; ``nullptr`` treats the whole fan
+    // as one object point (a single-point source).
+    const std::int32_t* groups = nullptr;
+    std::size_t n_groups = 0;
     // Objective weights.
-    double target = 1.0;      // target magnification
-    double w_mag = 1.0;       // weight of ((scale - target) / |target|)^2
-    double w_rms = 1.0;       // weight of (rms / rms_ref)^2
-    double rms_ref = 1.0;     // normalization length (source-plane footprint)
+    double w_focus = 1.0;     // weight of (spot radius / blur_ref)^2
+    double blur_ref = 1.0;    // normalization length (source-plane footprint)
     double min_fraction = 0.5;  // minimum kept-correspondence fraction
     double w_vignette = 1.0;  // weight of the lost-correspondence penalty
     double w_order = 1e3;     // weight of the stacking-gap penalty
@@ -62,6 +68,7 @@ struct OptimizerOutcome {
     double cost = 0.0;
     double scale = 0.0;        // fitted magnification at the best point
     double rms = 0.0;          // clipped similarity RMS at the best point
+    double blur = 0.0;         // spot radius (destination-plane units) at the best point
     std::size_t n_used = 0;
     std::size_t n_total = 0;
     std::int64_t evals = 0;

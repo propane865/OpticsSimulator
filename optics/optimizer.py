@@ -1,14 +1,25 @@
-"""Layout optimization: move lens z-positions and the image plane z to fit a
-target magnification with minimal RMS.
+"""Layout optimization for best focus: move lens z-positions and the image
+plane z until a point is imaged as sharply as possible, then report the
+magnification that layout produces.
 
-The objective is the native mirror of :func:`optics.plane_transform.plane_transform`:
-the weighted deviation of the fitted magnification from the user's target
-plus the clipped similarity RMS (normalized by a characteristic source-plane
-size), with smooth penalties for lost correspondences and for stacking
-violations. Because the metric is piecewise-discontinuous (sigma clipping,
-vignetting, total internal reflection), the solver is a bounded differential
-evolution plus a Nelder-Mead polish, executed natively with transform-only
-stack variants (no expression recompiles per evaluation).
+The focus measure is the pooled per-object-point RMS spot radius on the image
+plane: hits are grouped by the ray's object point (one group for a
+single-point source, one per pixel of a point array), each group's spread is
+taken about its own centroid, and the squared radii are pooled and normalized
+by a characteristic source-plane size. Because each object point is measured
+about its own image, the metric sees blur rather than the size or
+magnification of the image as a whole -- magnification is *not* part of the
+cost, so the layout is free to settle wherever it focuses best and the fitted
+:class:`~optics.plane_transform.PlaneTransform` magnification of the winning
+layout is reported afterwards. (For a single-point source that fitted
+magnification compares two ray footprints rather than an object and its image,
+so it tends to zero as the spot tightens; a point-array source gives a genuine
+image magnification.) Smooth penalties keep enough correspondences alive to
+judge focus and keep the stack in order. Because the metric is
+piecewise-discontinuous (sigma clipping, vignetting, total internal
+reflection), the solver is a bounded differential evolution plus a
+Nelder-Mead polish, executed natively with transform-only stack variants (no
+expression recompiles per evaluation).
 
 The result carries applied-ready configs: a deep-copied elements mapping with
 updated ``position`` z's and an updated image-plane config, so callers can
@@ -47,13 +58,12 @@ _IMAGE_WINDOW = 15.0
 class LensOptimization:
     """Objective weights and solver knobs for :func:`optimize_layout`."""
 
-    magnification_target: float = 1.0
-    weight_magnification: float = 1.0
-    weight_rms: float = 1.0
+    weight_focus: float = 1.0
     weight_vignette: float = 1.0
     # Tiny pull toward the starting layout: jointly translating the whole
-    # assembly (lenses + plane) leaves the metric invariant, so without an
-    # anchor the solver wanders along that flat direction.
+    # assembly (lenses + plane) leaves the focus metric invariant -- and moving
+    # a lens is nearly free of focus cost once the image plane follows it -- so
+    # without an anchor the solver wanders along those flat directions.
     anchor_weight: float = 1e-6
     min_correspondence_fraction: float = 0.5
     min_gap: float = _DEFAULT_MIN_GAP
@@ -72,15 +82,19 @@ class OptimizationResult:
     z's in stack order, then the image-plane z). ``elements_config`` and
     ``image_plane_config`` are the layouts to apply: the elements mapping is a
     deep copy of the input schema with updated ``position`` z's; the plane
-    config keeps every field except the origin z. ``transform`` is the
-    recomputed :class:`~optics.plane_transform.PlaneTransform` of the winning
-    layout (the reportable magnification/RMS, free of solver penalties).
+    config keeps every field except the origin z. ``spot_radius_mm`` is the
+    minimized focus metric (pooled per-object-point RMS spot radius) on the
+    image plane at that layout. ``transform`` is the recomputed
+    :class:`~optics.plane_transform.PlaneTransform` of the winning layout: its
+    ``scale`` is the magnification best focus delivers, and its ``rms_error``
+    the residual of the similarity fit, both free of solver penalties.
     """
 
     best_z: tuple[float, ...]
     elements_config: dict[str, Any]
     image_plane_config: dict[str, Any]
     transform: PlaneTransform
+    spot_radius_mm: float
     cost: float
     evaluations: int
     history: np.ndarray
@@ -107,18 +121,20 @@ def optimize_layout(
     image_bounds: tuple[float, float] | None = None,
     optimization: LensOptimization | None = None,
 ) -> OptimizationResult:
-    """Optimize free element z's (and the image-plane z) between two planes.
+    """Optimize free element z's (and the image-plane z) for best focus.
 
     Traces the given ray fan (contiguous ``(N, 3)`` origins/dirs, ``(N,)``
     powers) from ``source_plane`` to ``image_plane`` and searches the free z
-    positions minimizing the magnification-target deviation plus the clipped
-    similarity RMS (see :class:`LensOptimization` for weights). Free elements
-    default to every stack element; explicit ``element_bounds`` /
-    ``image_bounds`` override the default windows. A degenerate
-    ``image_bounds=(z, z)`` window pins the image plane (locks its z) so only
-    the elements are searched. Raises :class:`ValueError`
-    for an invalid problem (no elements, identical planes, fewer than four
-    base correspondences, or a degenerate parameter window).
+    positions minimizing the pooled per-object-point RMS spot radius on the
+    image plane (see :class:`LensOptimization` for weights). Magnification is
+    not part of the cost: it is whatever the focused layout produces, reported
+    as :attr:`OptimizationResult.transform`'s ``scale``. Free elements default
+    to every stack element; explicit ``element_bounds`` / ``image_bounds``
+    override the default windows. A degenerate ``image_bounds=(z, z)`` window
+    pins the image plane (locks its z) so only the elements are searched.
+    Raises :class:`ValueError` for an invalid problem (no elements, identical
+    planes, fewer than four base correspondences, or a degenerate parameter
+    window).
     """
     layout = optimization if optimization is not None else LensOptimization()
     if source_plane is image_plane:
@@ -200,7 +216,7 @@ def optimize_layout(
     t_u = np.ascontiguousarray([source_plane.frame_coeffs[2], image_plane.frame_coeffs[2]])
     t_v = np.ascontiguousarray([source_plane.frame_coeffs[3], image_plane.frame_coeffs[3]])
 
-    # Base-layout check + the RMS normalization length: the source-plane hit
+    # Base-layout check + the focus normalization length: the source-plane hit
     # footprint radius. Also confirms the ray fan produces correspondences.
     us, vs, pws = system.measure_planes(origins, dirs, powers, [source_plane, image_plane])
     valid_a = (
@@ -211,8 +227,14 @@ def optimize_layout(
     )
     if int(np.count_nonzero(valid_a)) < 4:
         raise ValueError("source plane sees fewer than 4 valid hits")
-    rms_ref = float(np.sqrt(np.mean(us[0][valid_a] ** 2 + vs[0][valid_a] ** 2)))
-    rms_ref = max(rms_ref, 1e-6)
+    blur_ref = float(np.sqrt(np.mean(us[0][valid_a] ** 2 + vs[0][valid_a] ** 2)))
+    blur_ref = max(blur_ref, 1e-6)
+
+    # Object-point identity for the spot radius: rays sharing an origin image
+    # the same object point, so each point's blur is measured about its own
+    # image instead of being confused with the spread of the whole image.
+    _, group_index = np.unique(np.round(origins, decimals=9), axis=0, return_inverse=True)
+    groups = np.ascontiguousarray(group_index, dtype=np.int32)
 
     # The optimizer walks the persistent native stack directly; the variant
     # elements it sweeps share this system's compiled surfaces.
@@ -236,12 +258,11 @@ def optimize_layout(
         s_v,
         t_u,
         t_v,
+        groups,
         dest_plane=1,
         eps=_c.PLANE_EPS,
-        target=float(layout.magnification_target),
-        w_mag=float(layout.weight_magnification),
-        w_rms=float(layout.weight_rms),
-        rms_ref=rms_ref,
+        w_focus=float(layout.weight_focus),
+        blur_ref=blur_ref,
         min_fraction=float(layout.min_correspondence_fraction),
         w_vignette=float(layout.weight_vignette),
         w_anchor=float(layout.anchor_weight),
@@ -282,7 +303,8 @@ def optimize_layout(
     try:
         transform = plane_transform(rays, [source_plane, new_plane], new_system)
     except ValueError:
-        # An infeasible winner (too few kept correspondences) still reports
+        # An infeasible or degenerate winner (too few kept correspondences, or a
+        # footprint collapsed enough that no similarity fits it) still reports
         # the native fit's numbers; ``status`` carries the verdict.
         transform = PlaneTransform(
             scale=float(outcome["scale"]),
@@ -298,6 +320,7 @@ def optimize_layout(
         elements_config=updated,
         image_plane_config=plane_config,
         transform=transform,
+        spot_radius_mm=float(outcome["blur"]),
         cost=float(outcome["cost"]),
         evaluations=int(outcome["evals"]),
         history=np.asarray(outcome["history"], dtype=float),

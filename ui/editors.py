@@ -607,12 +607,13 @@ class AnalysisEditor:
     whenever the plane list changes so stale numbers never linger.
 
     "Optimize Layout" additionally sweeps every element's z and the image
-    plane's z (:func:`optics.optimizer.optimize_layout`) toward the target
-    magnification with minimal RMS; checking "Lock Image Plane" pins the image
-    plane's z so only the elements are searched. The search runs on a worker
-    thread (the native loop never touches Qt); the winning layout is committed
-    through the normal element/plane replace paths when it arrives on the UI
-    thread.
+    plane's z (:func:`optics.optimizer.optimize_layout`) for best focus, i.e.
+    the smallest per-object-point RMS spot radius on the image plane, and
+    reports the magnification that focused layout delivers; checking "Lock Image
+    Plane" pins the image plane's z so only the elements are searched. The
+    search runs on a worker thread (the native loop never touches Qt); the
+    winning layout is committed through the normal element/plane replace paths
+    when it arrives on the UI thread.
     """
 
     PLACEHOLDER = "\u2014"
@@ -643,7 +644,6 @@ class AnalysisEditor:
         self._optimize_button = find_child(
             window, QtWidgets.QPushButton, "analysisOptimizeButton"
         )
-        self._target_spin = find_child(window, QtWidgets.QDoubleSpinBox, "analysisTargetMagSpin")
         self._lock_image_check = find_child(window, QtWidgets.QCheckBox, "analysisLockImageCheck")
         self._progress = find_child(window, QtWidgets.QProgressBar, "analysisOptimizeProgress")
         self._labels = {
@@ -738,7 +738,7 @@ class AnalysisEditor:
 
     # -- layout optimization ---------------------------------------------------
     def _on_optimize(self) -> None:
-        """Sweep free z positions on a worker thread toward the target fit."""
+        """Sweep free z positions on a worker thread toward best focus."""
         if self._optimizing or not self._valid_selection():
             return
         schema = self._state.schema
@@ -752,7 +752,7 @@ class AnalysisEditor:
         # runs, but this keeps the worker free of any shared mutable state.
         schema_snapshot = copy.deepcopy(schema)
         origins, dirs, powers = self._state.rays_arrays()
-        spec = LensOptimization(magnification_target=float(self._target_spin.value()))
+        spec = LensOptimization()
         image_bounds: tuple[float, float] | None = None
         if self._lock_image_check.isChecked():
             z_image = float(image_plane.o[2])
@@ -782,7 +782,6 @@ class AnalysisEditor:
     def _set_optimizing(self, running: bool) -> None:
         self._optimizing = running
         enable_widgets([self._source_combo, self._image_combo], not running)
-        self._target_spin.setEnabled(not running)
         self._lock_image_check.setEnabled(not running)
         self._progress.setVisible(running)
         if running:
@@ -812,8 +811,8 @@ class AnalysisEditor:
         self.run()
         fit = result.transform
         self._set_status(
-            f"Optimized in {result.evaluations} evaluations: "
-            f"M={fit.scale:.4g}, RMS={fit.rms_error:.3g} mm"
+            f"Optimized in {result.evaluations} evaluations: best focus "
+            f"spot={result.spot_radius_mm:.3g} mm, M={fit.scale:.4g}"
         )
 
     def _on_optimize_failed(self, message: str) -> None:

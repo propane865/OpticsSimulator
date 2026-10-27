@@ -1501,6 +1501,7 @@ def _stub_optimize(lens_z, plane_z):
             elements_config=config,
             image_plane_config=plane_config,
             transform=transform,
+            spot_radius_mm=0.002,
             cost=0.0,
             evaluations=123,
             history=np.array([1.0, 0.5]),
