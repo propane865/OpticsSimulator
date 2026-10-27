@@ -260,12 +260,13 @@ python benchmarks/benchmark_trace.py         # 1 element x 10k rays: native per-
 python benchmarks/benchmark_stack.py         # 2 elem x 10k and 4 elem x 100k: batch tracing (native threads), cold vs warm
 python benchmarks/benchmark_codegen.py       # stage-level profile of surface compilation (C++ parse + first eval passes)
 python benchmarks/profile_lens_edit.py       # lens create/modify hot path: per-phase breakdown, scaling matrix, cProfile
+python benchmarks/profile_optimizer.py       # layout optimization: solve stages, DE/polish split, scaling matrix, cProfile
 ```
 
 The three tracing benchmarks (`intersection`, `trace`, `stack`) print a
 per-scenario table with rays/sec and ns/ray; `profile_lens_edit.py` reports
 per-phase times plus a unified-apply scaling matrix over element/plane/ray
-counts. All four share `--rays/--repeats/--warmup/--budget` (the repeat
+counts. All of them share `--rays/--repeats/--warmup/--budget` (the repeat
 budget caps cumulative timed seconds per scenario), `--json out.json` for
 machine-readable output, and `--cold` to additionally re-run itself in a
 fresh subprocess interpreter; the native kernels carry no JIT cache, so cold
@@ -273,6 +274,17 @@ runs are dominated by interpreter start-up and first-call setup.
 `benchmark_stack.py` adds `--two-rays`/`--four-rays` (both stack sizes share
 one native code path, so there is nothing to re-compile between sizes); and
 `profile_lens_edit.py` adds `--elements/--planes/--mesh-n/--no-cprofile`.
+`profile_optimizer.py` drives the bundled doublet best-focus problem and splits
+one `optimize_layout` call into setup / native solver / teardown. The solver
+releases the GIL and is opaque to `cProfile`, so its DE-sweep and
+Nelder-Mead-polish costs come from re-running with `generations=0` /
+`nm_iterations=0` and differencing, with `--decomp-generations`,
+`--decomp-nm` and `--decomp-evals` keeping that uncapped run cheap. It also
+reports cost per objective evaluation, whether the `max_evals` cap starves the
+polish, and a scaling matrix over ray count, free-parameter count and solver
+budget; extra flags are `--generations`, `--nm`, `--evals`, `--population`,
+`--seed`, `--point-array`, `--ui-default` and `--no-cprofile`. A full run takes
+a couple of minutes -- shrink it with `--rays` and `--budget`.
 `benchmark_codegen.py` times compilation stages in isolated child processes
 and takes `--surfaces` (a scenario list), `--json` and `--quiet`. Setup costs
 (expression compilation, seed grids, context build) are timed separately from
