@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <vector>
+#include <array>
 
 #include "optics/common/vector.hpp"
 #include "optics/tracing/context.hpp"
@@ -38,7 +39,7 @@ struct ElementTrace {
     int n_pts = 0;
     bool has_incident = false;
     Vec3 incident_pt{};
-    std::vector<Vec3> pts;  // internal polyline
+    std::array<Vec3, MAX_INTERNAL_BOUNCES + 2> pts{};  // internal polyline
 };
 
 // Trace one closed element: entry, internal bounces, exit ray.
@@ -73,7 +74,8 @@ struct RayHop {
     bool has_element = false;
     bool has_incident = false;
     bool exited = false;
-    std::vector<Vec3> pts;  // internal polyline of the entered element
+    int n_pts = 0;
+    std::array<Vec3, MAX_INTERNAL_BOUNCES + 2> pts{};  // internal polyline of the entered element
 };
 
 using RayHops = std::vector<RayHop>;

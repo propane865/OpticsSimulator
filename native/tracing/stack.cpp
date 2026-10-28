@@ -70,7 +70,8 @@ RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d) {
         if (tr.has_incident) {
             h.incident_pt = tr.incident_pt;
         }
-        h.pts = tr.pts;
+        h.n_pts = tr.n_pts;
+        std::copy_n(tr.pts.begin(), tr.n_pts, h.pts.begin());
         hops.push_back(std::move(h));
         if (!tr.exited) {
             return hops;  // absorbed inside the element: no trailing gap
@@ -97,8 +98,7 @@ int format_segments(const RayHops& hops, double ray_length, double* starts, doub
                 kinds[count] = kind;
                 ++count;
             }
-            const std::size_t m = h.pts.size();
-            for (std::size_t k = 0; k + 1 < m; ++k) {
+            for (std::size_t k = 0; k + 1 < h.n_pts; ++k) {
                 if (count >= cap) {
                     break;
                 }

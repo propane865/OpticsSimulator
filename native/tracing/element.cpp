@@ -405,7 +405,6 @@ ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
                            const ElementHit& entry) {
     const bool inside = element_contains_point(elem, o);
     ElementTrace out;
-    out.pts.assign(static_cast<std::size_t>(kMaxPathPts), Vec3{});
     if (!entry.found) {
         if (inside) {
             out.pts[0] = o;
@@ -423,7 +422,6 @@ ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
         out.n_pts = 0;
         out.has_incident = false;
         out.incident_pt = o;
-        out.pts.clear();
         return out;
     }
     const double n = elem.index;
@@ -451,7 +449,6 @@ ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
             out.exit_o = cur_o;
             out.exit_d = cur_d;
             out.exited = false;
-            out.pts.resize(static_cast<std::size_t>(out.n_pts));
             return out;
         }
         out.pts[static_cast<std::size_t>(out.n_pts)] = face.p;
@@ -461,7 +458,6 @@ ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
             out.exit_o = face.p;
             out.exit_d = refr.first;
             out.exited = true;
-            out.pts.resize(static_cast<std::size_t>(out.n_pts));
             return out;
         }
         cur_o = face.p + RAY_EPSILON * refr.first;
@@ -470,7 +466,6 @@ ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
     out.exit_o = cur_o;
     out.exit_d = cur_d;
     out.exited = false;
-    out.pts.resize(static_cast<std::size_t>(out.n_pts));
     return out;
 }
 
