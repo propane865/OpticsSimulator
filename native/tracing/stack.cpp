@@ -46,6 +46,7 @@ RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d) {
     Vec3 cur_o = o;
     Vec3 cur_d = d;
     RayHops hops;
+    hops.reserve(stack.size() + 1);
     for (;;) {
         const std::pair<int, ElementHit> best =
             nearest_unvisited(stack, visited, cur_o, cur_d, kInf);
