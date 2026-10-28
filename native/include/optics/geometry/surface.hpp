@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -16,6 +17,7 @@
 #include "optics/expression/expression.hpp"
 #include "optics/geometry/aperture.hpp"
 #include "optics/geometry/transform.hpp"
+#include "optics/intersection/analytic.hpp"
 #include "optics/intersection/grid.hpp"
 
 namespace optics::native {
@@ -41,6 +43,12 @@ class SurfaceModel {
     // (``derivatives_rt``).
     std::pair<Vec3, Vec3> derivatives(double u, double v) const;
 
+    // Parsed expression trees, read once at surface construction to classify
+    // the surface for the specialized kernels.
+    const Expr* x_expr() const { return fx_.get(); }
+    const Expr* y_expr() const { return fy_.get(); }
+    const Expr* z_expr() const { return fz_.get(); }
+
   private:
     Vec3 partial_rt(double u, double v, double h, double lo, double hi, bool along_u) const;
 
@@ -51,13 +59,17 @@ class SurfaceModel {
 
 // One surface flattened for the Newton/intersection kernels: the compiled
 // model, its parameter domain (with tolerance), the aperture variant and the
-// world transform.
+// world transform. Specialized surfaces additionally carry the closed-form
+// sag representation the analytic kernels solve; ``kind`` is decided once at
+// construction and never re-examined in the hot loop.
 struct SurfaceDesc {
     std::shared_ptr<const SurfaceModel> model;
     double u_min = 0.0, u_max = 0.0, v_min = 0.0, v_max = 0.0;
     double tu = 0.0, tv = 0.0;
     Aperture aperture = NoAperture{};
     Transform transform;
+    IntersectionKind kind = IntersectionKind::Generic;
+    AnalyticSurface analytic;
 };
 
 // Local-space point on the descriptor's surface.
@@ -98,16 +110,19 @@ bool desc_accepts(const SurfaceDesc& d, double u, double v);
 // Analytic tangents with the interior pull-back / FD fallback.
 std::pair<Vec3, Vec3> desc_derivatives(const SurfaceDesc& d, double u, double v);
 
-// World-space unit normal at ``(u, v)`` (``-cross(r_u, r_v)`` rotated by the
-// descriptor); ``nullopt`` outside the domain/aperture or when the tangent
-// cross product is degenerate.
+// World-space unit normal at ``(u, v)``: the analytic sag derivative for a
+// specialized surface, otherwise ``-cross(r_u, r_v)`` from the descriptor's
+// tangents, rotated by the descriptor. ``nullopt`` outside the domain/aperture
+// or when the tangent cross product is degenerate.
 std::optional<Vec3> surface_normal(const SurfaceDesc& desc, double u, double v);
 
 // A persistent, immutable surface: the compiled model, parameter domain,
-// circular aperture, world transform and a seed grid sampled once at
-// construction. This is the single numerical-state object for one optical
-// surface; the Python layer configures it (via ``Surface.Options``) and calls
-// its operations directly, with no per-trace descriptor/grid rebuilding.
+// circular aperture and world transform, plus either the closed-form sag
+// representation of a specialized surface or the seed grid of a generic one
+// (specialized surfaces sample that grid only if the fallback solver needs it).
+// This is the single numerical-state object for one optical surface; the Python
+// layer configures it (via ``Surface.Options``) and calls its operations
+// directly, with no per-trace descriptor/grid rebuilding.
 class Surface {
   public:
     struct Options {
@@ -139,7 +154,16 @@ class Surface {
     // The flattened kernel descriptor and the seed grid; local geometry,
     // membership (``desc_accepts``) and world/local mapping go through them.
     const SurfaceDesc& desc() const { return *desc_; }
-    const SeedGrid& grid() const { return *grid_; }
+
+    // The seed grid. Generic surfaces build it eagerly at construction;
+    // specialized surfaces only need it as the fallback solver's state, so it
+    // is sampled once on first use (thread-safe, including the transform-only
+    // copies taken by layout sweeps).
+    const SeedGrid& grid() const;
+
+    // Closed-form classification of this surface (``Generic`` keeps the tiled
+    // seed-grid Newton solver for every operation).
+    IntersectionKind kind() const { return desc_->kind; }
 
     // Descriptor-level tangents (interior pull-back policy) / world-space unit
     // normal (``nullopt`` outside the surface).
@@ -166,8 +190,19 @@ class Surface {
     Surface(const Surface& base, const Transform& transform);
 
     std::shared_ptr<SurfaceDesc> desc_;
-    std::shared_ptr<SeedGrid> grid_;
+    int grid_n_ = SEED_GRID_N;
+    // Lazily sampled seed grid (atomic load/store so the transform-only copies
+    // can inspect it while a tracing thread builds the base surface's grid).
+    mutable std::once_flag grid_once_;
+    mutable std::shared_ptr<const SeedGrid> grid_;
     bool graph_xy_ = false;
 };
+
+// Nearest forward hit through the specialized solver when the descriptor is
+// classified, falling back to the tiled seed-grid Newton solver only when the
+// specialized kernel reports a numerical failure. ``min_t`` is the strict
+// lower bound on the accepted ray parameter.
+std::optional<HitUV> surface_intersect_dispatch(const Surface& surface, const Vec3& o,
+                                                const Vec3& d, double min_t);
 
 }  // namespace optics::native

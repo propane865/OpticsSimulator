@@ -23,14 +23,33 @@ namespace {
 constexpr int kMaxPathPts = MAX_INTERNAL_BOUNCES + 2;
 
 // Conservative world bounds: every traceable point (aperture-filtered
-// seed-grid samples plus wall vertices) lies inside, widened by a margin
-// covering inter-sample excursions of the true surface.
+// seed-grid samples or the closed-form sag bounds, plus wall vertices) lies
+// inside, widened by a margin covering inter-sample excursions of a sampled
+// surface.
 void build_world_box(Element& elem, const std::vector<double>& tri) {
     double bmin[3] = {kInf, kInf, kInf};
     double bmax[3] = {-kInf, -kInf, -kInf};
     bool any = false;
     std::size_t grid_n = 1;
     for (const std::shared_ptr<const Surface>& s : {elem.surface1, elem.surface2}) {
+        const SurfaceDesc& desc = s->desc();
+        if (desc.kind != IntersectionKind::Generic && analytic_surfaces_enabled()) {
+            // Specialized surface: the closed-form bounds contain the whole
+            // membership region, so no sampling margin is needed.
+            Vec3 lo, hi;
+            analytic_bounds_local(desc, lo, hi);
+            for (int corner = 0; corner < 8; ++corner) {
+                const Vec3 local = make_vec3((corner & 1) ? hi[0] : lo[0],
+                                             (corner & 2) ? hi[1] : lo[1], (corner & 4) ? hi[2] : lo[2]);
+                const Vec3 p = desc.transform.to_world(local);
+                any = true;
+                for (int j = 0; j < 3; ++j) {
+                    bmin[j] = std::min(bmin[j], p[j]);
+                    bmax[j] = std::max(bmax[j], p[j]);
+                }
+            }
+            continue;
+        }
         const SeedGrid& g = s->grid();
         grid_n = std::max<std::size_t>(
             grid_n, static_cast<std::size_t>(std::llround(std::sqrt(
@@ -61,10 +80,12 @@ void build_world_box(Element& elem, const std::vector<double>& tri) {
     elem.box_valid = true;
     for (int j = 0; j < 3; ++j) {
         const double span = std::max(bmax[j] - bmin[j], 0.0);
-        const double margin =
-            2.0 * span / static_cast<double>(grid_n - 1) + 1e-3 * std::max(span, 1.0);
-        elem.box_lo[j] = bmin[j] - margin;
-        elem.box_hi[j] = bmax[j] + margin;
+        // The sampled-surface part needs a margin for the excursions between
+        // grid nodes; the closed-form bounds already contain the true surface.
+        const double sampling =
+            grid_n > 1 ? 2.0 * span / static_cast<double>(grid_n - 1) : 0.0;
+        elem.box_lo[j] = bmin[j] - sampling - 1e-3 * std::max(span, 1.0);
+        elem.box_hi[j] = bmax[j] + sampling + 1e-3 * std::max(span, 1.0);
     }
 }
 
@@ -248,7 +269,9 @@ bool wall_reachable(const Element& elem, const Vec3& o, const Vec3& d, double mi
 }
 
 // Raw surface intersection without normal evaluation: the losing surface's
-// normal is never needed, so the winning hit defers it to the caller.
+// normal is never needed, so the winning hit defers it to the caller. The
+// closed-form solver runs first and the tiled Newton solver only decides a
+// numerical failure.
 struct SurfaceTU {
     bool found = false;
     double t = kInf;
@@ -256,10 +279,9 @@ struct SurfaceTU {
     double v = 0.0;
 };
 
-SurfaceTU surface_tuv(const SurfaceDesc& desc, const SeedGrid& grid, const Vec3& o, const Vec3& d,
-                      double min_t) {
-    std::optional<HitUV> hit = surface_intersect(desc, grid, o, d);
-    if (hit.has_value() && hit->t > min_t) {
+SurfaceTU surface_tuv(const Surface& surface, const Vec3& o, const Vec3& d, double min_t) {
+    std::optional<HitUV> hit = surface_intersect_dispatch(surface, o, d, min_t);
+    if (hit.has_value()) {
         return SurfaceTU{true, hit->t, hit->u, hit->v};
     }
     return SurfaceTU{};
@@ -267,16 +289,24 @@ SurfaceTU surface_tuv(const SurfaceDesc& desc, const SeedGrid& grid, const Vec3&
 
 // Local height of a surface above ``(local[0], local[1])``; NaN when the
 // point does not project onto the surface.
-double local_surface_z(const SurfaceDesc& desc, const SeedGrid& grid, bool graph,
-                       const Vec3& local) {
+double local_surface_z(const Surface& surface, const Vec3& local) {
+    const SurfaceDesc& desc = surface.desc();
+    if (desc.kind != IntersectionKind::Generic && analytic_surfaces_enabled()) {
+        if (!analytic_accepts(desc, local[0], local[1])) {
+            return NAN;
+        }
+        const double z = analytic_z_local(desc, local[0], local[1]);
+        return std::isfinite(z) ? z : NAN;
+    }
     double u = local[0];
     double v = local[1];
-    if (graph) {
+    if (surface.is_graph_over_xy()) {
         if (!desc_accepts(desc, u, v)) {
             return NAN;
         }
     } else {
-        std::optional<std::pair<double, double>> uv = parameters_at_xy(desc, grid, u, v);
+        std::optional<std::pair<double, double>> uv =
+            parameters_at_xy(desc, surface.grid(), u, v);
         if (!uv.has_value()) {
             return NAN;
         }
@@ -361,10 +391,8 @@ ElementHit element_first_hit(const Element& elem, const Vec3& o, const Vec3& d,
     if (elem.box_valid && !box_forward(elem, o, d, min_t)) {
         return ElementHit{false, kInf, Vec3{}, Vec3{}};
     }
-    const SurfaceTU s1 =
-        surface_tuv(elem.surface1->desc(), elem.surface1->grid(), o, d, min_t);
-    const SurfaceTU s2 =
-        surface_tuv(elem.surface2->desc(), elem.surface2->grid(), o, d, min_t);
+    const SurfaceTU s1 = surface_tuv(*elem.surface1, o, d, min_t);
+    const SurfaceTU s2 = surface_tuv(*elem.surface2, o, d, min_t);
     double best_t = kInf;
     bool found = false;
     Vec3 bp{};
@@ -418,10 +446,8 @@ bool element_contains_point(const Element& elem, const Vec3& p) {
             return false;
         }
     }
-    const double z1 = local_surface_z(elem.surface1->desc(), elem.surface1->grid(),
-                                      elem.surface1->is_graph_over_xy(), local);
-    const double z2 = local_surface_z(elem.surface2->desc(), elem.surface2->grid(),
-                                      elem.surface2->is_graph_over_xy(), local);
+    const double z1 = local_surface_z(*elem.surface1, local);
+    const double z2 = local_surface_z(*elem.surface2, local);
     if (std::isnan(z1) || std::isnan(z2)) {
         return false;
     }

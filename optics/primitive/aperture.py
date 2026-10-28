@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from .. import _native
 from .. import constants as _c
 from .._util import cached_lru
 
@@ -29,6 +30,7 @@ def _rim_key(surface: "Surface", aperture: "CircularAperture", n: int) -> tuple:
         float(aperture.center[0]),
         float(aperture.center[1]),
         int(n),
+        bool(_native.analytic_surfaces_enabled()),
     )
 
 

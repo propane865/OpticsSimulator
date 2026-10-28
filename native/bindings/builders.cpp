@@ -11,6 +11,7 @@
 
 #include "optics/common/constants.hpp"
 #include "optics/geometry/surface.hpp"
+#include "optics/intersection/stats.hpp"
 #include "optics/tracing/context.hpp"
 
 #include "register.hpp"
@@ -138,6 +139,23 @@ void register_builders(py::module_& m) {
     py::class_<Surface, std::shared_ptr<Surface>>(m, "NativeSurface")
         .def("is_graph_over_xy", &Surface::is_graph_over_xy)
         .def(
+            "intersection_kind",
+            [](const Surface& self) {
+                switch (self.kind()) {
+                    case optics::native::IntersectionKind::Plane:
+                        return "plane";
+                    case optics::native::IntersectionKind::Conic:
+                        return "conic";
+                    case optics::native::IntersectionKind::EvenAsphere:
+                        return "even_asphere";
+                    case optics::native::IntersectionKind::OddAsphere:
+                        return "odd_asphere";
+                    case optics::native::IntersectionKind::Generic:
+                        break;
+                }
+                return "generic";
+            })
+        .def(
             "normal",
             [](const Surface& self, double u, double v) {
                 const auto nv = self.normal(u, v);
@@ -227,6 +245,19 @@ void register_builders(py::module_& m) {
     m.def("build_element", &build_element, py::arg("surface1"), py::arg("surface2"),
           py::arg("refractive_index"), py::arg("tri"), py::arg("normals"));
     m.def("build_trace_stack", &build_trace_stack, py::arg("elements"));
+    m.def("analytic_surfaces_enabled", &optics::native::analytic_surfaces_enabled);
+    m.def("set_analytic_surfaces", &optics::native::set_analytic_surfaces_enabled,
+          py::arg("enabled"));
+    m.def(
+        "intersection_stats",
+        []() {
+            const optics::native::stats::TraceStats stats = optics::native::stats::snapshot();
+            return py::dict(py::arg("plane") = stats.plane, py::arg("conic") = stats.conic,
+                            py::arg("even_asphere") = stats.even_asphere,
+                            py::arg("odd_asphere") = stats.odd_asphere,
+                            py::arg("generic") = stats.generic,
+                            py::arg("fallbacks") = stats.fallbacks);
+        });
 }
 
 }  // namespace optics::bindings

@@ -18,9 +18,12 @@ from optics.system import OpticalSystem
 
 
 class TraceBench:
-    def __init__(self, rays: int) -> None:
+    def __init__(self, rays: int, kind: str = "native") -> None:
         self.rays = rays
-        self.elements = bc.make_stack(1)
+        if kind == "native":
+            self.elements = bc.make_stack(1)
+        else:
+            self.elements = [bc.make_element_for(kind)]
         self.origins, self.dirs = bc.make_rays(rays)
         self.ray_objs = bc.make_ray_objects(self.origins, self.dirs)
         self.system = OpticalSystem(self.elements)
@@ -46,10 +49,11 @@ class TraceBench:
 
 def run_scenario(name: str, rays: int) -> None:
     """One setup + one untimed pass; used by the cold-start subprocess."""
-    bench = TraceBench(rays)
-    if name == "batch":
+    base, _, kind = name.partition(":")
+    bench = TraceBench(rays, kind or "native")
+    if base == "batch":
         bench.batch()
-    elif name == "fast":
+    elif base == "fast":
         bench.per_ray_persistent()
     else:
         raise SystemExit(f"unknown scenario: {name}")
@@ -59,6 +63,12 @@ def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     bc.add_common_args(parser, rays_default=10000)
     bc.add_cold_args(parser)
+    parser.add_argument(
+        "--element-kind",
+        default="native",
+        choices=["native", "all", *bc.ELEMENT_SURFACE_SCENARIOS],
+        help="which element surfaces to trace ('all' sweeps the specialized kinds)",
+    )
     args = parser.parse_args(argv)
 
     if args.cold_child:
@@ -67,31 +77,45 @@ def main(argv: "list[str] | None" = None) -> int:
         bc.finish_cold(t0)
         return 0
 
-    report = bc.Report(f"trace: 1 element x {args.rays:,} rays", args.quiet)
-
-    bench = TraceBench(args.rays)
-    hits = bench.batch()
-    if hits == 0:
-        print("warning: no segments traced, check the ray fan", file=sys.stderr)
-
-    fast_seconds = bc.time_call(bench.per_ray_persistent, args.warmup, args.repeats, args.budget)
-    report.add(
-        "timed",
-        "native per-ray (persistent system)",
-        fast_seconds,
-        args.rays,
-        f"{hits / args.rays:.1f} segs/ray",
+    kinds = (
+        ["native"]
+        if args.element_kind == "native"
+        else ["native", *bc.ELEMENT_SURFACE_SCENARIOS]
+        if args.element_kind == "all"
+        else [args.element_kind]
     )
-    rebuilt_seconds = bc.time_call(bench.per_ray_rebuilt, args.warmup, args.repeats, args.budget)
-    report.add(
-        "timed",
-        "native per-ray system rebuilt",
-        rebuilt_seconds,
-        args.rays,
-        f"rebuilds system per call: {rebuilt_seconds / fast_seconds:.1f}x persistent",
+    title = (
+        f"trace: 1 element x {args.rays:,} rays"
+        if kinds == ["native"]
+        else f"trace: specialized elements x {args.rays:,} rays"
     )
-    seconds = bc.time_call(bench.batch, args.warmup, args.repeats, args.budget)
-    report.add("timed", "native batch trace_segments", seconds, args.rays)
+    report = bc.Report(title, args.quiet)
+
+    for kind in kinds:
+        suffix = "" if kind == "native" else f" [{kind}]"
+        bench = TraceBench(args.rays, kind)
+        hits = bench.batch()
+        if hits == 0:
+            print(f"warning: no segments traced ({kind}), check the ray fan", file=sys.stderr)
+
+        fast_seconds = bc.time_call(bench.per_ray_persistent, args.warmup, args.repeats, args.budget)
+        report.add(
+            "timed",
+            f"native per-ray (persistent system){suffix}",
+            fast_seconds,
+            args.rays,
+            f"{hits / args.rays:.1f} segs/ray",
+        )
+        rebuilt_seconds = bc.time_call(bench.per_ray_rebuilt, args.warmup, args.repeats, args.budget)
+        report.add(
+            "timed",
+            f"native per-ray system rebuilt{suffix}",
+            rebuilt_seconds,
+            args.rays,
+            f"rebuilds system per call: {rebuilt_seconds / fast_seconds:.1f}x persistent",
+        )
+        seconds = bc.time_call(bench.batch, args.warmup, args.repeats, args.budget)
+        report.add("timed", f"native batch trace_segments{suffix}", seconds, args.rays)
 
     if args.cold:
         for scenario, label in (("batch", "batch kernel chain"), ("fast", "per-ray kernel chain")):

@@ -19,6 +19,10 @@ add_library(optics_core OBJECT
   native/expression/parser.cpp
   native/expression/evaluate.cpp
   native/geometry/surface.cpp
+  native/intersection/analytic_classify.cpp
+  native/intersection/analytic_conic.cpp
+  native/intersection/analytic_asphere.cpp
+  native/intersection/stats.cpp
   native/intersection/plane.cpp
   native/intersection/mesh.cpp
   native/intersection/newton.cpp
@@ -35,15 +39,21 @@ target_include_directories(optics_core PUBLIC native/include)
 target_compile_options(optics_core PUBLIC
   $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffp-contract=off>)
 
+option(OPTICS_TRACE_STATS "Compile optional thread-local intersection counters" OFF)
+if(OPTICS_TRACE_STATS)
+  target_compile_definitions(optics_core PUBLIC OPTICS_TRACE_STATS)
+endif()
+
 option(OPTICS_BUILD_TESTS "Build native unit tests" OFF)
 if(OPTICS_BUILD_TESTS)
   enable_testing()
   add_executable(optics_native_tests
- native/tests/test_main.cpp
- native/tests/test_expression.cpp
- native/tests/test_kernels.cpp
- native/tests/test_surface.cpp
- native/tests/test_element.cpp
+    native/tests/test_main.cpp
+    native/tests/test_expression.cpp
+    native/tests/test_kernels.cpp
+    native/tests/test_surface.cpp
+    native/tests/test_analytic.cpp
+    native/tests/test_element.cpp
     native/tests/test_stack.cpp
     native/tests/test_measurement.cpp
     native/tests/test_optimizer.cpp)

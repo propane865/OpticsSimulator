@@ -379,6 +379,7 @@ def test_evenasph_sag_mirrored_into_element(tmp_path: Path) -> None:
     elements, _ = _load_quiet_elements(path)
     assert "(-1.44e-07 * ((u**2 + v**2) ** 2))" in elements["lens1"]["surface1"]["z"]
     front = stack_from_config(elements)[0].surface1
+    assert front.native_surface.intersection_kind() == "even_asphere"
     u, v = 0.7, -1.3
     r2 = u * u + v * v
     zemax_sag = 0.02 * r2 / (1 + math.sqrt(1 - 0.5 * 0.02**2 * r2)) + 1.44e-7 * r2**2
@@ -412,6 +413,7 @@ def test_odd_asph_cone_sag_mirrored(tmp_path: Path) -> None:
     elements, _ = _load_quiet_elements(path)
     assert "0.5773 * ((u**2 + v**2) ** 0.5)" in elements["lens1"]["surface2"]["z"]
     rear = stack_from_config(elements)[0].surface2
+    assert rear.native_surface.intersection_kind() == "odd_asphere"
     u, v = 3.0, 4.0
     assert rear.evaluate_local(u, v)[2] == pytest.approx(-12.33171 + 0.5773 * math.hypot(u, v))
 

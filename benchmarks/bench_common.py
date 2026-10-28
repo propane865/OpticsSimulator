@@ -26,7 +26,8 @@ import numpy as np
 
 from optics.config import refractive_element_from_config
 from optics.element import RefractiveElement
-from optics.primitive import Ray
+from optics.importers.zmx import conic_sag_expression
+from optics.primitive import CircularAperture, Ray, Surface
 
 # --- Geometry shared by all scenarios ---------------------------------------
 # Meniscus element from the bundled doublet example: the body spans local
@@ -56,6 +57,67 @@ def element_config() -> dict[str, Any]:
 
 def make_element(z: float = 0.0) -> RefractiveElement:
     return refractive_element_from_config(element_config(), position=[0.0, 0.0, float(z)])
+
+
+SURFACE_SCENARIOS = {
+    "sphere": "-1 + sqrt(4 - u**2 - v**2)",
+    "conic": conic_sag_expression(0.02, -0.5),
+    "evenasph": conic_sag_expression(0.02, 0.0, [0.0, 1.44e-7, 0.0, 2.0e-12]),
+    "oddasph": conic_sag_expression(
+        0.02, 0.0, [1.0e-5, 2.0e-6, 3.0e-7, 4.0e-8, 5.0e-9], list(range(1, 6))
+    ),
+    "generic": "sin(u) * cos(v)",
+}
+
+ELEMENT_SURFACE_SCENARIOS = {
+    "sphere": (SURFACE_SCENARIOS["sphere"], "3.0"),
+    "conic": (SURFACE_SCENARIOS["conic"], "3.0"),
+    "evenasph": (SURFACE_SCENARIOS["evenasph"], "3.0"),
+    "oddasph": (SURFACE_SCENARIOS["oddasph"], "3.0"),
+    "mixed": (SURFACE_SCENARIOS["evenasph"], SURFACE_SCENARIOS["oddasph"]),
+}
+
+
+def make_surface_for(kind: str) -> Surface:
+    try:
+        z_src = SURFACE_SCENARIOS[kind]
+    except KeyError as exc:
+        raise SystemExit(f"unknown surface scenario: {kind}") from exc
+    return Surface(
+        "u",
+        "v",
+        z_src,
+        u_range=(-2.0, 2.0),
+        v_range=(-2.0, 2.0),
+        aperture=CircularAperture(APERTURE_RADIUS),
+    )
+
+
+def make_element_for(kind: str, z: float = 0.0) -> RefractiveElement:
+    try:
+        z1, z2 = ELEMENT_SURFACE_SCENARIOS[kind]
+    except KeyError as exc:
+        raise SystemExit(f"unknown element scenario: {kind}") from exc
+    config = {
+        "surface1": {
+            "x": "u",
+            "y": "v",
+            "z": z1,
+            "u_range": [-2.0, 2.0],
+            "v_range": [-2.0, 2.0],
+            "aperture": {"radius": APERTURE_RADIUS},
+        },
+        "surface2": {
+            "x": "u",
+            "y": "v",
+            "z": z2,
+            "u_range": [-2.0, 2.0],
+            "v_range": [-2.0, 2.0],
+            "aperture": {"radius": APERTURE_RADIUS},
+        },
+        "material": {"refractive_index": REFRACTIVE_INDEX},
+    }
+    return refractive_element_from_config(config, position=[0.0, 0.0, float(z)])
 
 
 def make_stack(n_elements: int) -> list[RefractiveElement]:

@@ -12,7 +12,6 @@ Sections:
 """
 
 import argparse
-from pathlib import Path
 
 import bench_common as bc
 import numpy as np

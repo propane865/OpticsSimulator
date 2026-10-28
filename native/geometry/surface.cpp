@@ -2,13 +2,18 @@
 #include "optics/geometry/surface.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "optics/common/constants.hpp"
 #include "optics/common/numeric.hpp"
 #include "optics/intersection/solver.hpp"
+#include "optics/intersection/stats.hpp"
 
 namespace optics::native {
 
@@ -188,6 +193,12 @@ Vec3 partial_desc(const SurfaceDesc& d, double u, double v, double du, double dv
 }  // namespace
 
 std::pair<Vec3, Vec3> desc_derivatives(const SurfaceDesc& d, double u, double v) {
+    if (d.kind != IntersectionKind::Generic && analytic_surfaces_enabled()) {
+        Vec3 ru, rv;
+        if (analytic_accepts(d, u, v) && analytic_derivatives_local(d, u, v, ru, rv)) {
+            return {ru, rv};
+        }
+    }
     const auto analytic = desc_deriv_pair(d, u, v);
     if (finite3(analytic.first) && finite3(analytic.second)) {
         return analytic;
@@ -218,6 +229,16 @@ std::pair<Vec3, Vec3> desc_derivatives(const SurfaceDesc& d, double u, double v)
 }
 
 std::optional<Vec3> surface_normal(const SurfaceDesc& desc, double u, double v) {
+    if (desc.kind != IntersectionKind::Generic && analytic_surfaces_enabled()) {
+        if (!analytic_accepts(desc, u, v)) {
+            return std::nullopt;
+        }
+        const Vec3 local = analytic_normal_local(desc, u, v);
+        if (!finite3(local)) {
+            return std::nullopt;
+        }
+        return desc.transform.vector_to_world(local);
+    }
     if (!desc_accepts(desc, u, v)) {
         return std::nullopt;
     }
@@ -232,9 +253,47 @@ std::optional<Vec3> surface_normal(const SurfaceDesc& desc, double u, double v) 
 
 // --- Persistent surface object ------------------------------------------------
 
+namespace {
+
+// Transform-only grid update: local geometry (sample points, parameters,
+// validity and the tile run structure) is identical, so only the world seed
+// points change. ``p_old = rot_o l + t_o`` and ``p_new = rot_n l + t_n`` give
+// ``p_new = A p_old + b`` with ``A = rot_n rot_o^T`` and ``b = t_n - A t_o``.
+SeedGrid retransform_grid(const SeedGrid& base, const SurfaceDesc& from, const SurfaceDesc& to) {
+    SeedGrid g;
+    g.uf_valid = base.uf_valid;
+    g.vf_valid = base.vf_valid;
+    g.pts = base.pts;
+    g.finite = base.finite;
+    g.uf = base.uf;
+    g.vf = base.vf;
+    Mat3 rot_old_t;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            rot_old_t.m[i][j] = from.transform.rot.m[j][i];
+        }
+    }
+    const Mat3 a = mat3_mul(to.transform.rot, rot_old_t);
+    const Vec3 b = to.transform.trans - a * from.transform.trans;
+    const std::vector<double>& old = base.p_world;
+    g.p_world.reserve(old.size());
+    for (std::size_t k = 0; k + 2 < old.size(); k += 3) {
+        const Vec3 p = a * make_vec3(old[k], old[k + 1], old[k + 2]) + b;
+        g.p_world.push_back(p[0]);
+        g.p_world.push_back(p[1]);
+        g.p_world.push_back(p[2]);
+    }
+    // The valid-sample order (and with it the tile run structure) is transform
+    // independent; only the tile AABBs need recomputing.
+    g.tiles = base.tiles;
+    rebuild_tile_boxes(g);
+    return g;
+}
+
+}  // namespace
+
 Surface::Surface(std::shared_ptr<const SurfaceModel> model, Options&& options)
-    : desc_(std::make_shared<SurfaceDesc>()),
-      grid_(std::make_shared<SeedGrid>()) {
+    : desc_(std::make_shared<SurfaceDesc>()) {
     desc_->model = model
                        ? std::move(model)
                        : SurfaceModel::compile(options.x_src, options.y_src, options.z_src,
@@ -252,9 +311,20 @@ Surface::Surface(std::shared_ptr<const SurfaceModel> model, Options&& options)
     }
     desc_->transform.rot = options.rot;
     desc_->transform.trans = options.trans;
-    *grid_ = build_seed_grid(*desc_, options.grid_n < 1 ? 1 : options.grid_n);
-    graph_xy_ = check_graph_over_xy(*desc_->model, options.u_min, options.u_max, options.v_min,
-                                    options.v_max);
+    grid_n_ = options.grid_n < 1 ? 1 : options.grid_n;
+
+    // Classification happens once here, on the compiled trees: the hot loops
+    // only ever read ``desc().kind``.
+    desc_->kind = classify_analytic_surface(*desc_->model, *desc_, desc_->analytic);
+    if (desc_->kind == IntersectionKind::Generic) {
+        // The generic solver needs the seed grid for every query: sample it
+        // eagerly, exactly as before.
+        grid();
+        graph_xy_ = check_graph_over_xy(*desc_->model, options.u_min, options.u_max, options.v_min,
+                                        options.v_max);
+    } else {
+        graph_xy_ = true;
+    }
 }
 
 std::shared_ptr<const Surface> Surface::create(Options options) {
@@ -266,41 +336,29 @@ std::shared_ptr<const Surface> Surface::create_with_model(std::shared_ptr<const 
     return std::shared_ptr<const Surface>(new Surface(std::move(model), std::move(options)));
 }
 
+const SeedGrid& Surface::grid() const {
+    std::call_once(grid_once_, [this] {
+        std::atomic_store(&grid_, std::make_shared<const SeedGrid>(build_seed_grid(*desc_, grid_n_)));
+    });
+    return *std::atomic_load(&grid_);
+}
+
 // Transform-only variant. Local geometry (model, domain, aperture, membership
-// and the grid's local arrays) is identical, so only the world seed points
-// change: ``p_old = rot_o l + t_o`` and ``p_new = rot_n l + t_n`` give
-// ``p_new = A p_old + b`` with ``A = rot_n rot_o^T`` and ``b = t_n - A t_o``.
+// and the grid's local arrays) is identical, so a built grid is re-projected
+// rather than resampled; an unbuilt one stays lazy and is sampled from this
+// descriptor's own transform on demand.
 Surface::Surface(const Surface& base, const Transform& transform)
     : desc_(std::make_shared<SurfaceDesc>(*base.desc_)),
-      grid_(std::make_shared<SeedGrid>()),
+      grid_n_(base.grid_n_),
       graph_xy_(base.graph_xy_) {
     desc_->transform = transform;
-    grid_->pts = base.grid_->pts;
-    grid_->finite = base.grid_->finite;
-    grid_->uf = base.grid_->uf;
-    grid_->vf = base.grid_->vf;
-    grid_->uf_valid = base.grid_->uf_valid;
-    grid_->vf_valid = base.grid_->vf_valid;
-    Mat3 rot_old_t;
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            rot_old_t.m[i][j] = base.desc_->transform.rot.m[j][i];
-        }
+    const std::shared_ptr<const SeedGrid> src = std::atomic_load(&base.grid_);
+    if (src != nullptr) {
+        std::call_once(grid_once_, [this, &src, &base] {
+            std::atomic_store(&grid_, std::make_shared<const SeedGrid>(
+                                          retransform_grid(*src, *base.desc_, *desc_)));
+        });
     }
-    const Mat3 a = mat3_mul(transform.rot, rot_old_t);
-    const Vec3 b = transform.trans - a * base.desc_->transform.trans;
-    const std::vector<double>& old = base.grid_->p_world;
-    grid_->p_world.reserve(old.size());
-    for (std::size_t k = 0; k + 2 < old.size(); k += 3) {
-        const Vec3 p = a * make_vec3(old[k], old[k + 1], old[k + 2]) + b;
-        grid_->p_world.push_back(p[0]);
-        grid_->p_world.push_back(p[1]);
-        grid_->p_world.push_back(p[2]);
-    }
-    // The valid-sample order (and with it the tile run structure) is
-    // transform independent; only the tile AABBs need recomputing.
-    grid_->tiles = base.grid_->tiles;
-    rebuild_tile_boxes(*grid_);
 }
 
 std::shared_ptr<const Surface> Surface::with_transform(const Surface& base,
@@ -317,19 +375,54 @@ std::optional<Vec3> Surface::normal(double u, double v) const {
 }
 
 std::optional<HitUV> Surface::intersect(const Vec3& o, const Vec3& d) const {
-    return surface_intersect(*desc_, *grid_, o, d);
+    return surface_intersect_dispatch(*this, o, d, 0.0);
+}
+
+std::optional<HitUV> surface_intersect_dispatch(const Surface& surface, const Vec3& o,
+                                                const Vec3& d, double min_t) {
+    const SurfaceDesc& desc = surface.desc();
+    if (desc.kind != IntersectionKind::Generic && analytic_surfaces_enabled()) {
+        stats::record_intersection(desc.kind);
+        const AnalyticHit hit = analytic_intersect(desc, o, d, min_t);
+        if (hit.status == IntersectionStatus::Converged) {
+            return HitUV{hit.t, hit.u, hit.v};
+        }
+        if (hit.status == IntersectionStatus::NoIntersection) {
+            return std::nullopt;
+        }
+        // NumericalFailure: decide with the generic solver below.
+        stats::record_fallback();
+    } else {
+        stats::record_intersection(desc.kind);
+    }
+    std::optional<HitUV> hit = surface_intersect(desc, surface.grid(), o, d);
+    if (hit.has_value() && !(hit->t > min_t)) {
+        return std::nullopt;
+    }
+    return hit;
 }
 
 std::optional<std::pair<double, double>> Surface::parameters_at_local(const Vec3& p_local) const {
-    return optics::native::parameters_at(*desc_, *grid_, p_local);
+    if (desc_->kind != IntersectionKind::Generic && analytic_surfaces_enabled()) {
+        return analytic_parameters_at(*desc_, p_local);
+    }
+    return optics::native::parameters_at(*desc_, grid(), p_local);
 }
 
 std::optional<std::pair<double, double>> Surface::parameters_at_xy(double x, double y) const {
-    return optics::native::parameters_at_xy(*desc_, *grid_, x, y);
+    if (desc_->kind != IntersectionKind::Generic && analytic_surfaces_enabled()) {
+        return analytic_parameters_at_xy(*desc_, x, y);
+    }
+    return optics::native::parameters_at_xy(*desc_, grid(), x, y);
 }
 
 std::vector<double> Surface::rim(double radius, double cx, double cy, int n) const {
-    return build_rim(*desc_, *grid_, radius, cx, cy, n);
+    if (desc_->kind != IntersectionKind::Generic && analytic_surfaces_enabled()) {
+        std::vector<double> out;
+        analytic_rim(*desc_, radius, cx, cy, n, out);
+        return out;
+    }
+    return build_rim(*desc_, grid(), radius, cx, cy, n);
 }
 
 }  // namespace optics::native

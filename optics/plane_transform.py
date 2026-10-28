@@ -176,9 +176,12 @@ def plane_transform(
 
     R, fit_scale, translation = _fit_similarity(src[keep], dst[keep])
     err = _residual_norms(R, fit_scale, translation, src[keep], dst[keep])
+    rotation_deg = float(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
+    if abs(rotation_deg + 180.0) < 1e-12:
+        rotation_deg = 180.0
     return PlaneTransform(
         scale=fit_scale,
-        rotation_deg=float(np.degrees(np.arctan2(R[1, 0], R[0, 0]))),
+        rotation_deg=rotation_deg,
         translation=translation,
         rms_error=float(np.sqrt(np.mean(err**2))),
         n_used=int(np.count_nonzero(keep)),

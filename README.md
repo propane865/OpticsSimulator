@@ -272,8 +272,12 @@ machine-readable output, and `--cold` to additionally re-run itself in a
 fresh subprocess interpreter; the native kernels carry no JIT cache, so cold
 runs are dominated by interpreter start-up and first-call setup.
 `benchmark_stack.py` adds `--two-rays`/`--four-rays` (both stack sizes share
-one native code path, so there is nothing to re-compile between sizes); and
+one native code path, so there is nothing to re-compile between sizes);
+`benchmark_intersection.py` adds `--surface-kind native|sphere|conic|evenasph|oddasph|generic|all`;
+`benchmark_trace.py` adds `--element-kind native|sphere|conic|evenasph|oddasph|mixed|all`; and
 `profile_lens_edit.py` adds `--elements/--planes/--mesh-n/--no-cprofile`.
+The native kernels can be built with `-DOPTICS_TRACE_STATS=ON` to expose
+per-thread intersection counters through ``_native.intersection_stats()``.
 `profile_optimizer.py` drives the bundled doublet best-focus problem and splits
 one `optimize_layout` call into setup / native solver / teardown. The solver
 releases the GIL and is opaque to `cProfile`, so its DE-sweep and

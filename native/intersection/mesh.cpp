@@ -37,8 +37,9 @@ std::optional<MeshHit> mesh_intersect(const Vec3& o, const Vec3& d,
         const double v = dot3(q, d) * inv_det;
         const double t = dot3(e2, q) * inv_det;
 
+        const double t_tol = MESH_HIT_TIE_TOL * std::max(1.0, std::abs(t));
         if (t > min_face_t && u >= -bary_tol && v >= -bary_tol && u + v <= 1.0 + bary_tol &&
-            t < best_t) {
+            t < best_t - t_tol) {
             best_t = t;
             best_face = k;
             best_u = u;

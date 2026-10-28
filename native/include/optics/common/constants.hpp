@@ -47,6 +47,10 @@ inline constexpr int CONTAINMENT_BOUNDS_N = 16;
 inline constexpr double DET_SINGULAR_EPS = 1e-14;
 inline constexpr double BARY_TOL = 1e-12;
 inline constexpr double MIN_FACE_T = 1e-9;
+// Shared-edge hits can differ from their first candidate by a few floating-
+// point ulps. Keep the earliest such candidate instead of letting ulp noise
+// change the wall facet (and therefore its normal).
+inline constexpr double MESH_HIT_TIE_TOL = 1e-12;
 
 // --- Vector helpers ---
 inline constexpr double VECTOR_PARALLEL_TOL = 1e-12;
