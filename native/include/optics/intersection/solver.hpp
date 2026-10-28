@@ -6,6 +6,7 @@
 #include <optional>
 #include <utility>
 #include <vector>
+#include <array>
 
 #include "optics/common/constants.hpp"
 #include "optics/geometry/surface.hpp"
@@ -16,7 +17,7 @@ namespace optics::native {
 // Result of one damped Newton run (iteration layout shared by the problem
 // strategies in ``intersection/newton_detail.hpp``).
 struct NewtonResult {
-    std::vector<double> x;
+    std::array<double, 3> x{};
     double f_norm = 0.0;
     int status = SOLVER_EXH;
 };

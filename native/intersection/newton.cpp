@@ -95,7 +95,10 @@ SmallMat XYProblem::jacobian(const double* x) const {
 template <typename Problem>
 std::optional<NewtonResult> newton_run(const Problem& problem, const double* x0, bool clamp) {
     constexpr int n0 = Problem::n;
-    std::vector<double> x(x0, x0 + n0);
+    std::array<double, 3> x{};
+    for (int i = 0; i < n0; ++i) {
+        x[i] = x0[i];
+    }
     int status = SOLVER_EXH;
     int damped = 0;
     SmallVec f = problem.residual(x.data());
@@ -130,7 +133,7 @@ std::optional<NewtonResult> newton_run(const Problem& problem, const double* x0,
             }
         }
         double step = 1.0;
-        std::vector<double> trial(static_cast<std::size_t>(n0));
+        std::array<double, 3> trial{};
         for (int i = 0; i < n0; ++i) {
             trial[static_cast<std::size_t>(i)] = x[static_cast<std::size_t>(i)] + delta->v[i];
         }
@@ -170,7 +173,7 @@ std::optional<NewtonResult> newton_run(const Problem& problem, const double* x0,
     if (!all_finite(f)) {
         return std::nullopt;
     }
-    return NewtonResult{std::move(x), vec_norm(f), status};
+    return NewtonResult{x, vec_norm(f), status};
 }
 
 template std::optional<NewtonResult> newton_run<IntersectProblem>(const IntersectProblem&,
