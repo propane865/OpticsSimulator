@@ -39,9 +39,10 @@ void py_trace_segments_batch(const TraceStack& stack, const py::array_t<double>&
     const TraceOptions options{ray_length, PLANE_EPS};
     const py::gil_scoped_release release;
     optics::native::run_chunks(n, [&](std::size_t lo, std::size_t hi) {
+        optics::native::RayHops hops;
         for (std::size_t i = lo; i < hi; ++i) {
             seg.counts[i] =
-                trace_stack_segments(stack, as_vec3(od + 3 * i), as_vec3(dd + 3 * i), options,
+                trace_stack_segments(stack, as_vec3(od + 3 * i), as_vec3(dd + 3 * i), options, hops,
                                      seg.starts + 3 * seg.cap * i, seg.ends + 3 * seg.cap * i,
                                      seg.kinds + seg.cap * i, seg.cap)
                     .count;

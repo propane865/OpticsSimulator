@@ -1,6 +1,7 @@
 // Seed selection, Newton verification and dedup for ray/surface
 // intersection: the nearest forward hit over the sampled seed grid.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -13,6 +14,17 @@
 
 namespace optics::native {
 namespace {
+
+struct IntersectionScratch {
+    std::vector<double> ts;
+    std::vector<double> residual2;
+    std::vector<std::size_t> idx;
+};
+
+// Worker-chunk scope: the per-batch threads reuse these buffers across every
+// ray in a chunk, so after the first intersection no allocation remains in
+// the seed-selection path.
+thread_local IntersectionScratch scratch;
 
 std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
                                          double u, double v, double t) {
@@ -42,8 +54,12 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
         return std::nullopt;
     }
     const std::vector<double>& p = grid.p_world;
-    std::vector<double> ts(m);
-    std::vector<double> residual2(m);
+    std::vector<double>& ts = scratch.ts;
+    std::vector<double>& residual2 = scratch.residual2;
+    std::vector<std::size_t>& idx = scratch.idx;
+    ts.resize(m);
+    residual2.resize(m);
+    idx.clear();
     // Seeding ranks by residual distance; squared distances preserve the
     // ordering, so the whole selection phase runs without a per-point sqrt.
     const double seed_tol2 = SEED_TOL * SEED_TOL;
@@ -81,7 +97,6 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
         }
     }
 
-    std::vector<std::size_t> idx;
     idx.reserve(count);
     for (std::size_t i = 0; i < m; ++i) {
         if (ts[i] > 0.0 && std::isfinite(residual2[i]) && residual2[i] <= tol2) {
@@ -103,7 +118,9 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
     } else {
         std::sort(idx.begin(), idx.end(), by_residual);
     }
-    std::vector<double> hit_t(max_seeds), hit_u(max_seeds), hit_v(max_seeds);
+    std::array<double, MAX_SEEDS> hit_t{};
+    std::array<double, MAX_SEEDS> hit_u{};
+    std::array<double, MAX_SEEDS> hit_v{};
     std::size_t n_hits = 0;
     for (std::size_t k = 0; k < max_seeds; ++k) {
         const std::size_t i = idx[k];

@@ -83,6 +83,10 @@ using RayHops = std::vector<RayHop>;
 // Walks the stack in geometric order, recording one hop per gap/element.
 RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d);
 
+// As above into a caller-owned ``RayHops`` whose capacity is reused across
+// rays (cleared, never shrunk): the batch kernels keep one buffer per chunk.
+void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3& d);
+
 // Rendering segment buffers: incident + internal segments per element, then
 // the trailing gap capped at ``ray_length`` (omitted when the ray is
 // absorbed). Segment kinds 0/1/2 = incident/internal/exit; writes up to
@@ -92,7 +96,11 @@ int format_segments(const RayHops& hops, double ray_length, double* starts, doub
 
 // One-ray rendering pass: ``format_segments(build_hops(...))`` plus the final
 // free-travel state (the gap exiting the last element, or entering the
-// element that absorbed the ray).
+// element that absorbed the ray). The ``hops`` overload reuses a caller-owned
+// hop buffer across rays; the plain signature allocates its own.
+StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
+                                   const TraceOptions& options, RayHops& hops, double* starts,
+                                   double* ends, signed char* kinds, std::size_t cap);
 StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
                                    const TraceOptions& options, double* starts, double* ends,
                                    signed char* kinds, std::size_t cap);

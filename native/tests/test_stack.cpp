@@ -13,6 +13,7 @@
 namespace {
 
 using optics::native::build_hops;
+using optics::native::fill_hops;
 using optics::native::make_vec3;
 using optics::native::PLANE_EPS;
 using optics::native::trace_stack_segments;
@@ -115,10 +116,58 @@ void test_walk_miss_and_oblique() {
     CHECK(kinds[0] == 0 && kinds[1] == 1 && kinds[2] == 2);
 }
 
+// Hop-buffer reuse must match the freshly-allocated walk ray after ray,
+// including when the reuse alternates between miss and multi-hop hits.
+void test_hops_reuse() {
+    const TraceStack stack = fixture::make_stack({plate_at(3.0), plate_at(0.0)});
+    const Vec3 miss_o = make_vec3(5.0, 0.0, 6.0);
+    const Vec3 hit_o = make_vec3(0.0, 0.0, 6.0);
+    const Vec3 d = make_vec3(0.0, 0.0, -1.0);
+    optics::native::RayHops reused;
+    for (int pass = 0; pass < 3; ++pass) {
+        for (const Vec3& o : {miss_o, hit_o, miss_o}) {
+            fill_hops(reused, stack, o, d);
+            const optics::native::RayHops fresh = build_hops(stack, o, d);
+            CHECK(reused.size() == fresh.size());
+            for (std::size_t k = 0; k < reused.size() && k < fresh.size(); ++k) {
+                CHECK(reused[k].has_element == fresh[k].has_element);
+                CHECK(reused[k].n_pts == fresh[k].n_pts);
+                CHECK(close(reused[k].entry_t, fresh[k].entry_t, 1e-12));
+                for (int c = 0; c < 3; ++c) {
+                    CHECK(close(reused[k].o[c], fresh[k].o[c], 1e-12));
+                    CHECK(close(reused[k].d[c], fresh[k].d[c], 1e-12));
+                }
+            }
+        }
+    }
+    double starts_a[3 * kCap];
+    double ends_a[3 * kCap];
+    signed char kinds_a[kCap];
+    double starts_b[3 * kCap];
+    double ends_b[3 * kCap];
+    signed char kinds_b[kCap];
+    optics::native::RayHops scratch;
+    const optics::native::StackSegments a =
+        trace_stack_segments(stack, hit_o, d, kTraceOptions, starts_a, ends_a, kinds_a, kCap);
+    const optics::native::StackSegments b =
+        trace_stack_segments(stack, hit_o, d, kTraceOptions, scratch, starts_b, ends_b, kinds_b,
+                             kCap);
+    CHECK(a.count == b.count);
+    CHECK(a.exited == b.exited);
+    for (int i = 0; i < a.count; ++i) {
+        for (int c = 0; c < 3; ++c) {
+            CHECK(close(starts_a[3 * i + c], starts_b[3 * i + c], 1e-12));
+            CHECK(close(ends_a[3 * i + c], ends_b[3 * i + c], 1e-12));
+        }
+        CHECK(kinds_a[i] == kinds_b[i]);
+    }
+}
+
 }  // namespace
 
 void test_stack() {
     test_empty_stack();
     test_two_plate_walk();
     test_walk_miss_and_oblique();
+    test_hops_reuse();
 }

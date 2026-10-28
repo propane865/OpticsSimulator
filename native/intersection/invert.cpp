@@ -16,6 +16,14 @@ namespace {
 
 constexpr double kTwoPi = 6.28318530717958647692528676655900577;
 
+struct InvertScratch {
+    std::vector<double> d2;
+    std::vector<std::size_t> idx;
+};
+
+// Worker-chunk scope: reused across every inversion in a batch chunk.
+thread_local InvertScratch invert_scratch;
+
 }  // namespace
 
 std::optional<std::pair<double, double>> solve_xy(const SurfaceDesc& desc, double x_target,
@@ -43,7 +51,9 @@ std::optional<std::pair<double, double>> parameters_at_xy(const SurfaceDesc& des
     if (n == 0) {
         return std::nullopt;
     }
-    std::vector<double> d2(n);
+    std::vector<double>& d2 = invert_scratch.d2;
+    std::vector<std::size_t>& idx = invert_scratch.idx;
+    d2.resize(n);
     bool any_fin = false;
     for (std::size_t i = 0; i < n; ++i) {
         if (grid.finite[i]) {
@@ -58,7 +68,7 @@ std::optional<std::pair<double, double>> parameters_at_xy(const SurfaceDesc& des
     if (!any_fin) {
         return std::nullopt;
     }
-    std::vector<std::size_t> idx(n);
+    idx.resize(n);
     for (std::size_t i = 0; i < n; ++i) {
         idx[i] = i;
     }
