@@ -247,19 +247,22 @@ bool wall_reachable(const Element& elem, const Vec3& o, const Vec3& d, double mi
     return true;
 }
 
-// Nearest surface hit with normal, or ``(False, inf, 0, 0)``.
-ElementHit surface_hit(const SurfaceDesc& desc, const SeedGrid& grid, const Vec3& o,
-                       const Vec3& d, double min_t) {
+// Raw surface intersection without normal evaluation: the losing surface's
+// normal is never needed, so the winning hit defers it to the caller.
+struct SurfaceTU {
+    bool found = false;
+    double t = kInf;
+    double u = 0.0;
+    double v = 0.0;
+};
+
+SurfaceTU surface_tuv(const SurfaceDesc& desc, const SeedGrid& grid, const Vec3& o, const Vec3& d,
+                      double min_t) {
     std::optional<HitUV> hit = surface_intersect(desc, grid, o, d);
     if (hit.has_value() && hit->t > min_t) {
-        std::optional<Vec3> normal = surface_normal(desc, hit->u, hit->v);
-        if (normal.has_value()) {
-            Vec3 bn = normal.value();
-            const Vec3 p = o + hit->t * d;
-            return ElementHit{true, hit->t, p, bn};
-        }
+        return SurfaceTU{true, hit->t, hit->u, hit->v};
     }
-    return ElementHit{false, kInf, Vec3{}, Vec3{}};
+    return SurfaceTU{};
 }
 
 // Local height of a surface above ``(local[0], local[1])``; NaN when the
@@ -358,23 +361,38 @@ ElementHit element_first_hit(const Element& elem, const Vec3& o, const Vec3& d,
     if (elem.box_valid && !box_forward(elem, o, d, min_t)) {
         return ElementHit{false, kInf, Vec3{}, Vec3{}};
     }
+    const SurfaceTU s1 =
+        surface_tuv(elem.surface1->desc(), elem.surface1->grid(), o, d, min_t);
+    const SurfaceTU s2 =
+        surface_tuv(elem.surface2->desc(), elem.surface2->grid(), o, d, min_t);
     double best_t = kInf;
     bool found = false;
     Vec3 bp{};
     Vec3 bn{};
-    ElementHit h0 = surface_hit(elem.surface1->desc(), elem.surface1->grid(), o, d, min_t);
-    if (h0.found && h0.t < best_t) {
-        best_t = h0.t;
+    // Evaluate normals nearest-first only (ties favor surface1, matching the
+    // previous scan order): the loser never pays for a normal. A hit whose
+    // normal is degenerate is dropped and the farther surface still wins,
+    // as the eager per-surface version did.
+    struct Cand {
+        const SurfaceDesc* desc;
+        const SurfaceTU* hit;
+    };
+    const Cand c1{&elem.surface1->desc(), &s1};
+    const Cand c2{&elem.surface2->desc(), &s2};
+    const bool s2_first = s2.found && s2.t < s1.t;
+    const Cand* order[2] = {s2_first ? &c2 : &c1, s2_first ? &c1 : &c2};
+    for (const Cand* c : order) {
+        if (!c->hit->found || c->hit->t >= best_t) {
+            continue;
+        }
+        std::optional<Vec3> normal = surface_normal(*c->desc, c->hit->u, c->hit->v);
+        if (!normal.has_value()) {
+            continue;
+        }
+        best_t = c->hit->t;
         found = true;
-        bp = h0.p;
-        bn = h0.n;
-    }
-    ElementHit h1 = surface_hit(elem.surface2->desc(), elem.surface2->grid(), o, d, min_t);
-    if (h1.found && h1.t < best_t) {
-        best_t = h1.t;
-        found = true;
-        bp = h1.p;
-        bn = h1.n;
+        bp = o + best_t * d;
+        bn = normal.value();
     }
     if (elem.n_tris() > 0 && wall_reachable(elem, o, d, min_t)) {
         std::optional<MeshHit> wall = mesh_intersect(o, d, elem.tri, DET_SINGULAR_EPS, BARY_TOL,
