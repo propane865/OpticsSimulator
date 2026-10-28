@@ -20,7 +20,7 @@ BENCH_DIR = Path(__file__).resolve().parent
 BASELINE = BENCH_DIR / "BASELINE.json"
 
 FAST_SCRIPTS = ["benchmark_system.py", "benchmark_trace.py", "benchmark_intersection.py"]
-SLOW_SCRIPTS = ["benchmark_stack.py", "benchmark_codegen.py"]
+SLOW_SCRIPTS = ["benchmark_stack.py", "benchmark_codegen.py", "benchmark_scale.py"]
 
 
 def _git_rev() -> str:

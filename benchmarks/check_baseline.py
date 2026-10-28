@@ -24,6 +24,11 @@ def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--threshold", type=float, default=0.10)
     parser.add_argument("--big", action="store_true", help="also compare the 100k-ray rows")
+    parser.add_argument(
+        "--script",
+        default="benchmark_system.py",
+        help="baseline report to compare against (e.g. benchmark_scale.py); 'all' compares every report",
+    )
     parser.add_argument("--advisory", action="store_true", help="never fail the caller")
     args = parser.parse_args(argv)
 
@@ -31,42 +36,48 @@ def main(argv: "list[str] | None" = None) -> int:
         print("BASELINE.json missing; run benchmarks/capture_baseline.py", file=sys.stderr)
         return 2
     baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
-    base_rows = {
-        row["label"]: row["seconds"]
-        for row in baseline["reports"]["benchmark_system.py"]["rows"]
-        if "seconds" in row
-    }
+    reports = baseline["reports"]
+    if args.script != "all":
+        if args.script not in reports:
+            print(f"no baseline report for {args.script}", file=sys.stderr)
+            return 2
+        reports = {args.script: reports[args.script]}
 
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / "out_system.json"
-        cmd = [sys.executable, str(BENCH_DIR / "benchmark_system.py"), "--quiet", "--json", str(out)]
-        if args.big:
-            cmd.append("--big")
-        subprocess.run(cmd, check=True, cwd=BENCH_DIR)
-        fresh_rows = {
-            row["label"]: row["seconds"]
-            for row in json.loads(out.read_text(encoding="utf-8"))["rows"]
-            if "seconds" in row
-        }
-
-    print(f"baseline: {baseline['meta']['captured']} rev {baseline['meta']['git_rev']}")
     regressions = 0
     improvements = 0
-    for label, base in base_rows.items():
-        fresh = fresh_rows.get(label)
-        if fresh is None:
-            continue
-        ratio = fresh / base
-        if ratio > 1.0 + args.threshold:
-            print(f"REGRESSION {label}: {base * 1e3:.3f} ms -> {fresh * 1e3:.3f} ms"
-                  f"  ({ratio:.2f}x)")
-            regressions += 1
-        elif ratio < 1.0 - args.threshold:
-            print(f"improvement {label}: {base * 1e3:.3f} ms -> {fresh * 1e3:.3f} ms"
-                  f"  ({ratio:.2f}x)")
-            improvements += 1
-        else:
-            print(f"ok {label}: {base * 1e3:.3f} ms -> {fresh * 1e3:.3f} ms  ({ratio:.2f}x)")
+    for script, rows in reports.items():
+        base_rows = {
+            row["label"]: row["seconds"] for row in rows["rows"] if "seconds" in row
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out.json"
+            cmd = [sys.executable, str(BENCH_DIR / script), "--quiet", "--json", str(out)]
+            if args.big and script == "benchmark_system.py":
+                cmd.append("--big")
+            subprocess.run(cmd, check=True, cwd=BENCH_DIR)
+            fresh_rows = {
+                row["label"]: row["seconds"]
+                for row in json.loads(out.read_text(encoding="utf-8"))["rows"]
+                if "seconds" in row
+            }
+
+        print(f"baseline: {baseline['meta']['captured']} rev {baseline['meta']['git_rev']}")
+        print(f"[{script}]")
+        for label, base in base_rows.items():
+            fresh = fresh_rows.get(label)
+            if fresh is None:
+                continue
+            ratio = fresh / base
+            if ratio > 1.0 + args.threshold:
+                print(f"REGRESSION {label}: {base * 1e3:.3f} ms -> {fresh * 1e3:.3f} ms"
+                      f"  ({ratio:.2f}x)")
+                regressions += 1
+            elif ratio < 1.0 - args.threshold:
+                print(f"improvement {label}: {base * 1e3:.3f} ms -> {fresh * 1e3:.3f} ms"
+                      f"  ({ratio:.2f}x)")
+                improvements += 1
+            else:
+                print(f"ok {label}: {base * 1e3:.3f} ms -> {fresh * 1e3:.3f} ms  ({ratio:.2f}x)")
     print(f"{regressions} regressions, {improvements} improvements"
           f" (threshold {args.threshold:.0%})")
     if regressions and not args.advisory:
