@@ -32,39 +32,76 @@ void crossing_local(const PlaneFrame& frame, const Vec3& po, double uu, double v
 // element's internal segments are checked (in extent and within the segment),
 // continuing to the next gap on exit. Returns ``false`` when the ray never
 // reaches the plane. ``u``/``v`` receive detector-local ``(s, t)`` coordinates.
+//
+// Plane crossings are solved in unnormalized lambda form
+// ``lambda = n.(po - start) / n.delta`` instead of normalizing each segment
+// and solving the 3x3 system of ``plane_intersect``: gap rays are unit by
+// contract (crossing accepted at ``t > 0``), internal segments accept
+// ``lambda in (0, 1]`` (``t > 0`` and ``t <= seg_len`` squared), and the
+// ``plane_intersect`` gates (non-vertical plane, ``|n.d| > eps``,
+// ``|n.d/n_z| > eps``) are preserved on the same quantities.
 bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
                         const PlaneRegion& region, const PlaneFrame& frame, double eps, double* u,
                         double* v) {
+    const double nz = pn[2];
+    if (std::abs(nz) <= eps) {
+        return false;  // plane_intersect never crosses a vertical plane
+    }
     for (const RayHop& h : hops) {
-        const std::optional<std::array<double, 3>> ph = plane_intersect(h.o, h.d, po, pn, eps);
-        const bool enter = h.has_element && (!ph.has_value() || ph->at(2) > h.entry_t);
-        if (!enter) {
-            if (ph.has_value()) {
-                crossing_local(frame, po, ph->at(0), ph->at(1), u, v);
-                return true;
+        bool crossed = false;
+        double t = 0.0;  // only read when ``crossed``
+        double uu = 0.0;
+        double vv = 0.0;
+        const double denom = dot3(pn, h.d);
+        if (std::abs(denom) > eps && std::abs(denom) > eps * std::abs(nz)) {
+            const double tg = dot3(pn, po - h.o) / denom;
+            if (std::isfinite(tg) && tg > 0.0) {
+                uu = h.o[0] + tg * h.d[0];
+                vv = h.o[1] + tg * h.d[1];
+                if (std::isfinite(uu) && std::isfinite(vv)) {
+                    crossed = true;
+                    t = tg;
+                }
             }
-            return false;
+        }
+        const bool enter = h.has_element && (!crossed || t > h.entry_t);
+        if (!enter) {
+            if (!crossed) {
+                return false;
+            }
+            crossing_local(frame, po, uu, vv, u, v);
+            return true;
         }
         const std::size_t m = h.pts.size();
         for (std::size_t k = 0; k + 1 < m; ++k) {
             const Vec3 seg_o = h.pts[k];
-            const Vec3 diff = h.pts[k + 1] - seg_o;
-            const double seg_len = norm(diff);
-            if (seg_len <= 0.0) {
+            const Vec3 delta = h.pts[k + 1] - seg_o;
+            const double len2 = dot3(delta, delta);
+            if (len2 <= 0.0) {
                 continue;
             }
-            const Vec3 seg_d = diff / seg_len;
-            const std::optional<std::array<double, 3>> hit =
-                plane_intersect(seg_o, seg_d, po, pn, eps);
-            if (!hit.has_value() || hit->at(2) > seg_len) {
+            const double sdenom = dot3(pn, delta);
+            const double sden2 = sdenom * sdenom;
+            // |n . delta/|delta|| > eps and > eps*|n_z|, in squared form.
+            const double e2 = eps * eps * len2;
+            if (!(sden2 > e2) || !(sden2 > e2 * nz * nz)) {
+                continue;
+            }
+            const double lambda = dot3(pn, po - seg_o) / sdenom;
+            if (!(lambda > 0.0) || lambda > 1.0) {
+                continue;
+            }
+            const double xu = seg_o[0] + lambda * delta[0];
+            const double xv = seg_o[1] + lambda * delta[1];
+            if (!std::isfinite(xu) || !std::isfinite(xv)) {
                 continue;
             }
             double s = 0.0;
-            double t = 0.0;
-            crossing_local(frame, po, hit->at(0), hit->at(1), &s, &t);
-            if (s >= region.u_min && s <= region.u_max && t >= region.v_min && t <= region.v_max) {
+            double tt = 0.0;
+            crossing_local(frame, po, xu, xv, &s, &tt);
+            if (s >= region.u_min && s <= region.u_max && tt >= region.v_min && tt <= region.v_max) {
                 *u = s;
-                *v = t;
+                *v = tt;
                 return true;
             }
         }
