@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from optics.measurement_plane import MeasurementPlane
+from optics.measurement_plane import MeasurementPlane, rays_to_arrays
 from optics.primitive import Ray
+from optics.source import PointSource
 from optics.system import OpticalSystem
 
 
@@ -302,3 +303,78 @@ def test_measurement_position_cases(make_element, case):
 
     system = None if elements is None else OpticalSystem(elements)
     assert plane.measure([ray], system).total == pytest.approx(expected)
+
+
+def _plate_stack(make_element):
+    """A plate spanning z in [4, 8] and a narrow fan emitted from z = 30."""
+    system = OpticalSystem([make_element("8", "4", aperture_radius=9.5)])
+    source = PointSource(np.array([0.0, 0.0, 30.0]), 1.0, 32, cone_angle=20.0)
+    return system, source.emit_rays()
+
+
+def _axis_plane(z, resolution=(32, 32)):
+    return MeasurementPlane(
+        origin=np.array([0.0, 0.0, z], dtype=float),
+        normal=np.array([0.0, 0.0, 1.0], dtype=float),
+        u_range=(-20.0, 20.0),
+        v_range=(-20.0, 20.0),
+        resolution=resolution,
+    )
+
+
+def _walk_crossing(system, ray, plane, ray_length=200.0):
+    """Detector-local hit of ``ray`` read straight off its traced segment walk."""
+    segments, _ = system.trace_path(ray, ray_length)
+    for start, end, _kind in segments:
+        start = np.asarray(start, dtype=float)
+        end = np.asarray(end, dtype=float)
+        delta = end - start
+        denom = float(np.dot(plane.n, delta))
+        if abs(denom) < 1e-14:
+            continue
+        lam = float(np.dot(plane.n, plane.o - start)) / denom
+        if lam <= 0.0 or lam > 1.0:
+            continue
+        offset = start + lam * delta - plane.o
+        return float(offset @ plane.e1), float(offset @ plane.e2)
+    return None
+
+
+@pytest.mark.parametrize("z", [2.0, 0.5, 0.0, -2.0])
+def test_measure_records_traced_crossing_at_any_plane_z(make_element, z):
+    system, rays = _plate_stack(make_element)
+    plane = _axis_plane(z)
+
+    us, vs, pws = system.measure_planes(*rays_to_arrays(rays), [plane])
+
+    for i, ray in enumerate(rays):
+        crossing = _walk_crossing(system, ray, plane)
+        assert crossing is not None
+        assert pws[0][i] == pytest.approx(ray.power)
+        assert us[0][i] == pytest.approx(crossing[0], abs=1e-9)
+        assert vs[0][i] == pytest.approx(crossing[1], abs=1e-9)
+
+
+def test_plane_above_zero_does_not_collapse_onto_the_axis(make_element):
+    system, rays = _plate_stack(make_element)
+    plane = _axis_plane(0.0)
+
+    result = plane.measure(rays, system)
+
+    assert result.total == pytest.approx(1.0)
+    assert np.count_nonzero(result.grid) > 1
+
+
+def test_fused_trace_measure_matches_above_zero(make_element):
+    system, rays = _plate_stack(make_element)
+    origins, dirs, powers = rays_to_arrays(rays)
+    plane = _axis_plane(1.0)
+
+    us, vs, pws = system.measure_planes(origins, dirs, powers, [plane])
+    _, _, _, _, fused_us, fused_vs, fused_pws = system.trace_segments_and_planes(
+        origins, dirs, powers, 200.0, [plane]
+    )
+
+    np.testing.assert_array_equal(fused_us, us)
+    np.testing.assert_array_equal(fused_vs, vs)
+    np.testing.assert_array_equal(fused_pws, pws)

@@ -72,7 +72,7 @@ bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
             crossing_local(frame, po, uu, vv, u, v);
             return true;
         }
-        const std::size_t m = h.pts.size();
+        const std::size_t m = static_cast<std::size_t>(h.n_pts);
         for (std::size_t k = 0; k + 1 < m; ++k) {
             const Vec3 seg_o = h.pts[k];
             const Vec3 delta = h.pts[k + 1] - seg_o;
