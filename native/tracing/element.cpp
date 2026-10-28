@@ -118,6 +118,40 @@ void build_wall_band(const Transform& tr, const std::vector<double>& tri, Elemen
 
 }  // namespace
 
+// Conservative world-AABB slab overlap: the entry/exit parameters of the ray
+// through the element box. An invalid box cannot reject, so it reports a hit
+// over the whole forward ray.
+BoxHit element_box_hit(const Element& elem, const Vec3& o, const Vec3& d, double min_t) {
+    if (!elem.box_valid) {
+        return BoxHit{true, -kInf, kInf};
+    }
+    double t_enter = -kInf;
+    double t_exit = kInf;
+    for (int i = 0; i < 3; ++i) {
+        if (d[i] == 0.0) {
+            if (o[i] < elem.box_lo[i] || o[i] > elem.box_hi[i]) {
+                return BoxHit{false, kInf, -kInf};
+            }
+            continue;
+        }
+        double t0 = (elem.box_lo[i] - o[i]) / d[i];
+        double t1 = (elem.box_hi[i] - o[i]) / d[i];
+        if (t0 > t1) {
+            std::swap(t0, t1);
+        }
+        if (t0 > t_enter) {
+            t_enter = t0;
+        }
+        if (t1 < t_exit) {
+            t_exit = t1;
+        }
+    }
+    if (t_exit > min_t && t_enter <= t_exit) {
+        return BoxHit{true, t_enter, t_exit};
+    }
+    return BoxHit{false, kInf, -kInf};
+}
+
 namespace {
 
 // Accumulate one surface's local-frame sample bounds into ``lo``/``hi``.
@@ -137,28 +171,7 @@ void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi) {
 // point of the ray at ``t > min_t``, so every face/wall candidate would be
 // rejected downstream anyway. Slacks keep boundary cases on the accept side.
 bool box_forward(const Element& elem, const Vec3& o, const Vec3& d, double min_t) {
-    double t_enter = -kInf;
-    double t_exit = kInf;
-    for (int i = 0; i < 3; ++i) {
-        if (d[i] == 0.0) {
-            if (o[i] < elem.box_lo[i] || o[i] > elem.box_hi[i]) {
-                return false;
-            }
-            continue;
-        }
-        double t0 = (elem.box_lo[i] - o[i]) / d[i];
-        double t1 = (elem.box_hi[i] - o[i]) / d[i];
-        if (t0 > t1) {
-            std::swap(t0, t1);
-        }
-        if (t0 > t_enter) {
-            t_enter = t0;
-        }
-        if (t1 < t_exit) {
-            t_exit = t1;
-        }
-    }
-    return t_exit > min_t && t_enter <= t_exit;
+    return element_box_hit(elem, o, d, min_t).hit;
 }
 
 // Conservative test for the sidewall band: the wall is only reachable where

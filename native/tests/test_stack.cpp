@@ -163,6 +163,38 @@ void test_hops_reuse() {
     }
 }
 
+// Broad-phase routing must reproduce the geometric-order walk of a shuffled
+// stack: the AABB entry sort decides who is exact-solved, the visited set
+// and the continuity of the polyline must stay identical.
+void test_three_plate_order() {
+    const TraceStack stack =
+        fixture::make_stack({plate_at(0.0), plate_at(3.0), plate_at(1.5)});
+    const Vec3 o = make_vec3(0.0, 0.0, 6.0);
+    const Vec3 d = make_vec3(0.0, 0.0, -1.0);
+    double starts[3 * kCap];
+    double ends[3 * kCap];
+    signed char kinds[kCap];
+    const optics::native::StackSegments seg =
+        trace_stack_segments(stack, o, d, kTraceOptions, starts, ends, kinds, kCap);
+    // Incident + interior per element and the capped tail: seven segments,
+    // visited in geometric order 3.0 -> 1.5 -> 0.0.
+    CHECK(seg.count == 7);
+    CHECK(seg.exited);
+    const signed char expected_kinds[7] = {0, 1, 2, 1, 2, 1, 2};
+    const double expected_z[7][2] = {
+        {6.0, 3.5}, {3.5, 2.5}, {2.5, 2.0}, {2.0, 1.0}, {1.0, 0.5}, {0.5, -0.5}, {-0.5, -2.5}};
+    for (int i = 0; i < seg.count; ++i) {
+        CHECK(kinds[i] == expected_kinds[i]);
+        CHECK(close(starts[3 * i + 2], expected_z[i][0], 1e-9));
+        CHECK(close(ends[3 * i + 2], expected_z[i][1], 1e-9));
+    }
+    for (int i = 0; i + 1 < seg.count; ++i) {
+        for (int c = 0; c < 3; ++c) {
+            CHECK(close(ends[3 * i + c], starts[3 * (i + 1) + c], 1e-12));
+        }
+    }
+}
+
 }  // namespace
 
 void test_stack() {
@@ -170,4 +202,5 @@ void test_stack() {
     test_two_plate_walk();
     test_walk_miss_and_oblique();
     test_hops_reuse();
+    test_three_plate_order();
 }

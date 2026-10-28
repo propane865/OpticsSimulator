@@ -20,6 +20,18 @@ struct ElementHit {
     Vec3 n{};
 };
 
+// Ray/element world-AABB slab overlap (conservative: never rejects a ray
+// that could produce a face/wall hit). An invalid box reports a hit spanning
+// the whole ray. ``t_enter``/``t_exit`` are ray parameters, possibly outside
+// ``(min_t, inf)``.
+struct BoxHit {
+    bool hit = false;
+    double t_enter = 0.0;
+    double t_exit = 0.0;
+};
+
+BoxHit element_box_hit(const Element& elem, const Vec3& o, const Vec3& d, double min_t);
+
 // Per-trace scalar configuration.
 struct TraceOptions {
     double ray_length;  // trailing-gap cap for the rendering tail segment

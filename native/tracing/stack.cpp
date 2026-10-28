@@ -1,5 +1,8 @@
 // Stack-level tracing: the geometric-order walk over unvisited elements and
 // the rendering segment writer shared with the measurement kernels.
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -11,7 +14,8 @@ namespace optics::native {
 namespace {
 
 // Nearest unvisited element along the ray and its entry hit (handed to
-// ``trace_element`` so the entry intersection is never recomputed).
+// ``trace_element`` so the entry intersection is never recomputed). Fallback
+// scan for stacks longer than the bitmask fast path below.
 std::pair<int, ElementHit> nearest_unvisited(const TraceStack& stack,
                                              std::vector<unsigned char>& visited, const Vec3& o,
                                              const Vec3& d, double t_limit) {
@@ -26,6 +30,57 @@ std::pair<int, ElementHit> nearest_unvisited(const TraceStack& stack,
                 best_i = static_cast<int>(i);
                 best = hit;
             }
+        }
+    }
+    return {best_i, best};
+}
+
+struct ElementCandidate {
+    std::size_t index;
+    double box_t;
+};
+
+// Broad-phase walk for stacks up to 64 elements: AABB-test every unvisited
+// box against the forward ray, order the survivors by box entry parameter
+// and exact-solve only until the first element that cannot be beaten. A
+// candidate whose entry is at or beyond the best exact hit found so far
+// contains no closer hit point (the conservative box holds every face/wall
+// hit), so the scan stops there. The index tie-break keeps the candidate
+// order deterministic when entry parameters compare equal.
+std::pair<int, ElementHit> nearest_unvisited_masked(const TraceStack& stack, std::uint64_t visited,
+                                                    const Vec3& o, const Vec3& d, double t_limit) {
+    std::array<ElementCandidate, 64> candidates;
+    std::size_t count = 0;
+    for (std::size_t i = 0; i < stack.size(); ++i) {
+        if (visited & (std::uint64_t{1} << i)) {
+            continue;
+        }
+        const BoxHit box = element_box_hit(*stack.elements[i], o, d, 0.0);
+        if (!box.hit || std::max(box.t_enter, 0.0) >= t_limit) {
+            continue;
+        }
+        candidates[count++] = ElementCandidate{i, box.t_enter};
+    }
+    std::sort(candidates.begin(),
+              candidates.begin() + static_cast<std::ptrdiff_t>(count),
+              [](const ElementCandidate& a, const ElementCandidate& b) {
+                  if (a.box_t == b.box_t) {
+                      return a.index < b.index;
+                  }
+                  return a.box_t < b.box_t;
+              });
+    int best_i = -1;
+    double best_t = kInf;
+    ElementHit best{};
+    for (std::size_t c = 0; c < count; ++c) {
+        if (candidates[c].box_t >= best_t) {
+            break;
+        }
+        ElementHit hit = element_first_hit(*stack.elements[candidates[c].index], o, d, 0.0);
+        if (hit.found && hit.t < t_limit && hit.t < best_t) {
+            best_t = hit.t;
+            best_i = static_cast<int>(candidates[c].index);
+            best = hit;
         }
     }
     return {best_i, best};
@@ -46,13 +101,22 @@ std::pair<int, ElementHit> nearest_unvisited(const TraceStack& stack,
 // per chunk instead of once per ray.
 void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3& d) {
     hops.clear();
-    std::vector<unsigned char> visited(stack.size(), 0);
+    // Visited bookkeeping: a 64-bit mask for the broad-phase fast path, the
+    // per-ray byte vector only as the fallback for longer stacks.
+    const std::size_t n_elem = stack.size();
+    std::vector<unsigned char> visited;
+    if (n_elem > 64) {
+        visited.assign(n_elem, 0);
+    }
+    std::uint64_t visited_mask = 0;
     Vec3 cur_o = o;
     Vec3 cur_d = d;
     hops.reserve(stack.size() + 1);
     for (;;) {
         const std::pair<int, ElementHit> best =
-            nearest_unvisited(stack, visited, cur_o, cur_d, kInf);
+            n_elem <= 64
+                ? nearest_unvisited_masked(stack, visited_mask, cur_o, cur_d, kInf)
+                : nearest_unvisited(stack, visited, cur_o, cur_d, kInf);
         if (best.first < 0) {
             RayHop tail;
             tail.o = cur_o;
@@ -61,7 +125,11 @@ void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3
             hops.push_back(std::move(tail));
             return;
         }
-        visited[static_cast<std::size_t>(best.first)] = 1;
+        if (n_elem <= 64) {
+            visited_mask |= std::uint64_t{1} << static_cast<unsigned>(best.first);
+        } else {
+            visited[static_cast<std::size_t>(best.first)] = 1;
+        }
         const ElementTrace tr = trace_element(*stack.elements[static_cast<std::size_t>(best.first)],
                                               cur_o, cur_d, best.second);
         RayHop h;
