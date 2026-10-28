@@ -2,13 +2,16 @@
 // (through the descriptor), transform round-trips, graph-over-xy probe, kernel
 // entry points and the aperture rim.
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "optics/common/constants.hpp"
 #include "optics/common/matrix.hpp"
+#include "optics/common/vector.hpp"
 #include "optics/geometry/surface.hpp"
+#include "optics/intersection/solver.hpp"
 
 #include "check.hpp"
 
@@ -219,6 +222,77 @@ void test_intersect_regression() {
     CHECK(!plane64->intersect(make_vec3(0.0, 0.0, 1.0), make_vec3(0.0, 0.0, 1.0)).has_value());
 }
 
+// Tiled seed selection: the tile runs partition the valid samples exactly,
+// every tile box contains its points, and the tiled query must return
+// bit-identical results to the flat scan. The transform-only grid variant
+// rebuilds the tile boxes over the new world points.
+void test_tiled_grid() {
+    Surface::Options o = plane_opts();
+    o.z_src = "1 - sqrt(25 - u * u - v * v)";
+    o.grid_n = SEED_GRID_N;
+    const auto s = Surface::create(std::move(o));
+    const optics::native::SeedGrid& g = s->grid();
+    CHECK(g.tiles.size() == 64);
+    std::vector<int> seen(g.m(), 0);
+    std::size_t total = 0;
+    for (const optics::native::SeedTile& t : g.tiles) {
+        total += t.count;
+        for (int r = 0; r < optics::native::SEED_TILE_SPAN; ++r) {
+            for (std::uint32_t j = 0; j < t.run_count[r]; ++j) {
+                const std::size_t i = t.run_start[r] + j;
+                CHECK(i < g.m());
+                seen[i] += 1;
+                const Vec3 pv = optics::native::as_vec3(&g.p_world[3 * i]);
+                for (int c = 0; c < 3; ++c) {
+                    CHECK(pv[c] >= t.lo[c] - 1e-12 && pv[c] <= t.hi[c] + 1e-12);
+                }
+            }
+        }
+    }
+    CHECK(total == g.m());
+    for (int v : seen) {
+        CHECK(v == 1);
+    }
+
+    const optics::native::SeedGrid untiled = [copy = g]() mutable {
+        copy.tiles.clear();
+        return copy;
+    }();
+    const auto same = [&](const Vec3& ro, const Vec3& rd) {
+        const auto a = optics::native::surface_intersect(s->desc(), g, ro, rd);
+        const auto b = optics::native::surface_intersect(s->desc(), untiled, ro, rd);
+        CHECK(a.has_value() == b.has_value());
+        if (a.has_value() && b.has_value()) {
+            CHECK(a->t == b->t && a->u == b->u && a->v == b->v);
+        }
+    };
+    same(make_vec3(0.0, 0.0, 10.0), make_vec3(0.0, 0.0, -1.0));
+    same(make_vec3(1.0, 2.0, 10.0), make_vec3(0.0, 0.0, -1.0));
+    same(make_vec3(-0.9, 0.9, 10.0), make_vec3(0.0, 0.0, -1.0));
+    same(make_vec3(0.0, 0.0, 10.0), make_vec3(0.3, 0.0, -0.9539392014169457));
+    same(make_vec3(0.0, 0.0, 10.0), make_vec3(0.0, 0.0, 1.0));
+    same(make_vec3(9.0, 9.0, 10.0), make_vec3(0.0, 0.0, -1.0));
+    same(make_vec3(4.9, 0.0, 3.0), make_vec3(0.0, 0.0, -1.0));
+
+    // Transform-only variant: identical to a surface built with the same
+    // transform, tiles rebuilt for the new world points.
+    Surface::Options o2 = plane_opts();
+    o2.z_src = "1 - sqrt(25 - u * u - v * v)";
+    o2.grid_n = SEED_GRID_N;
+    o2.trans = make_vec3(2.0, 0.0, -1.0);
+    const auto direct = Surface::create(std::move(o2));
+    const auto moved = Surface::with_transform(*s, direct->desc().transform);
+    CHECK(moved->grid().tiles.size() == 64);
+    for (std::size_t i = 0; i < moved->grid().p_world.size(); ++i) {
+        CHECK(moved->grid().p_world[i] == direct->grid().p_world[i]);
+    }
+    const auto hit = moved->intersect(make_vec3(2.0, 0.0, 10.0), make_vec3(0.0, 0.0, -1.0));
+    CHECK(hit.has_value());
+    if (hit.has_value()) {
+        CHECK(close(hit->t, 15.0, 1e-9) && close(hit->u, 0.0, 1e-9) && close(hit->v, 0.0, 1e-9));
+    }
+}
+
 }  // namespace
 
 void test_surface() {
@@ -230,4 +304,5 @@ void test_surface() {
     test_aperture();
     test_sphere_intersect();
     test_intersect_regression();
+    test_tiled_grid();
 }

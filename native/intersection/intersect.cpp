@@ -26,6 +26,35 @@ struct IntersectionScratch {
 // the seed-selection path.
 thread_local IntersectionScratch scratch;
 
+// Conservative forward overlap of the ray with a tile AABB dilated by
+// ``margin`` on every side.
+bool tile_forward(const SeedTile& tile, const Vec3& o, const Vec3& d, double margin) {
+    double t_enter = -kInf;
+    double t_exit = kInf;
+    for (int i = 0; i < 3; ++i) {
+        const double lo = tile.lo[i] - margin;
+        const double hi = tile.hi[i] + margin;
+        if (d[i] == 0.0) {
+            if (o[i] < lo || o[i] > hi) {
+                return false;
+            }
+            continue;
+        }
+        double t0 = (lo - o[i]) / d[i];
+        double t1 = (hi - o[i]) / d[i];
+        if (t0 > t1) {
+            std::swap(t0, t1);
+        }
+        if (t0 > t_enter) {
+            t_enter = t0;
+        }
+        if (t1 < t_exit) {
+            t_exit = t1;
+        }
+    }
+    return t_exit > 0.0 && t_enter <= t_exit;
+}
+
 std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
                                          double u, double v, double t) {
     const double x0[3] = {t, u, v};
@@ -64,44 +93,61 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
     // ordering, so the whole selection phase runs without a per-point sqrt.
     const double seed_tol2 = SEED_TOL * SEED_TOL;
     const double fallback_tol2 = SEED_TOL_FALLBACK * SEED_TOL_FALLBACK;
-    // Fused scan: the per-tolerance seed counts ride along on the single
-    // point walk instead of costing one extra pass over the grid each.
+    // Fused scan: per-point start/residual parameters, the tight-tier count
+    // and the fallback-tier candidate list in one point walk.
     std::size_t near_count = 0;
-    std::size_t fallback_count = 0;
-    for (std::size_t i = 0; i < m; ++i) {
+    const auto scan_point = [&](std::size_t i) {
         const Vec3 pv = as_vec3(&p[3 * i]);
         const double t = dot3(pv - o, d);
         ts[i] = t;
-        if (t > 0.0) {
-            const Vec3 delta = o + t * d - pv;
-            const double res2 = dot3(delta, delta);
-            residual2[i] = res2;
-            if (res2 <= seed_tol2) {
-                ++near_count;
-            }
-            if (res2 <= fallback_tol2) {
-                ++fallback_count;
-            }
-        } else {
-            residual2[i] = kInf;
+        if (t <= 0.0) {
+            return;
         }
-    }
-
-    double tol2 = seed_tol2;
-    std::size_t count = near_count;
-    if (count == 0) {
-        tol2 = fallback_tol2;
-        count = fallback_count;
-        if (count == 0) {
-            return std::nullopt;
+        const Vec3 delta = o + t * d - pv;
+        const double res2 = dot3(delta, delta);
+        residual2[i] = res2;
+        if (res2 <= seed_tol2) {
+            ++near_count;
         }
-    }
-
-    idx.reserve(count);
-    for (std::size_t i = 0; i < m; ++i) {
-        if (ts[i] > 0.0 && std::isfinite(residual2[i]) && residual2[i] <= tol2) {
+        if (res2 <= fallback_tol2) {
             idx.push_back(i);
         }
+    };
+    if (grid.tiles.empty()) {
+        for (std::size_t i = 0; i < m; ++i) {
+            scan_point(i);
+        }
+    } else {
+        // Broad phase: a seed within the fallback tolerance of the forward
+        // ray lies inside its tile AABB dilated by that tolerance, so a
+        // rejected tile contributes to neither tier nor the candidate list
+        // and the selected seeds (and their order) are unchanged.
+        for (const SeedTile& tile : grid.tiles) {
+            if (tile.count == 0 || !tile_forward(tile, o, d, SEED_TOL_FALLBACK)) {
+                continue;
+            }
+            for (int r = 0; r < SEED_TILE_SPAN; ++r) {
+                const std::size_t start = tile.run_start[r];
+                for (std::uint32_t j = 0; j < tile.run_count[r]; ++j) {
+                    scan_point(start + static_cast<std::size_t>(j));
+                }
+            }
+        }
+    }
+
+    // Tier selection unchanged: prefer the tight gate whenever it holds any
+    // seed, otherwise fall back to the loose gate (``idx`` already holds the
+    // fallback-tier set).
+    if (near_count > 0) {
+        std::size_t keep = 0;
+        for (std::size_t k = 0; k < idx.size(); ++k) {
+            if (residual2[idx[k]] <= seed_tol2) {
+                idx[keep++] = idx[k];
+            }
+        }
+        idx.resize(keep);
+    } else if (idx.empty()) {
+        return std::nullopt;
     }
     // Mirrors ``argsort(residual[idx])``; the index tie-break reproduces the
     // stable order of exact ties. Only the first ``max_seeds`` entries are
@@ -182,6 +228,18 @@ SeedGrid build_seed_grid(const SurfaceDesc& desc, int grid_n) {
                           ? static_cast<unsigned char>(1)
                           : static_cast<unsigned char>(0);
     });
+    // Seed tiles exist only for grids whose side divides into 8-row bands;
+    // anything else keeps the flat scan.
+    const std::size_t tile_n = (n % SEED_TILE_SPAN == 0) ? n / SEED_TILE_SPAN : 0;
+    if (tile_n > 0) {
+        g.tiles.assign(tile_n * tile_n, SeedTile{});
+        for (SeedTile& t : g.tiles) {
+            for (int j = 0; j < 3; ++j) {
+                t.lo[j] = kInf;
+                t.hi[j] = -kInf;
+            }
+        }
+    }
     for (std::size_t k = 0; k < total; ++k) {
         if (!g.finite[k] || !desc_accepts(desc, g.uf[k], g.vf[k])) {
             continue;
@@ -193,8 +251,44 @@ SeedGrid build_seed_grid(const SurfaceDesc& desc, int grid_n) {
         g.p_world.push_back(world[0]);
         g.p_world.push_back(world[1]);
         g.p_world.push_back(world[2]);
+        if (tile_n > 0) {
+            const std::size_t r = k / n;
+            const std::size_t c = k % n;
+            SeedTile& tile = g.tiles[(r / SEED_TILE_SPAN) * tile_n + c / SEED_TILE_SPAN];
+            const std::size_t row = r % SEED_TILE_SPAN;
+            if (tile.run_count[row] == 0) {
+                tile.run_start[row] = static_cast<std::uint32_t>(g.uf_valid.size() - 1);
+            }
+            tile.run_count[row] += 1;
+            tile.count += 1;
+            for (int j = 0; j < 3; ++j) {
+                tile.lo[j] = std::min(tile.lo[j], world[j]);
+                tile.hi[j] = std::max(tile.hi[j], world[j]);
+            }
+        }
     }
     return g;
+}
+
+void rebuild_tile_boxes(SeedGrid& grid) {
+    for (SeedTile& tile : grid.tiles) {
+        if (tile.count == 0) {
+            continue;
+        }
+        for (int j = 0; j < 3; ++j) {
+            tile.lo[j] = kInf;
+            tile.hi[j] = -kInf;
+        }
+        for (int r = 0; r < SEED_TILE_SPAN; ++r) {
+            for (std::uint32_t j = 0; j < tile.run_count[r]; ++j) {
+                const Vec3 pv = as_vec3(&grid.p_world[3 * (tile.run_start[r] + j)]);
+                for (int c = 0; c < 3; ++c) {
+                    tile.lo[c] = std::min(tile.lo[c], pv[c]);
+                    tile.hi[c] = std::max(tile.hi[c], pv[c]);
+                }
+            }
+        }
+    }
 }
 
 }  // namespace optics::native

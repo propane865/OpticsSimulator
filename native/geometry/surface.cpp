@@ -297,6 +297,10 @@ Surface::Surface(const Surface& base, const Transform& transform)
         grid_->p_world.push_back(p[1]);
         grid_->p_world.push_back(p[2]);
     }
+    // The valid-sample order (and with it the tile run structure) is
+    // transform independent; only the tile AABBs need recomputing.
+    grid_->tiles = base.grid_->tiles;
+    rebuild_tile_boxes(*grid_);
 }
 
 std::shared_ptr<const Surface> Surface::with_transform(const Surface& base,
