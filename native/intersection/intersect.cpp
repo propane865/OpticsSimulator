@@ -43,7 +43,11 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
     }
     const std::vector<double>& p = grid.p_world;
     std::vector<double> ts(m);
-    std::vector<double> residual(m);
+    std::vector<double> residual2(m);
+    // Seeding ranks by residual distance; squared distances preserve the
+    // ordering, so the whole selection phase runs without a per-point sqrt.
+    const double seed_tol2 = SEED_TOL * SEED_TOL;
+    const double fallback_tol2 = SEED_TOL_FALLBACK * SEED_TOL_FALLBACK;
     // Fused scan: the per-tolerance seed counts ride along on the single
     // point walk instead of costing one extra pass over the grid each.
     std::size_t near_count = 0;
@@ -53,23 +57,24 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
         const double t = dot3(pv - o, d);
         ts[i] = t;
         if (t > 0.0) {
-            const double res = norm(o + t * d - pv);
-            residual[i] = res;
-            if (res <= SEED_TOL) {
+            const Vec3 delta = o + t * d - pv;
+            const double res2 = dot3(delta, delta);
+            residual2[i] = res2;
+            if (res2 <= seed_tol2) {
                 ++near_count;
             }
-            if (res <= SEED_TOL_FALLBACK) {
+            if (res2 <= fallback_tol2) {
                 ++fallback_count;
             }
         } else {
-            residual[i] = kInf;
+            residual2[i] = kInf;
         }
     }
 
-    double tol = SEED_TOL;
+    double tol2 = seed_tol2;
     std::size_t count = near_count;
     if (count == 0) {
-        tol = SEED_TOL_FALLBACK;
+        tol2 = fallback_tol2;
         count = fallback_count;
         if (count == 0) {
             return std::nullopt;
@@ -79,7 +84,7 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
     std::vector<std::size_t> idx;
     idx.reserve(count);
     for (std::size_t i = 0; i < m; ++i) {
-        if (ts[i] > 0.0 && std::isfinite(residual[i]) && residual[i] <= tol) {
+        if (ts[i] > 0.0 && std::isfinite(residual2[i]) && residual2[i] <= tol2) {
             idx.push_back(i);
         }
     }
@@ -88,10 +93,10 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
     // ever consumed, so a partial sort yields the identical seed order.
     const std::size_t max_seeds = std::min<std::size_t>(idx.size(), MAX_SEEDS);
     const auto by_residual = [&](std::size_t a, std::size_t b) {
-        if (residual[a] == residual[b]) {
+        if (residual2[a] == residual2[b]) {
             return a < b;
         }
-        return residual[a] < residual[b];
+        return residual2[a] < residual2[b];
     };
     if (idx.size() > max_seeds) {
         std::partial_sort(idx.begin(), idx.begin() + max_seeds, idx.end(), by_residual);

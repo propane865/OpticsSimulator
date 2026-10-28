@@ -162,6 +162,63 @@ void test_sphere_intersect() {
     CHECK(!s->intersect(make_vec3(9.0, 9.0, 10.0), make_vec3(0.0, 0.0, -1.0)).has_value());
 }
 
+// Squared-residual seed selection: the hit/miss decisions and refined
+// ``(t, u, v)`` across surface kinds and selection tiers must match the
+// analytic answers (the tiers exercise both the tight and the fallback
+// residual gates, grazing and near-edge hits included).
+void test_intersect_regression() {
+    // Paraboloid z = u^2 + v^2.
+    Surface::Options asph = plane_opts();
+    asph.z_src = "u * u + v * v";
+    const auto paraboloid = Surface::create(std::move(asph));
+    const auto ax = paraboloid->intersect(make_vec3(0.0, 0.0, 10.0), make_vec3(0.0, 0.0, -1.0));
+    CHECK(ax.has_value());
+    if (ax.has_value()) {
+        CHECK(close(ax->t, 10.0, 1e-9) && close(ax->u, 0.0, 1e-7) && close(ax->v, 0.0, 1e-7));
+    }
+    const auto off = paraboloid->intersect(make_vec3(0.5, 0.2, 10.0), make_vec3(0.0, 0.0, -1.0));
+    CHECK(off.has_value());
+    if (off.has_value()) {
+        CHECK(close(off->t, 9.71, 1e-8) && close(off->u, 0.5, 1e-7) && close(off->v, 0.2, 1e-7));
+    }
+    CHECK(!paraboloid->intersect(make_vec3(0.0, 0.0, 10.0), make_vec3(0.0, 0.0, 1.0)).has_value());
+
+    // Tilted plane z = u + v.
+    Surface::Options tilt = plane_opts();
+    tilt.z_src = "u + v";
+    const auto tilted = Surface::create(std::move(tilt));
+    const auto th = tilted->intersect(make_vec3(0.3, 0.2, 5.0), make_vec3(0.0, 0.0, -1.0));
+    CHECK(th.has_value());
+    if (th.has_value()) {
+        CHECK(close(th->t, 4.5, 1e-8) && close(th->u, 0.3, 1e-7) && close(th->v, 0.2, 1e-7));
+    }
+
+    // Full-resolution grid: near-edge hit at (0.98, 0.98) on the z = 0 plane.
+    Surface::Options full = plane_opts(1.0, SEED_GRID_N);
+    const auto plane64 = Surface::create(std::move(full));
+    const auto ne = plane64->intersect(make_vec3(0.98, 0.98, 2.0), make_vec3(0.0, 0.0, -1.0));
+    CHECK(ne.has_value());
+    if (ne.has_value()) {
+        CHECK(close(ne->t, 2.0, 1e-9) && close(ne->u, 0.98, 1e-7) && close(ne->v, 0.98, 1e-7));
+    }
+
+    // Grazing hit on the z = 0 plane: enters at u ~ 0 after a shallow slope.
+    const double dlen = std::sqrt(1.0 + 0.0004);
+    const auto gr = plane64->intersect(make_vec3(-0.5, 0.0, 0.01),
+                                       make_vec3(1.0 / dlen, 0.0, -0.02 / dlen));
+    CHECK(gr.has_value());
+    if (gr.has_value()) {
+        CHECK(close(gr->t, 0.5 * dlen, 1e-7) && close(gr->u, 0.0, 1e-6) && close(gr->v, 0.0, 1e-7));
+        const Vec3 hit_p = desc_point(plane64->desc(), gr->u, gr->v);
+        CHECK(close(hit_p[2], 0.0, 1e-7));
+    }
+
+    // Parallel above the plane: no forward crossing.
+    CHECK(!plane64->intersect(make_vec3(0.0, 0.0, 1.0), make_vec3(1.0, 0.0, 0.0)).has_value());
+    // Behind the plane pointing further away.
+    CHECK(!plane64->intersect(make_vec3(0.0, 0.0, 1.0), make_vec3(0.0, 0.0, 1.0)).has_value());
+}
+
 }  // namespace
 
 void test_surface() {
@@ -172,4 +229,5 @@ void test_surface() {
     test_graph_probe();
     test_aperture();
     test_sphere_intersect();
+    test_intersect_regression();
 }
