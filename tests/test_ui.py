@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -8,7 +9,7 @@ import pytest
 
 PySide6 = pytest.importorskip("PySide6")
 
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from optics.measurement_plane import MeasurementPlane
 from rendering import demo
@@ -1470,7 +1471,11 @@ def _wait_until(predicate, qt_app, timeout=15.0):
 
 
 def _stub_optimize(lens_z, plane_z):
-    """Replacement for editors.optimize_layout with a fixed winning layout."""
+    """Replacement for editors.optimize_layout with a fixed winning layout.
+
+    Mirrors the real contract of moving only the *free* elements, so a test can
+    tell a locked element's untouched config from a moved one.
+    """
 
     def fake(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
         import copy
@@ -1479,8 +1484,10 @@ def _stub_optimize(lens_z, plane_z):
         from optics.plane_transform import PlaneTransform
 
         config = copy.deepcopy(dict(elements_schema))
-        first = next(iter(config))
-        config[first]["position"] = [0.0, 0.0, lens_z]
+        free = set(kwargs.get("free_element_names") or config)
+        moved = [name for name in config if name in free]
+        if moved:
+            config[moved[0]]["position"] = [0.0, 0.0, lens_z]
         plane_config = {
             "origin": [0.0, 0.0, plane_z],
             "normal": [0.0, 0.0, 1.0],
@@ -1596,3 +1603,140 @@ def test_analysis_optimize_locked_keeps_image_plane(window, qt_app, monkeypatch)
     assert window._state.planes[1].o[2] == z_before
     check = window.findChild(QtWidgets.QCheckBox, "analysisLockImageCheck")
     assert check.isEnabled()
+
+
+# -- Analysis tab: element locks ---------------------------------------------
+
+
+def _lock_table(window):
+    return window.findChild(QtWidgets.QTableWidget, "analysisLockedElementsTable")
+
+
+def _lock_rows(table):
+    """``(element name, locked)`` for every table row, top to bottom."""
+    rows = []
+    for row in range(table.rowCount()):
+        lock = table.item(row, 1).checkState()
+        rows.append((table.item(row, 0).text(), lock == QtCore.Qt.CheckState.Checked))
+    return rows
+
+
+def _set_lock(table, name, locked):
+    for row in range(table.rowCount()):
+        if table.item(row, 0).text() == name:
+            table.item(row, 1).setCheckState(
+                QtCore.Qt.CheckState.Checked if locked else QtCore.Qt.CheckState.Unchecked
+            )
+            return
+    raise AssertionError(f"{name} missing from the lock table")
+
+
+def _optimize_free_names(window, monkeypatch, qt_app):
+    """Run one Optimize Layout and return the ``free_element_names`` it passed."""
+    captured: list[list[str]] = []
+    stub = _stub_optimize(1.0, 5.0)
+
+    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+        captured.append(list(kwargs.get("free_element_names") or []))
+        return stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+
+    monkeypatch.setattr("ui.editors.optimize_layout", spy)
+    window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()
+    _wait_until(
+        lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(), qt_app
+    )
+    return captured[0]
+
+
+def test_analysis_lock_table_lists_the_stack(window):
+    _add_element_and_two_planes(window)
+    assert _lock_rows(_lock_table(window)) == [("lens1", False)]
+
+
+def test_analysis_lock_table_columns_split_the_width(window, qt_app):
+    _add_element_and_two_planes(window)
+    window.show()
+    qt_app.processEvents()
+    table = _lock_table(window)
+    header = table.horizontalHeader()
+    # no row-number gutter, and the two columns tile the viewport exactly
+    assert not table.verticalHeader().isVisible()
+    assert header.stretchLastSection() is False
+    widths = [header.sectionSize(column) for column in range(table.columnCount())]
+    assert min(widths) > 0
+    assert abs(widths[0] - widths[1]) <= 1
+    assert sum(widths) >= table.viewport().width() - 1
+
+
+def test_analysis_lock_table_reflects_a_loaded_stack(make_window, repo_root):
+    window = make_window()
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    assert [name for name, _ in _lock_rows(_lock_table(window))] == ["lens1", "lens2"]
+
+
+def test_analysis_lock_table_tracks_element_add_and_remove(window):
+    _add_element_and_two_planes(window)
+    table = _lock_table(window)
+    _set_lock(table, "lens1", True)
+
+    _trigger_new_element(window)
+    assert _lock_rows(table) == [("lens1", True), ("lens2", False)]
+
+    editor = _editor(window)
+    editor["selector"].setCurrentText("lens1")
+    editor["remove"].click()
+    assert _lock_rows(table) == [("lens2", False)]
+
+
+def test_analysis_optimize_sweeps_every_unlocked_element(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    _trigger_new_element(window)
+    assert _optimize_free_names(window, monkeypatch, qt_app) == ["lens1", "lens2"]
+
+
+def test_analysis_optimize_locks_checked_element(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    _trigger_new_element(window)
+    _set_lock(_lock_table(window), "lens1", True)
+
+    assert _optimize_free_names(window, monkeypatch, qt_app) == ["lens2"]
+    # the checked lens was left out of the free set, so its committed layout is
+    # byte-identical (never even replaced), while the free one moved
+    assert "position" not in window._state.schema["lens1"]
+    assert window._state.schema["lens2"]["position"] == [0.0, 0.0, 1.0]
+
+
+def test_analysis_optimize_disabled_when_all_elements_locked(window):
+    _add_element_and_two_planes(window)
+    button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
+    table = _lock_table(window)
+    assert button.isEnabled()
+
+    _set_lock(table, "lens1", True)
+    assert not button.isEnabled()
+    assert "Unlock at least one element" in button.toolTip()
+
+    _set_lock(table, "lens1", False)
+    assert button.isEnabled()
+    assert button.toolTip() == ""
+
+
+def test_analysis_lock_table_locked_while_optimizing(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    release = threading.Event()
+    stub = _stub_optimize(1.0, 5.0)
+
+    def slow(*args, **kwargs):
+        release.wait(5.0)
+        return stub(*args, **kwargs)
+
+    monkeypatch.setattr("ui.editors.optimize_layout", slow)
+    table = _lock_table(window)
+    window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()
+
+    _wait_until(lambda: not table.isEnabled(), qt_app)
+    release.set()
+    _wait_until(
+        lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(), qt_app
+    )
+    assert table.isEnabled()

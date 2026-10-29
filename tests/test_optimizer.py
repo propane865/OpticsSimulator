@@ -295,6 +295,30 @@ def test_infeasible_image_window_rejected():
         )
 
 
+def test_locked_elements_keep_their_z():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    locked_z = float(schema["lens1"]["position"][2])
+    result = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        free_element_names=["lens2"],
+        element_bounds=_BOUNDS,
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=_FAST,
+    )
+    # The locked lens keeps its z exactly and drops out of the parameter vector:
+    # only lens2 and the image plane are searched.
+    assert result.elements_config["lens1"]["position"][2] == locked_z
+    assert len(result.best_z) == 2
+    assert result.best_z[0] == pytest.approx(result.elements_config["lens2"]["position"][2])
+    assert _BOUNDS["lens2"][0] <= result.best_z[0] <= _BOUNDS["lens2"][1]
+
+
 def test_locked_image_plane_still_focuses_with_the_elements():
     schema, source, p1, p2 = _problem()
     origins, dirs, powers = source.emit_arrays()

@@ -983,6 +983,45 @@
              </layout>
             </item>
             <item>
+             <widget class="QLabel" name="label_37">
+              <property name="text">
+               <string>Locked Elements:</string>
+              </property>
+             </widget>
+            </item>
+             <item>
+              <widget class="QTableWidget" name="analysisLockedElementsTable">
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>120</height>
+                </size>
+               </property>
+               <property name="toolTip">
+                <string>Check an element to hold its z position fixed while the layout is optimized</string>
+               </property>
+               <property name="editTriggers">
+                <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+               </property>
+               <property name="selectionMode">
+                <enum>QAbstractItemView::SelectionMode::NoSelection</enum>
+               </property>
+               <property name="columnCount">
+                <number>2</number>
+               </property>
+               <column>
+                <property name="text">
+                 <string>Element</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Locked?</string>
+                </property>
+               </column>
+              </widget>
+             </item>
+            <item>
              <widget class="QPushButton" name="analysisOptimizeButton">
               <property name="text">
                <string>Optimize Layout</string>

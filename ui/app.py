@@ -57,7 +57,12 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._embed_canvas(canvas)
         self._plane_view = PlaneView(find_child(self, QtWidgets.QWidget, "planeView", UI_PATH.name))
         self._element_editor = ElementEditor(
-            self, self._state, self._scene, self._set_status, self._refresh_trace
+            self,
+            self._state,
+            self._scene,
+            self._set_status,
+            self._refresh_trace,
+            on_elements_changed=lambda: self._analysis_editor.populate(),
         )
         self._source_editor = SourceEditor(
             self, self._state, self._scene, self._set_status, self._refresh_trace
@@ -68,7 +73,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._scene,
             self._set_status,
             self._update_plane_view,
-            on_planes_changed=lambda: self._analysis_editor.populate(),
+            on_populated=lambda: self._analysis_editor.populate(),
         )
         self._analysis_editor = AnalysisEditor(
             self, self._state, self._scene, self._set_status, self._refresh_trace

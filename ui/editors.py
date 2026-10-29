@@ -60,6 +60,9 @@ class _SelectorEditor:
     ``_remove_selected`` / ``_build_new`` / ``_register_new`` used by the
     shared apply/remove/add templates. Subclasses should call
     :meth:`set_enabled` once their own widgets exist (forms start disabled).
+    ``on_populated`` runs at the end of every :meth:`populate_selector`, so the
+    window can keep dependent widgets (the analysis tab's plane combos and
+    element lock table) in sync with the selector's list.
     """
 
     ADD_TITLE: str
@@ -78,13 +81,13 @@ class _SelectorEditor:
         button_box_name: str,
         pos_prefix: str,
         normal_prefix: str,
-        on_planes_changed: Callable[[], None] | None = None,
+        on_populated: Callable[[], None] | None = None,
     ) -> None:
         self._window = window
         self._state = state
         self._scene = scene
         self._set_status = set_status
-        self._on_planes_changed = on_planes_changed
+        self._on_populated = on_populated
         self._selector = find_child(window, QtWidgets.QComboBox, selector_name)
         self._remove_button = find_child(window, QtWidgets.QPushButton, remove_name)
         self._button_box = find_child(window, QtWidgets.QDialogButtonBox, button_box_name)
@@ -119,8 +122,8 @@ class _SelectorEditor:
             self.populate_fields()
         else:
             self._on_no_selection()
-        if self._on_planes_changed is not None:
-            self._on_planes_changed()
+        if self._on_populated is not None:
+            self._on_populated()
 
     def select(self, name: str) -> None:
         self._selector.setCurrentText(name)
@@ -217,10 +220,11 @@ class ElementEditor(_SelectorEditor):
         scene: SceneController,
         set_status: Callable[[str], None],
         refresh_trace: Callable[[], None],
+        on_elements_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
             window, state, scene, set_status, "lensSelector", "removeElementButton", "lensButtonBox",
-            "elementPos", "elementNormal",
+            "elementPos", "elementNormal", on_populated=on_elements_changed,
         )
         self._refresh_trace = refresh_trace
 
@@ -483,11 +487,11 @@ class PlaneEditor(_SelectorEditor):
         scene: SceneController,
         set_status: Callable[[str], None],
         update_view: Callable[[], None],
-        on_planes_changed: Callable[[], None] | None = None,
+        on_populated: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
             window, state, scene, set_status, "planeSelectorCombo", "removePlaneButton", "planeButtonBox",
-            "planePos", "planeNormal", on_planes_changed=on_planes_changed,
+            "planePos", "planeNormal", on_populated=on_populated,
         )
         self._update_view = update_view
 
@@ -606,10 +610,12 @@ class AnalysisEditor:
     button rather than on every trace; results are recomputed (and cleared)
     whenever the plane list changes so stale numbers never linger.
 
-    "Optimize Layout" additionally sweeps every element's z and the image
-    plane's z (:func:`optics.optimizer.optimize_layout`) for best focus, i.e.
-    the smallest per-object-point RMS spot radius on the image plane, and
-    reports the magnification that focused layout delivers; checking "Lock Image
+    "Optimize Layout" additionally sweeps the z of every *unlocked* element and
+    the image plane (:func:`optics.optimizer.optimize_layout`) for best focus,
+    i.e. the smallest per-object-point RMS spot radius on the image plane, and
+    reports the magnification that focused layout delivers; checking an
+    element's "Locked?" box in the lock table holds its z at the current value
+    (it is dropped from the optimizer's free set), and checking "Lock Image
     Plane" pins the image plane's z so only the elements are searched. The
     search runs on a worker thread (the native loop never touches Qt); the
     winning layout is committed through the normal element/plane replace paths
@@ -645,12 +651,22 @@ class AnalysisEditor:
             window, QtWidgets.QPushButton, "analysisOptimizeButton"
         )
         self._lock_image_check = find_child(window, QtWidgets.QCheckBox, "analysisLockImageCheck")
+        self._lock_table = find_child(window, QtWidgets.QTableWidget, "analysisLockedElementsTable")
         self._progress = find_child(window, QtWidgets.QProgressBar, "analysisOptimizeProgress")
         self._labels = {
             key: find_child(window, QtWidgets.QLabel, name) for key, name in self._LABEL_NAMES
         }
+        # Both columns share the viewport width evenly and the last one is not
+        # given the leftover slack, so no empty strip is left beside the table.
+        # The row-number header is hidden for the same reason (QUiLoader ignores
+        # the .ui header attribute, so the visibility is owned here).
+        self._lock_table.verticalHeader().setVisible(False)
+        lock_header = self._lock_table.horizontalHeader()
+        lock_header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+        lock_header.setStretchLastSection(False)
 
         self._optimizing = False
+        self._locked: set[str] = set()
         self._signals = _OptimizeSignals()
         self._signals.finished.connect(self._on_optimized)
         self._signals.failed.connect(self._on_optimize_failed)
@@ -659,14 +675,17 @@ class AnalysisEditor:
         self._optimize_button.clicked.connect(self._on_optimize)
         self._source_combo.currentIndexChanged.connect(self._update_run_enabled)
         self._image_combo.currentIndexChanged.connect(self._update_run_enabled)
+        self._lock_table.itemChanged.connect(self._update_run_enabled)
         self.populate()
 
     def populate(self) -> None:
-        """Refill both plane combos from the current plane names.
+        """Refill both plane combos and the element lock table.
 
-        Selections are preserved by name; the image plane defaults to a plane
-        different from the source so the default selection is analyzable. Fewer
-        than two planes disables the controls and clears any results.
+        Combo selections are preserved by name; the image plane defaults to a
+        plane different from the source so the default selection is analyzable.
+        Fewer than two planes disables the controls and clears any results. The
+        lock table mirrors the element stack (also refreshed whenever the
+        element list changes), keeping each element's lock by name.
         """
         names = list(self._state.plane_names)
         source_sel = self._source_combo.currentText()
@@ -687,8 +706,52 @@ class AnalysisEditor:
             if image_sel not in names or image_sel == source_sel:
                 image_sel = next((name for name in names if name != source_sel), names[1])
             self._image_combo.setCurrentText(image_sel)
+        self._populate_lock_table()
         self._clear_results()
         self._update_run_enabled()
+
+    # -- element lock table ----------------------------------------------------
+    def _populate_lock_table(self) -> None:
+        """Refill the lock table from the element stack, keeping locks by name.
+
+        One row per stack element in stack order, the element name in column 0
+        and a checkable "Locked?" cell in column 1. Checks survive refills
+        (matched by element name), so adding or removing a lens never relocks
+        the remaining ones; names that left the stack are dropped.
+        """
+        names = list((self._state.schema or {}).keys())
+        self._locked = set(self._locked_names()) & set(names)
+        self._lock_table.blockSignals(True)
+        self._lock_table.setRowCount(len(names))
+        for row, name in enumerate(names):
+            label = QtWidgets.QTableWidgetItem(name)
+            label.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable)
+            self._lock_table.setItem(row, 0, label)
+            lock = QtWidgets.QTableWidgetItem("")
+            lock.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+            lock.setToolTip("Hold this element's z fixed while the layout is optimized")
+            lock.setCheckState(
+                QtCore.Qt.CheckState.Checked if name in self._locked else QtCore.Qt.CheckState.Unchecked
+            )
+            self._lock_table.setItem(row, 1, lock)
+        self._lock_table.blockSignals(False)
+
+    def _locked_names(self) -> list[str]:
+        """Names of the checked rows, in table (stack) order."""
+        locked: list[str] = []
+        for row in range(self._lock_table.rowCount()):
+            name_item = self._lock_table.item(row, 0)
+            lock_item = self._lock_table.item(row, 1)
+            if name_item is None or lock_item is None:
+                continue
+            if lock_item.checkState() == QtCore.Qt.CheckState.Checked:
+                locked.append(name_item.text())
+        return locked
+
+    def _free_element_names(self) -> list[str]:
+        """Unlocked stack elements, in stack order (the optimizer's free set)."""
+        locked = set(self._locked_names())
+        return [name for name in (self._state.schema or {}) if name not in locked]
 
     def run(self) -> None:
         """Compute and display the source -> image plane transform."""
@@ -725,12 +788,19 @@ class AnalysisEditor:
         return source >= 0 and image >= 0 and source != image
 
     def _update_run_enabled(self, *_: object) -> None:
-        # Analyze works on any (even empty) stack; optimizing needs elements.
+        # Analyze works on any (even empty) stack; optimizing needs elements and
+        # at least one of them unlocked (a fully locked stack has nothing to do).
         selection = self._valid_selection()
         self._run_button.setEnabled(selection and not self._optimizing)
+        schema = self._state.schema
+        has_free = bool(self._free_element_names())
         self._optimize_button.setEnabled(
-            selection and self._state.schema is not None and not self._optimizing
+            selection and schema is not None and has_free and not self._optimizing
         )
+        if schema and not has_free:
+            self._optimize_button.setToolTip("Unlock at least one element to optimize")
+        else:
+            self._optimize_button.setToolTip("")
 
     def _clear_results(self) -> None:
         for label in self._labels.values():
@@ -738,12 +808,16 @@ class AnalysisEditor:
 
     # -- layout optimization ---------------------------------------------------
     def _on_optimize(self) -> None:
-        """Sweep free z positions on a worker thread toward best focus."""
+        """Sweep the unlocked elements' z (and the image plane's) on a worker thread."""
         if self._optimizing or not self._valid_selection():
             return
         schema = self._state.schema
         if not schema:
             self._set_status("Load an optical stack before optimizing")
+            return
+        free = self._free_element_names()
+        if not free:
+            self._set_status("Unlock at least one element to optimize")
             return
         planes = self._state.planes
         source_plane = planes[self._source_combo.currentIndex()]
@@ -769,6 +843,7 @@ class AnalysisEditor:
                     origins,
                     dirs,
                     powers,
+                    free_element_names=free,
                     image_bounds=image_bounds,
                     optimization=spec,
                 )
@@ -783,6 +858,7 @@ class AnalysisEditor:
         self._optimizing = running
         enable_widgets([self._source_combo, self._image_combo], not running)
         self._lock_image_check.setEnabled(not running)
+        self._lock_table.setEnabled(not running)
         self._progress.setVisible(running)
         if running:
             self._run_button.setEnabled(False)
