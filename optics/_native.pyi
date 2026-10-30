@@ -204,6 +204,12 @@ def optimize_layout(
     stall_generations: int = 60,
     xatol: float = 1e-6,
     fatol: float = 1e-10,
+    max_norm_blur: float = 0.10,
+    blur_all_factor: float = 2.0,
+    worst_field_factor: float = 2.0,
+    polish_gate: float = 5.0,
+    stop_on_focus: bool = True,
+    autofocus_plane: bool = False,
 ) -> dict[str, Any]: ...
 def trace_segments_and_planes(
     stack: TraceStack,

@@ -17,13 +17,28 @@ so it tends to zero as the spot tightens; a point-array source gives a genuine
 image magnification.) Smooth penalties keep enough correspondences alive to
 judge focus and keep the stack in order. Because the metric is
 piecewise-discontinuous (sigma clipping, vignetting, total internal
-reflection), the solver is a bounded differential evolution plus a
-Nelder-Mead polish, executed natively with transform-only stack variants (no
-expression recompiles per evaluation).
+reflection), the solver is a Latin-hypercube-initialized bounded differential
+evolution plus a gated Nelder-Mead polish, executed natively with
+transform-only stack variants (no expression recompiles per evaluation).
+Candidates are compared focus-first, and the search can stop as soon as an
+accepted layout exists. By default the image-plane z is profiled out of the
+global search: each candidate element layout is evaluated at its own
+best-focus plane z through a deterministic nested 1-D scan, shrinking the
+global problem by one dimension.
 
 The result carries applied-ready configs: a deep-copied elements mapping with
 updated ``position`` z's and an updated image-plane config, so callers can
-commit through their normal replace paths.
+commit through their normal replace paths. The contract is strict: a returned
+:class:`OptimizationResult` *is* a physically focused layout -- the winner must
+meet the configured focus tolerances (clipped and unclipped spot radius, worst
+field point, correspondence fraction, stacking order), and any other outcome
+raises :class:`OptimizationError` instead, so an unfocused minimum can never
+be committed downstream. ``LensOptimization.allow_suboptimal`` relaxes the
+contract: a search that exhausts its budget without an accepted layout
+(native status ``no-focus-found``) then returns its best-effort layout with
+that non-``ok`` status instead of raising. Layouts with nothing measurable
+(``infeasible``/``empty-problem``) still raise -- there is no meaningful
+layout to return.
 """
 
 from __future__ import annotations
@@ -44,7 +59,7 @@ from .plane_transform import PlaneTransform, plane_transform
 from .primitive import Ray
 from .system import OpticalSystem
 
-__all__ = ["LensOptimization", "OptimizationResult", "optimize_layout"]
+__all__ = ["LensOptimization", "OptimizationError", "OptimizationResult", "optimize_layout"]
 
 # Default z search window around each free element / plane position (mm).
 _DEFAULT_WINDOW = 12.0
@@ -54,9 +69,29 @@ _DEFAULT_MIN_GAP = 1.0
 _IMAGE_WINDOW = 15.0
 
 
+class OptimizationError(RuntimeError):
+    """Raised by :func:`optimize_layout` when no layout satisfying the focus
+    acceptance criteria was found; the input layout is left untouched."""
+
+
 @dataclass(frozen=True)
 class LensOptimization:
-    """Objective weights and solver knobs for :func:`optimize_layout`."""
+    """Objective weights and solver knobs for :func:`optimize_layout`.
+
+    Focus acceptance is a hard contract, not a weighted hope: the winner must
+    have the clipped RMS spot radius at most ``max_normalized_blur`` (in units
+    of the source-plane footprint), the *unclipped* pooled radius at most
+    ``blur_all_factor`` times that tolerance (sigma clipping must not
+    manufacture an apparently sharp focus), the unclipped worst-object-point
+    radius at most ``worst_field_factor`` times that tolerance (every field
+    point must focus, not just the pooled average), at least
+    ``min_correspondence_fraction`` of the rays keeping valid
+    correspondences, and gap-free stacking order. Anything else raises
+    :class:`OptimizationError`, unless ``allow_suboptimal`` is set: then a
+    search that ends without an accepted layout returns its best-effort
+    layout with status ``no-focus-found`` instead of raising (an
+    unmeasurable run -- ``infeasible``/``empty-problem`` -- still raises).
+    """
 
     weight_focus: float = 1.0
     weight_vignette: float = 1.0
@@ -67,6 +102,27 @@ class LensOptimization:
     anchor_weight: float = 1e-6
     min_correspondence_fraction: float = 0.5
     min_gap: float = _DEFAULT_MIN_GAP
+    # Focus acceptance tolerances (normalized by the source-plane footprint).
+    max_normalized_blur: float = 0.10
+    blur_all_factor: float = 2.0
+    worst_field_factor: float = 2.0
+    # Return the best layout found even when no candidate passed focus
+    # acceptance (status ``no-focus-found``) instead of raising; unmeasurable
+    # runs (``infeasible``/``empty-problem``) raise regardless.
+    allow_suboptimal: bool = False
+    # Search knobs. Nelder-Mead only polishes a promising minimum (normalized
+    # blur within ``polish_gate`` times the acceptance tolerance), and DE stops
+    # early once an accepted focused layout exists unless
+    # ``stop_on_focus`` is cleared and the absolute best is demanded.
+    polish_gate: float = 5.0
+    stop_on_focus: bool = True
+    # Profile the image-plane z out of the global search: every candidate
+    # layout is evaluated at its own best-focus plane z (deterministic nested
+    # 1-D bracket + golden-section scan). That shrinks the global problem by
+    # one dimension and removes the flat direction along which a lens and the
+    # image plane translate together while staying in focus. A pinned image
+    # window (``image_bounds=(z, z)``) degenerates to a single evaluation.
+    autofocus_image_plane: bool = True
     seed: int = 0
     population: int = 0  # 0: native default scaled by dimension
     generations: int = 200
@@ -99,6 +155,10 @@ class OptimizationResult:
     evaluations: int
     history: np.ndarray
     status: str
+    # Unclipped acceptance radii of the winning layout: pooled and worst
+    # per-object-point RMS spot radius over every valid correspondence.
+    blur_all_mm: float = float("nan")
+    worst_field_mm: float = float("nan")
 
 
 def _stack_z_positions(schema: Mapping[str, Any]) -> list[float]:
@@ -131,10 +191,18 @@ def optimize_layout(
     as :attr:`OptimizationResult.transform`'s ``scale``. Free elements default
     to every stack element; explicit ``element_bounds`` / ``image_bounds``
     override the default windows. A degenerate ``image_bounds=(z, z)`` window
-    pins the image plane (locks its z) so only the elements are searched.
+    pins the image plane (locks its z) so only the elements are searched;
+    otherwise ``LensOptimization.autofocus_image_plane`` profiles the image
+    plane's z out of the global search, evaluating each candidate layout at
+    its own best-focus plane z.
     Raises :class:`ValueError` for an invalid problem (no elements, identical
     planes, fewer than four base correspondences, or a degenerate parameter
-    window).
+    window) and :class:`OptimizationError` when no layout meeting the focus
+    acceptance criteria of ``optimization`` is found -- a returned result is
+    always a validated focused layout, unless
+    ``LensOptimization.allow_suboptimal`` is set, in which case a budget-
+    exhausted unfocused best-effort layout is returned with status
+    ``no-focus-found``.
     """
     layout = optimization if optimization is not None else LensOptimization()
     if source_plane is image_plane:
@@ -271,7 +339,32 @@ def optimize_layout(
         generations=int(layout.generations),
         max_evals=int(layout.max_evals),
         nm_iterations=int(layout.nm_iterations),
+        max_norm_blur=float(layout.max_normalized_blur),
+        blur_all_factor=float(layout.blur_all_factor),
+        worst_field_factor=float(layout.worst_field_factor),
+        polish_gate=float(layout.polish_gate),
+        stop_on_focus=bool(layout.stop_on_focus),
+        autofocus_plane=bool(layout.autofocus_image_plane),
     )
+
+    status = str(outcome["status"])
+    if status != "ok" and not (status == "no-focus-found" and layout.allow_suboptimal):
+        # The native solver only reports ``ok`` for a layout that passed every
+        # focus acceptance check; anything else is a failure, never a result,
+        # so callers cannot accidentally commit an unfocused minimum --
+        # unless suboptimal convergence was explicitly allowed (and the run
+        # at least traced a measurable layout, which ``no-focus-found``
+        # guarantees).
+        evals = int(outcome["evals"])
+        tol = float(layout.max_normalized_blur) * blur_ref
+        raise OptimizationError(
+            f"no focused configuration was found within the allowed parameter "
+            f"ranges after {evals} evaluations ({status}). Best RMS spot "
+            f"radius: {float(outcome['blur']):.4g} mm clipped, "
+            f"{float(outcome['blur_all']):.4g} mm unclipped, worst field "
+            f"{float(outcome['blur_max']):.4g} mm; required at most "
+            f"{tol:.4g} mm clipped."
+        )
 
     best = np.asarray(outcome["best"], dtype=float)
     updated: dict[str, Any] = copy.deepcopy(dict(elements_schema))
@@ -303,9 +396,9 @@ def optimize_layout(
     try:
         transform = plane_transform(rays, [source_plane, new_plane], new_system)
     except ValueError:
-        # An infeasible or degenerate winner (too few kept correspondences, or a
-        # footprint collapsed enough that no similarity fits it) still reports
-        # the native fit's numbers; ``status`` carries the verdict.
+        # A degenerate winner footprint that no similarity fits still reports
+        # the native fit's numbers (acceptance already guaranteed enough
+        # correspondences).
         transform = PlaneTransform(
             scale=float(outcome["scale"]),
             rotation_deg=float("nan"),
@@ -324,5 +417,7 @@ def optimize_layout(
         cost=float(outcome["cost"]),
         evaluations=int(outcome["evals"]),
         history=np.asarray(outcome["history"], dtype=float),
-        status=str(outcome["status"]),
+        status=status,
+        blur_all_mm=float(outcome["blur_all"]),
+        worst_field_mm=float(outcome["blur_max"]),
     )

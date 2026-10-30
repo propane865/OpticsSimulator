@@ -197,12 +197,13 @@ ClippedSimilarity fit_clipped_similarity(const double* src, const double* dst, s
 
 double spot_radius(const double* dst, const unsigned char* keep, const std::int32_t* groups,
                    const double* power, std::size_t n, std::size_t n_groups,
-                   std::vector<double>& scratch) {
+                   std::vector<double>& scratch, double* per_group) {
     const std::size_t ng = groups == nullptr ? 1 : std::max<std::size_t>(n_groups, 1);
-    scratch.assign(3 * ng, 0.0);
+    scratch.assign(4 * ng, 0.0);
     double* wsum = scratch.data();
     double* su = wsum + ng;
     double* sv = su + ng;
+    double* ssq = sv + ng;
     double total = 0.0;
     for (std::size_t i = 0; i < n; ++i) {
         if (keep != nullptr && keep[i] == 0) {
@@ -264,6 +265,14 @@ double spot_radius(const double* dst, const unsigned char* keep, const std::int3
         const double du = u - su[slot];
         const double dv = v - sv[slot];
         sum += w * (du * du + dv * dv);
+        ssq[slot] += w * (du * du + dv * dv);
+    }
+    if (per_group != nullptr) {
+        for (std::size_t slot = 0; slot < ng; ++slot) {
+            per_group[slot] = wsum[slot] > 0.0
+                                  ? std::sqrt(ssq[slot] / wsum[slot])
+                                  : std::numeric_limits<double>::quiet_NaN();
+        }
     }
     return std::sqrt(sum / total);
 }

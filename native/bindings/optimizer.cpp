@@ -39,7 +39,10 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
                             std::int64_t clip_iters, double clip_sigma, std::int64_t seed,
                             std::int64_t population, std::int64_t generations,
                             std::int64_t max_evals, std::int64_t nm_iterations,
-                            std::int64_t stall_generations, double xatol, double fatol) {
+                            std::int64_t stall_generations, double xatol, double fatol,
+                            double max_norm_blur, double blur_all_factor,
+                            double worst_field_factor, double polish_gate, bool stop_on_focus,
+                            bool autofocus_plane) {
     const ConstDoubles x0 = read_doubles(x_init, 1, "x_init");
     const ConstDoubles lower = read_doubles(lo, 1, "lo");
     const ConstDoubles upper = read_doubles(hi, 1, "hi");
@@ -115,11 +118,25 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
     spec.stall_generations = static_cast<int>(stall_generations);
     spec.xatol = xatol;
     spec.fatol = fatol;
+    spec.max_norm_blur = max_norm_blur;
+    spec.blur_all_factor = blur_all_factor;
+    spec.worst_field_factor = worst_field_factor;
+    spec.polish_gate = polish_gate;
+    spec.stop_on_focus = stop_on_focus;
+    spec.autofocus_plane = autofocus_plane;
     require(spec.max_evals >= 8, "max_evals: expected at least 8");
     require(std::isfinite(spec.blur_ref) && spec.blur_ref > 0.0,
             "blur_ref: expected a positive finite normalization length");
     require(std::isfinite(spec.w_focus) && spec.w_focus >= 0.0,
             "w_focus: expected a finite non-negative weight");
+    require(std::isfinite(spec.max_norm_blur) && spec.max_norm_blur >= 0.0,
+            "max_norm_blur: expected a finite non-negative focus tolerance");
+    require(std::isfinite(spec.blur_all_factor) && spec.blur_all_factor >= 1.0,
+            "blur_all_factor: expected a finite multiplier >= 1");
+    require(std::isfinite(spec.worst_field_factor) && spec.worst_field_factor >= 1.0,
+            "worst_field_factor: expected a finite multiplier >= 1");
+    require(std::isfinite(spec.polish_gate) && spec.polish_gate >= 0.0,
+            "polish_gate: expected a finite non-negative multiplier");
 
     const optics::native::OptimizerOutcome outcome = [&] {
         const py::gil_scoped_release release;
@@ -145,7 +162,10 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
     result["scale"] = outcome.scale;
     result["rms"] = outcome.rms;
     result["blur"] = outcome.blur;
+    result["blur_all"] = outcome.blur_all;
+    result["blur_max"] = outcome.blur_max;
     result["n_used"] = outcome.n_used;
+    result["n_shared"] = outcome.n_shared;
     result["n_total"] = outcome.n_total;
     result["evals"] = outcome.evals;
     result["status"] = outcome.status;
@@ -169,7 +189,10 @@ void register_optimizer(py::module_& m) {
           py::arg("clip_sigma") = 3.0, py::arg("seed") = 0, py::arg("population") = 0,
           py::arg("generations") = 300, py::arg("max_evals") = 6000,
           py::arg("nm_iterations") = 1500, py::arg("stall_generations") = 60,
-          py::arg("xatol") = 1e-6, py::arg("fatol") = 1e-10);
+          py::arg("xatol") = 1e-6, py::arg("fatol") = 1e-10, py::arg("max_norm_blur") = 0.10,
+          py::arg("blur_all_factor") = 2.0, py::arg("worst_field_factor") = 2.0,
+          py::arg("polish_gate") = 5.0, py::arg("stop_on_focus") = true,
+          py::arg("autofocus_plane") = false);
 }
 
 }  // namespace optics::bindings

@@ -1,17 +1,22 @@
 """Best-focus layout-optimization tests: convergence, reporting, determinism,
-bounds and validation.
+bounds, focus acceptance and validation.
 
 Uses the doublet example with the point source moved to ``_SOURCE_Z`` so the
 doublet forms a real image inside the search window (the shipped object at
 z = 50 images inside the lens stack, leaving no interior focus to find) with a
 reduced ray fan so the whole module stays a few seconds. Convergence is judged
 against a brute-force one-dimensional sweep of the image plane, so the tests
-pin the metric rather than the solver's path. The native kernels (fit parity,
-transform-variant equivalence, spot radius) are covered by the C++ suite
-(``native/tests/test_optimizer.cpp``).
+pin the metric rather than the solver's path. The acceptance contract is
+pinned too: a returned result is always a validated focused layout and an
+unmeetable tolerance raises instead of reporting a finite-but-unfocused
+minimum. Nested image-plane autofocus (the default) is exercised by every
+open-window run above, and pinned explicitly by the locked-plane test. The
+native kernels (fit parity, transform-variant equivalence, spot radius) are
+covered by the C++ suite (``native/tests/test_optimizer.cpp``).
 """
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +25,7 @@ import pytest
 from optics import examples as _examples
 from optics.config import stack_from_config
 from optics.measurement_plane import MeasurementPlane
-from optics.optimizer import LensOptimization, optimize_layout
+from optics.optimizer import LensOptimization, OptimizationError, optimize_layout
 from optics.plane_transform import plane_transform
 from optics.project import parse_project
 from optics.source import PointSource
@@ -30,7 +35,17 @@ _SOURCE_Z = 150.0
 _BOUNDS = {"lens1": (14.0, 20.0), "lens2": (-15.0, -10.0)}
 _IMAGE_BOUNDS = (-40.0, -20.0)
 _FAST = LensOptimization(
-    seed=7, generations=60, max_evals=900, nm_iterations=400, anchor_weight=1e-6
+    seed=7,
+    generations=60,
+    max_evals=900,
+    nm_iterations=400,
+    anchor_weight=1e-6,
+    # Tight acceptance: this fixture's best focus sits at ~0.026 normalized
+    # blur (and ~0.030 with one lens locked), well under the defocused base
+    # near 0.22. No early stop: the shared module fixture proves the solver's
+    # best, not its first accepted find, and stays bit-deterministic.
+    max_normalized_blur=0.035,
+    stop_on_focus=False,
 )
 
 
@@ -325,6 +340,13 @@ def test_locked_image_plane_still_focuses_with_the_elements():
     system = _system(schema)
     base_radius = _spot_radius(system, p2, origins, dirs, powers, p1)
     z_image = float(p2.o[2])
+    # The image of this object sits in front of the pinned plane, so lens
+    # shift alone cannot reach the waist: the best layout lands about 0.052
+    # normalized blur instead of the free-window 0.026. The test demands its
+    # own tolerance (the autofocus scan degenerates to a single evaluation on
+    # the pinned window), which a clearly-defocused minimum still cannot meet
+    # -- the defocused base sits near 0.22.
+    spec = replace(_FAST, max_normalized_blur=0.1)
     result = optimize_layout(
         schema,
         p1,
@@ -334,10 +356,113 @@ def test_locked_image_plane_still_focuses_with_the_elements():
         powers,
         element_bounds=_BOUNDS,
         image_bounds=(z_image, z_image),
-        optimization=_FAST,
+        optimization=spec,
     )
     assert result.best_z[-1] == pytest.approx(z_image, abs=0.0)
     assert result.image_plane_config["origin"][2] == z_image
     # Focusing by lens shift alone cannot reach the waist (the image of this
     # object sits in front of the pinned plane) but it must sharpen a lot.
     assert result.spot_radius_mm < base_radius / 3.0
+
+
+def test_unmeetable_focus_threshold_raises():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    # The best focus this doublet can form is a finite spot, so a tolerance of
+    # zero can never be met: the finite minimum must raise, not be reported.
+    spec = replace(_FAST, max_normalized_blur=0.0)
+    with pytest.raises(OptimizationError, match="no focused configuration"):
+        optimize_layout(
+            schema,
+            p1,
+            p2,
+            origins,
+            dirs,
+            powers,
+            element_bounds=_BOUNDS,
+            image_bounds=_IMAGE_BOUNDS,
+            optimization=spec,
+        )
+
+
+def test_allow_suboptimal_returns_the_best_effort_layout():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    # Same unmeetable tolerance, but suboptimal convergence is allowed: the
+    # budget-exhausted minimum is returned with its non-ok status instead of
+    # raising, with usable configs and finite acceptance radii.
+    spec = replace(_FAST, max_normalized_blur=0.0, allow_suboptimal=True)
+    result = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_BOUNDS,
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=spec,
+    )
+    assert result.status == "no-focus-found"
+    assert np.isfinite(result.spot_radius_mm) and result.spot_radius_mm > 0.0
+    assert np.isfinite(result.blur_all_mm) and np.isfinite(result.worst_field_mm)
+    assert _BOUNDS["lens1"][0] <= result.best_z[0] <= _BOUNDS["lens1"][1]
+    assert _IMAGE_BOUNDS[0] <= result.best_z[-1] <= _IMAGE_BOUNDS[1]
+    MeasurementPlane(**result.image_plane_config)  # config is plane-buildable
+
+
+def test_allow_suboptimal_still_raises_when_unmeasurable():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    # A plane behind the downward ray fan yields no correspondences anywhere:
+    # the run is unmeasurable ("infeasible"), so even an allowed suboptimal
+    # convergence has no meaningful layout to return and must raise.
+    spec = replace(_FAST, allow_suboptimal=True)
+    with pytest.raises(OptimizationError, match="infeasible"):
+        optimize_layout(
+            schema,
+            p1,
+            p2,
+            origins,
+            dirs,
+            powers,
+            element_bounds=_BOUNDS,
+            image_bounds=(200.0, 200.0),
+            optimization=spec,
+        )
+
+
+def test_early_focus_stop_saves_evaluations():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    full = LensOptimization(
+        seed=7, generations=300, max_evals=6000, nm_iterations=1500,
+        max_normalized_blur=0.03,
+    )
+    early = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_BOUNDS,
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=replace(full, stop_on_focus=True),
+    )
+    exhaustive = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_BOUNDS,
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=replace(full, stop_on_focus=False),
+    )
+    # "a valid focused layout" is accepted early instead of grinding through
+    # the whole budget proving global optimality -- at equal sharpness.
+    assert early.status == "ok" and exhaustive.status == "ok"
+    assert early.evaluations < exhaustive.evaluations / 3.0
+    assert early.spot_radius_mm <= exhaustive.spot_radius_mm * 1.05

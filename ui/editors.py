@@ -619,7 +619,12 @@ class AnalysisEditor:
     Plane" pins the image plane's z so only the elements are searched. The
     search runs on a worker thread (the native loop never touches Qt); the
     winning layout is committed through the normal element/plane replace paths
-    when it arrives on the UI thread.
+    when it arrives on the UI thread. ``optimize_layout`` only returns a layout
+    that passed the focus acceptance contract, so anything short of a validated
+    focused configuration surfaces as "Optimization failed: ..." and leaves the
+    current system untouched -- unless "Allow Suboptimal Convergence" is
+    checked, in which case the best layout found is committed anyway and the
+    status bar labels it suboptimal.
     """
 
     PLACEHOLDER = "\u2014"
@@ -651,6 +656,9 @@ class AnalysisEditor:
             window, QtWidgets.QPushButton, "analysisOptimizeButton"
         )
         self._lock_image_check = find_child(window, QtWidgets.QCheckBox, "analysisLockImageCheck")
+        self._allow_suboptimal_check = find_child(
+            window, QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck"
+        )
         self._lock_table = find_child(window, QtWidgets.QTableWidget, "analysisLockedElementsTable")
         self._progress = find_child(window, QtWidgets.QProgressBar, "analysisOptimizeProgress")
         self._labels = {
@@ -826,7 +834,7 @@ class AnalysisEditor:
         # runs, but this keeps the worker free of any shared mutable state.
         schema_snapshot = copy.deepcopy(schema)
         origins, dirs, powers = self._state.rays_arrays()
-        spec = LensOptimization()
+        spec = LensOptimization(allow_suboptimal=self._allow_suboptimal_check.isChecked())
         image_bounds: tuple[float, float] | None = None
         if self._lock_image_check.isChecked():
             z_image = float(image_plane.o[2])
@@ -858,6 +866,7 @@ class AnalysisEditor:
         self._optimizing = running
         enable_widgets([self._source_combo, self._image_combo], not running)
         self._lock_image_check.setEnabled(not running)
+        self._allow_suboptimal_check.setEnabled(not running)
         self._lock_table.setEnabled(not running)
         self._progress.setVisible(running)
         if running:
@@ -886,10 +895,17 @@ class AnalysisEditor:
         self._refresh_trace()
         self.run()
         fit = result.transform
-        self._set_status(
-            f"Optimized in {result.evaluations} evaluations: best focus "
-            f"spot={result.spot_radius_mm:.3g} mm, M={fit.scale:.4g}"
-        )
+        if result.status == "ok":
+            self._set_status(
+                f"Optimized in {result.evaluations} evaluations: best focus "
+                f"spot={result.spot_radius_mm:.3g} mm, M={fit.scale:.4g}"
+            )
+        else:
+            self._set_status(
+                f"Optimized (suboptimal: no focused layout, status {result.status}) "
+                f"in {result.evaluations} evaluations: spot={result.spot_radius_mm:.3g} mm, "
+                f"worst field={result.worst_field_mm:.3g} mm, M={fit.scale:.4g}"
+            )
 
     def _on_optimize_failed(self, message: str) -> None:
         self._set_optimizing(False)

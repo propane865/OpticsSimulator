@@ -55,9 +55,12 @@ ClippedSimilarity fit_clipped_similarity(const double* src, const double* dst, s
 // ``groups == nullptr`` treats all points as one object point, and
 // ``power == nullptr`` weights every hit equally. Non-positive or non-finite
 // weights are dropped. ``scratch`` is caller-owned work space, resized to
-// ``3 * n_groups``; returns NaN when no weighted point is kept.
+// ``4 * n_groups``; returns NaN when no weighted point is kept. When
+// ``per_group`` is non-null it receives ``n_groups`` per-object-point RMS
+// radii (NaN for groups with no kept weight), so a caller can guard the worst
+// field point instead of only the pooled average.
 double spot_radius(const double* dst, const unsigned char* keep, const std::int32_t* groups,
                    const double* power, std::size_t n, std::size_t n_groups,
-                   std::vector<double>& scratch);
+                   std::vector<double>& scratch, double* per_group = nullptr);
 
 }  // namespace optics::native

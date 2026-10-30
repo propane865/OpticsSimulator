@@ -1470,11 +1470,12 @@ def _wait_until(predicate, qt_app, timeout=15.0):
         time.sleep(0.005)
 
 
-def _stub_optimize(lens_z, plane_z):
+def _stub_optimize(lens_z, plane_z, status="ok"):
     """Replacement for editors.optimize_layout with a fixed winning layout.
 
     Mirrors the real contract of moving only the *free* elements, so a test can
-    tell a locked element's untouched config from a moved one.
+    tell a locked element's untouched config from a moved one. ``status`` lets
+    a stub emulate the best-effort result an allowed-suboptimal run returns.
     """
 
     def fake(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
@@ -1512,7 +1513,7 @@ def _stub_optimize(lens_z, plane_z):
             cost=0.0,
             evaluations=123,
             history=np.array([1.0, 0.5]),
-            status="ok",
+            status=status,
         )
 
     return fake
@@ -1603,6 +1604,54 @@ def test_analysis_optimize_locked_keeps_image_plane(window, qt_app, monkeypatch)
     assert window._state.planes[1].o[2] == z_before
     check = window.findChild(QtWidgets.QCheckBox, "analysisLockImageCheck")
     assert check.isEnabled()
+
+
+def _suboptimal_probe(window, monkeypatch, qt_app, allowed):
+    """Run one Optimize Layout with the suboptimal box in ``allowed`` and
+    return the ``allow_suboptimal`` flag of the spec handed to the optimizer."""
+    captured: dict[str, object] = {}
+    stub = _stub_optimize(1.0, 5.0)
+
+    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+        captured["spec"] = kwargs.get("optimization", "MISSING")
+        result = stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+        captured["done"] = True
+        return result
+
+    monkeypatch.setattr("ui.editors.optimize_layout", spy)
+    check = window.findChild(QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck")
+    check.setChecked(allowed)
+    button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
+    button.click()
+    # done-only would race the UI-thread commit (the next probe needs
+    # _optimizing cleared), so wait for the controller to re-enable the button
+    _wait_until(lambda: captured.get("done") and button.isEnabled(), qt_app)
+    return captured["spec"].allow_suboptimal
+
+
+def test_analysis_optimize_suboptimal_checkbox_reaches_optimizer(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    assert _suboptimal_probe(window, monkeypatch, qt_app, allowed=False) is False
+    assert _suboptimal_probe(window, monkeypatch, qt_app, allowed=True) is True
+
+
+def test_analysis_optimize_suboptimal_commits_with_warning(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    monkeypatch.setattr(
+        "ui.editors.optimize_layout", _stub_optimize(1.0, 5.0, status="no-focus-found")
+    )
+    check = window.findChild(QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck")
+    check.setChecked(True)
+    button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
+    button.click()
+    _wait_until(
+        lambda: "suboptimal" in window.statusBar().currentMessage().lower(),
+        qt_app,
+    )
+    # the unfocused best-effort layout is committed through the normal paths
+    assert window._state.schema["lens1"]["position"] == [0.0, 0.0, 1.0]
+    assert window._state.planes[1].o[2] == 5.0
+    assert button.isEnabled()
 
 
 # -- Analysis tab: element locks ---------------------------------------------
