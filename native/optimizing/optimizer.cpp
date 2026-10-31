@@ -27,6 +27,34 @@ inline double clamp_box(double v, double lo, double hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// Bit-reverse a 64-bit integer: the base-2 radical-inverse (van der Corput)
+// key for index ``i``. Sorting indices by this key yields a low-discrepancy
+// point order whose prefixes stay evenly spread across ``[0, n)`` AND nest (a
+// prefix is a subset of every longer prefix), so coarse fidelity levels drawn as
+// prefixes represent the whole fan and supersets reuse lower-level rays.
+std::uint64_t reverse_bits64(std::uint64_t x) {
+    x = ((x & 0xAAAAAAAAAAAAAAAAULL) >> 1) | ((x & 0x5555555555555555ULL) << 1);
+    x = ((x & 0xCCCCCCCCCCCCCCCCULL) >> 2) | ((x & 0x3333333333333333ULL) << 2);
+    x = ((x & 0xF0F0F0F0F0F0F0F0ULL) >> 4) | ((x & 0x0F0F0F0F0F0F0F0FULL) << 4);
+    x = ((x & 0xFF00FF00FF00FF00ULL) >> 8) | ((x & 0x00FF00FF00FF00FFULL) << 8);
+    x = ((x & 0xFFFF0000FFFF0000ULL) >> 16) | ((x & 0x0000FFFF0000FFFFULL) << 16);
+    x = (x >> 32) | (x << 32);
+    return x;
+}
+
+// Permutation ``out`` of ``0..n-1`` where ``out[k]`` is the source-ray index of
+// the k-th van der Corput point; the first ``k`` entries are the k-ray fidelity
+// set (a contiguous prefix after a single gather).
+std::vector<std::size_t> nested_ray_order(std::size_t n) {
+    std::vector<std::size_t> out(n);
+    std::iota(out.begin(), out.end(), std::size_t{0});
+    std::stable_sort(out.begin(), out.end(), [](std::size_t a, std::size_t b) {
+        return reverse_bits64(static_cast<std::uint64_t>(a)) <
+               reverse_bits64(static_cast<std::uint64_t>(b));
+    });
+    return out;
+}
+
 class LayoutObjective {
   public:
     struct Stats {
@@ -78,6 +106,24 @@ class LayoutObjective {
         dst_power_.reserve(n_rays_);
         keep_.assign(n_rays_, 1);
         x_full_.assign(d_, 0.0);
+        // Deterministic low-discrepancy ray ordering: one gather so a fidelity
+        // level uses a contiguous prefix view of a whole-fan permutation whose
+        // prefixes nest. Used only by the pipeline (the legacy path traces the
+        // fan in its natural order, staying bit-identical to before).
+        order_ = nested_ray_order(n_rays_);
+        po_.resize(3 * n_rays_);
+        pd_.resize(3 * n_rays_);
+        pp_.resize(n_rays_);
+        pg_.assign(n_rays_, 0);
+        for (std::size_t k = 0; k < n_rays_; ++k) {
+            const std::size_t idx = order_[k];
+            for (int c = 0; c < 3; ++c) {
+                po_[3 * k + c] = spec.rays.origins[3 * idx + c];
+                pd_[3 * k + c] = spec.rays.directions[3 * idx + c];
+            }
+            pp_[k] = spec.rays.powers[idx];
+            pg_[k] = spec.groups != nullptr ? spec.groups[idx] : 0;
+        }
     }
 
     std::int64_t evals() const { return evals_; }
@@ -225,7 +271,13 @@ class LayoutObjective {
         std::fill_n(vs_.begin(), 2 * n, std::numeric_limits<double>::quiet_NaN());
         std::fill_n(pws_.begin(), 2 * n, 0.0);
         const MeasurementOutputView out{us_.data(), vs_.data(), pws_.data()};
-        const RayBatchView fan{spec_.rays.origins, spec_.rays.directions, spec_.rays.powers, n};
+        // The pipeline traces a low-discrepancy prefix (po_/pd_/pp_/pg_); the
+        // legacy path keeps the natural fan order (bit-identical to before).
+        const bool reordered = spec_.enable_pipeline;
+        const RayBatchView fan{reordered ? po_.data() : spec_.rays.origins,
+                               reordered ? pd_.data() : spec_.rays.directions,
+                               reordered ? pp_.data() : spec_.rays.powers, n};
+        const std::int32_t* group_ptr = reordered ? pg_.data() : spec_.groups;
         measure_planes_multi(variant, fan, planes_view_, spec_.plane_eps, out);
 
         // Shared valid correspondences (same mask as ``plane_transform``).
@@ -250,7 +302,7 @@ class LayoutObjective {
             src_.push_back(va[i]);
             dst_.push_back(ub[i]);
             dst_.push_back(vb[i]);
-            dst_group_.push_back(spec_.groups != nullptr ? spec_.groups[i] : 0);
+            dst_group_.push_back(group_ptr != nullptr ? group_ptr[i] : 0);
             dst_power_.push_back(pb[i]);
         }
         const std::size_t shared = src_.size() / 2;
@@ -338,6 +390,9 @@ class LayoutObjective {
     PlaneBatchView planes_view_{};
     std::vector<std::size_t> free_slot_;
     std::size_t n_rays_;
+    std::vector<std::size_t> order_;
+    std::vector<double> po_, pd_, pp_;
+    std::vector<std::int32_t> pg_;
     std::vector<double> us_, vs_, pws_;
     std::vector<double> src_, dst_;
     std::vector<std::int32_t> dst_group_;
