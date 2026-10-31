@@ -11,6 +11,7 @@
 #include <tuple>
 #include <vector>
 
+#include "optics/common/constants.hpp"
 #include "optics/intersection/mesh.hpp"
 #include "optics/intersection/plane.hpp"
 
@@ -64,9 +65,11 @@ namespace optics::bindings {
 
 void register_kernels(py::module_& m) {
     m.def("plane_intersect", &py_plane_intersect, py::arg("ro"), py::arg("d"), py::arg("o"),
-          py::arg("n"), py::arg("eps"));
+          py::arg("n"), py::arg("eps") = optics::native::PLANE_EPS);
     m.def("mesh_intersect", &py_mesh_intersect, py::arg("o"), py::arg("d"), py::arg("tri"),
-          py::arg("det_eps"), py::arg("bary_tol"), py::arg("min_face_t"));
+          py::arg("det_eps") = optics::native::DET_SINGULAR_EPS,
+          py::arg("bary_tol") = optics::native::BARY_TOL,
+          py::arg("min_face_t") = optics::native::MIN_FACE_T);
 }
 
 }  // namespace optics::bindings

@@ -12,6 +12,7 @@
 #include <cstring>
 #include <vector>
 
+#include "optics/common/constants.hpp"
 #include "optics/optimizing/optimizer.hpp"
 
 #include "register.hpp"
@@ -235,7 +236,7 @@ void register_optimizer(py::module_& m) {
           py::arg("dirs"), py::arg("powers"), py::arg("po"), py::arg("pn"), py::arg("u_min"),
           py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("s_u"), py::arg("s_v"),
           py::arg("t_u"), py::arg("t_v"), py::arg("groups"), py::arg("dest_plane") = 1,
-          py::arg("eps") = 1e-12, py::arg("w_focus") = 1.0, py::arg("blur_ref") = 1.0,
+          py::arg("eps") = optics::native::PLANE_EPS, py::arg("w_focus") = 1.0, py::arg("blur_ref") = 1.0,
           py::arg("min_fraction") = 0.5, py::arg("w_vignette") = 1.0,
           py::arg("w_order") = 1e3, py::arg("w_anchor") = 0.0, py::arg("clip_iters") = 3,
           py::arg("clip_sigma") = 3.0, py::arg("seed") = 0, py::arg("population") = 0,

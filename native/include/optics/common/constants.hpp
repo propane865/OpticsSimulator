@@ -1,7 +1,9 @@
-// Numerical tolerances and solver defaults, mirroring ``optics/constants.py``.
-// Keep both sides in lock-step.
+// Numerical tolerances and solver defaults. This header is the single source
+// of truth: ``optics/constants.py`` derives its values from the module
+// attributes exposed in ``bindings/module.cpp``.
 #pragma once
 
+#include <cstddef>
 #include <limits>
 
 namespace optics::native {
@@ -54,12 +56,17 @@ inline constexpr double MIN_FACE_T = 1e-9;
 // point ulps. Keep the earliest such candidate instead of letting ulp noise
 // change the wall facet (and therefore its normal).
 inline constexpr double MESH_HIT_TIE_TOL = 1e-12;
+// Tolerance for deciding that two aperture rims are too close to warrant a
+// sidewall between them.
+inline constexpr double SIDEWALL_MATCH_ATOL = 1e-6;
 
 // --- Vector helpers ---
 inline constexpr double VECTOR_PARALLEL_TOL = 1e-12;
 
 // --- Surface domain / measurement plane ---
 inline constexpr double APERTURE_EPS = 1e-12;
+// Default sample count of the aperture-boundary (rim) polygon.
+inline constexpr int APERTURE_BOUNDARY_N = 128;
 inline constexpr double DOMAIN_TOL = 1e-9;
 inline constexpr double GRAPH_XY_TOL = 1e-9;
 inline constexpr double PLANE_EPS = 1e-12;

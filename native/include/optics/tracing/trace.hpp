@@ -106,6 +106,15 @@ void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3
 int format_segments(const RayHops& hops, double ray_length, double* starts, double* ends,
                     signed char* kinds, std::size_t cap);
 
+// Capacity a caller must provide to ``format_segments`` for a stack of
+// ``n_elements`` elements: at most ``2 * MAX_INTERNAL_BOUNCES + 3`` segments
+// per element (incident, internal polyline, exit) plus the trailing gap and
+// a slack segment. The Python layer sizes its trace buffers through the
+// ``segments_capacity`` binding; this is the only definition of the formula.
+inline std::size_t segments_capacity(std::size_t n_elements) {
+    return static_cast<std::size_t>(2 * MAX_INTERNAL_BOUNCES + 3) * n_elements + 2;
+}
+
 // One-ray rendering pass: ``format_segments(build_hops(...))`` plus the final
 // free-travel state (the gap exiting the last element, or entering the
 // element that absorbed the ray). The ``hops`` overload reuses a caller-owned

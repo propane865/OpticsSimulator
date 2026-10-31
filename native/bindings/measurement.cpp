@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "optics/common/constants.hpp"
 #include "optics/measurement/measurement.hpp"
 #include "optics/measurement/reconstruct.hpp"
 
@@ -134,19 +135,19 @@ void register_measurement(py::module_& m) {
           py::arg("neighbors"), py::arg("bandwidth_scale"));
     m.def("measure_direct", &py_measure_direct, py::arg("origins"), py::arg("dirs"),
           py::arg("powers"), py::arg("o"), py::arg("n"), py::arg("s_u"), py::arg("s_v"),
-          py::arg("t_u"), py::arg("t_v"), py::arg("eps"), py::arg("us"), py::arg("vs"),
-          py::arg("pws"));
+          py::arg("t_u"), py::arg("t_v"), py::arg("eps") = optics::native::PLANE_EPS,
+          py::arg("us"), py::arg("vs"), py::arg("pws"));
     m.def("measure_planes_multi", &py_measure_planes_multi, py::arg("stack"), py::arg("origins"),
           py::arg("dirs"), py::arg("powers"), py::arg("po"), py::arg("pn"), py::arg("u_min"),
           py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("s_u"), py::arg("s_v"),
-          py::arg("t_u"), py::arg("t_v"), py::arg("eps"), py::arg("us"), py::arg("vs"),
-          py::arg("pws"));
+          py::arg("t_u"), py::arg("t_v"), py::arg("eps") = optics::native::PLANE_EPS,
+          py::arg("us"), py::arg("vs"), py::arg("pws"));
     m.def("trace_segments_and_planes", &py_trace_segments_and_planes, py::arg("stack"),
           py::arg("origins"), py::arg("dirs"), py::arg("powers"), py::arg("ray_length"),
           py::arg("po"), py::arg("pn"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"),
           py::arg("v_max"), py::arg("s_u"), py::arg("s_v"), py::arg("t_u"), py::arg("t_v"),
-          py::arg("eps"), py::arg("starts"), py::arg("ends"), py::arg("kinds"), py::arg("counts"),
-          py::arg("us"), py::arg("vs"), py::arg("pws"));
+          py::arg("eps") = optics::native::PLANE_EPS, py::arg("starts"), py::arg("ends"),
+          py::arg("kinds"), py::arg("counts"), py::arg("us"), py::arg("vs"), py::arg("pws"));
 }
 
 }  // namespace optics::bindings

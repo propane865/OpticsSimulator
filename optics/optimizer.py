@@ -51,7 +51,6 @@ from typing import Any, cast
 import numpy as np
 
 from . import _native
-from . import constants as _c
 from ._util import coerce_ray_arrays
 from .config import element_position, stack_from_config
 from .measurement_plane import MeasurementPlane, arrays_to_rays
@@ -420,7 +419,6 @@ def optimize_layout(
         t_v,
         groups,
         dest_plane=1,
-        eps=_c.PLANE_EPS,
         w_focus=float(layout.weight_focus),
         blur_ref=blur_ref,
         min_fraction=float(layout.min_correspondence_fraction),

@@ -55,7 +55,7 @@ def _direct_hits(
     pws = np.zeros(n)
     s_u, s_v, t_u, t_v = plane.frame_coeffs
     _native.measure_direct(
-        origins, dirs, powers, plane.o, plane.n, s_u, s_v, t_u, t_v, _EPS, us, vs, pws
+        origins, dirs, powers, plane.o, plane.n, s_u, s_v, t_u, t_v, us=us, vs=vs, pws=pws
     )
     return us, vs, pws
 
@@ -219,7 +219,6 @@ class MeasurementPlane:
             np.ascontiguousarray(d, dtype=float),
             np.ascontiguousarray(self.o, dtype=float),
             np.ascontiguousarray(self.n, dtype=float),
-            _EPS,
         )
         if not ok:
             return None

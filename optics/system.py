@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from . import _native
-from . import constants as _c
 from ._util import coerce_ray_arrays
 from .element import RefractiveElement
 from .primitive import Ray
@@ -28,12 +27,7 @@ from .primitive import Ray
 if TYPE_CHECKING:
     from .measurement_plane import MeasurementPlane
 
-_MAX_SEGS_PER_ELEMENT = 2 * _c.MAX_INTERNAL_BOUNCES + 3
 _SEGMENT_KIND_NAMES = ("incident", "internal", "exit")
-
-
-def _segments_capacity(n_elements: int) -> int:
-    return _MAX_SEGS_PER_ELEMENT * n_elements + 2
 
 
 def plane_columns(planes: "Sequence[MeasurementPlane]") -> "tuple[np.ndarray, ...]":
@@ -90,7 +84,7 @@ class OpticalSystem:
         self, n: int
     ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
         """Empty batch segment buffers sized for this stack."""
-        cap = _segments_capacity(len(self._stack))
+        cap = _native.segments_capacity(len(self._stack))
         starts = np.empty((n, cap, 3), dtype=float)
         ends = np.empty((n, cap, 3), dtype=float)
         kinds = np.empty((n, cap), dtype=np.int8)
@@ -106,7 +100,7 @@ class OpticalSystem:
         self, ray: Ray, ray_length: float = 3.0
     ) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], Ray | None]":
         """Single-ray ``(segments, final_ray)`` through the stack."""
-        cap = _segments_capacity(len(self._stack))
+        cap = _native.segments_capacity(len(self._stack))
         starts = np.empty((cap, 3), dtype=float)
         ends = np.empty((cap, 3), dtype=float)
         kinds = np.empty(cap, dtype=np.int8)
@@ -165,7 +159,7 @@ class OpticalSystem:
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.measure_planes_multi(
             self._stack, origins, dirs, powers, po, pn, u_min, u_max, v_min, v_max,
-            s_u, s_v, t_u, t_v, _c.PLANE_EPS, us, vs, pws,
+            s_u, s_v, t_u, t_v, us=us, vs=vs, pws=pws,
         )
         return us, vs, pws
 
@@ -190,7 +184,7 @@ class OpticalSystem:
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.trace_segments_and_planes(
             self._stack, origins, dirs, powers, float(ray_length), po, pn, u_min, u_max,
-            v_min, v_max, s_u, s_v, t_u, t_v, _c.PLANE_EPS, starts, ends, kinds, counts,
-            us, vs, pws,
+            v_min, v_max, s_u, s_v, t_u, t_v, starts=starts, ends=ends, kinds=kinds,
+            counts=counts, us=us, vs=vs, pws=pws,
         )
         return starts, ends, kinds, counts, us, vs, pws

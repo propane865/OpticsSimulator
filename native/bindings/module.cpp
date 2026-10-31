@@ -11,9 +11,11 @@
 #include <tuple>
 #include <vector>
 
+#include "optics/common/constants.hpp"
 #include "optics/common/matrix.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/expression/expression.hpp"
+#include "optics/tracing/trace.hpp"
 
 #include "register.hpp"
 #include "support.hpp"
@@ -108,6 +110,27 @@ PYBIND11_MODULE(_native, m) {
     m.def("rotation_from_z", &py_rotation_from_z, py::arg("direction"));
     m.def("emit_cone", &py_emit_cone, py::arg("position"), py::arg("power"), py::arg("count"),
           py::arg("cone_angle_deg"));
+
+    // The numerical tolerances the Python layer mirrors (``optics/constants.py``
+    // derives its values from these attributes; ``constants.hpp`` owns them).
+    m.attr("SEED_GRID_N") = py::int_(optics::native::SEED_GRID_N);
+    m.attr("MAX_INTERNAL_BOUNCES") = py::int_(optics::native::MAX_INTERNAL_BOUNCES);
+    m.attr("SIDEWALL_MATCH_ATOL") = optics::native::SIDEWALL_MATCH_ATOL;
+    m.attr("APERTURE_EPS") = optics::native::APERTURE_EPS;
+    m.attr("APERTURE_BOUNDARY_N") = py::int_(optics::native::APERTURE_BOUNDARY_N);
+    m.attr("DET_SINGULAR_EPS") = optics::native::DET_SINGULAR_EPS;
+    m.attr("BARY_TOL") = optics::native::BARY_TOL;
+    m.attr("MIN_FACE_T") = optics::native::MIN_FACE_T;
+    m.attr("DOMAIN_TOL") = optics::native::DOMAIN_TOL;
+    m.attr("PLANE_EPS") = optics::native::PLANE_EPS;
+    m.def(
+        "segments_capacity",
+        [](py::ssize_t n_elements) {
+            return static_cast<py::ssize_t>(
+                optics::native::segments_capacity(n_elements > 0 ? static_cast<std::size_t>(n_elements)
+                                                                 : 0));
+        },
+        py::arg("n_elements"));
 
     optics::bindings::register_builders(m);
     optics::bindings::register_kernels(m);

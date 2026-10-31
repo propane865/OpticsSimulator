@@ -1,4 +1,4 @@
-﻿"""Type stubs for the compiled native kernel module (``optics._native``).
+"""Type stubs for the compiled native kernel module (``optics._native``).
 
 The classes mirror the persistent C++ domain objects: ``SurfaceModel`` (the
 compiled expression model), ``NativeSurface`` (a surface with its seed grid
@@ -11,6 +11,19 @@ the trace/measurement kernels are reached through ``OpticalSystem``.
 from typing import Any
 
 import numpy as np
+
+# Numerical tolerances owned by ``native/include/optics/common/constants.hpp``
+# (``optics/constants.py`` derives its values from these).
+SEED_GRID_N: int
+MAX_INTERNAL_BOUNCES: int
+SIDEWALL_MATCH_ATOL: float
+APERTURE_EPS: float
+APERTURE_BOUNDARY_N: int
+DET_SINGULAR_EPS: float
+BARY_TOL: float
+MIN_FACE_T: float
+DOMAIN_TOL: float
+PLANE_EPS: float
 
 class SurfaceModel:
     def eval_local(self, u: float, v: float) -> np.ndarray: ...
@@ -65,20 +78,25 @@ def intersection_stats() -> dict[str, int]: ...
 
 def normalize(v: np.ndarray) -> np.ndarray: ...
 def rotation_from_z(direction: np.ndarray) -> np.ndarray: ...
+def segments_capacity(n_elements: int) -> int: ...
 def emit_cone(
     position: np.ndarray, power: float, count: int, cone_angle_deg: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
 
 def plane_intersect(
-    ro: np.ndarray, d: np.ndarray, o: np.ndarray, n: np.ndarray, eps: float
+    ro: np.ndarray,
+    d: np.ndarray,
+    o: np.ndarray,
+    n: np.ndarray,
+    eps: float = ...,
 ) -> tuple[float, float, float, bool]: ...
 def mesh_intersect(
     o: np.ndarray,
     d: np.ndarray,
     tri: np.ndarray,
-    det_eps: float,
-    bary_tol: float,
-    min_face_t: float,
+    det_eps: float = ...,
+    bary_tol: float = ...,
+    min_face_t: float = ...,
 ) -> tuple[float, int, float, float, bool]: ...
 def trace_stack_segments(
     stack: TraceStack,
@@ -140,7 +158,8 @@ def measure_direct(
     s_v: float,
     t_u: float,
     t_v: float,
-    eps: float,
+    eps: float = ...,
+    *,
     us: np.ndarray,
     vs: np.ndarray,
     pws: np.ndarray,
@@ -160,7 +179,8 @@ def measure_planes_multi(
     s_v: np.ndarray,
     t_u: np.ndarray,
     t_v: np.ndarray,
-    eps: float,
+    eps: float = ...,
+    *,
     us: np.ndarray,
     vs: np.ndarray,
     pws: np.ndarray,
@@ -187,7 +207,7 @@ def optimize_layout(
     t_v: np.ndarray,
     groups: np.ndarray,
     dest_plane: int = 1,
-    eps: float = 1e-12,
+    eps: float = ...,
     w_focus: float = 1.0,
     blur_ref: float = 1.0,
     min_fraction: float = 0.5,
@@ -240,7 +260,8 @@ def trace_segments_and_planes(
     s_v: np.ndarray,
     t_u: np.ndarray,
     t_v: np.ndarray,
-    eps: float,
+    eps: float = ...,
+    *,
     starts: np.ndarray,
     ends: np.ndarray,
     kinds: np.ndarray,

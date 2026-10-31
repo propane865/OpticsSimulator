@@ -1,7 +1,6 @@
 import numpy as np
 
 from .. import _native
-from .. import constants as _c
 from .hit import MeshHit
 from .ray import Ray
 
@@ -71,9 +70,6 @@ class LensSidewall:
             o,
             d,
             np.ascontiguousarray(self._tri, dtype=float),
-            _c.DET_SINGULAR_EPS,
-            _c.BARY_TOL,
-            _c.MIN_FACE_T,
         )
         if not found:
             return None
