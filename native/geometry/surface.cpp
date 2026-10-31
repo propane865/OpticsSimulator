@@ -156,17 +156,56 @@ std::pair<Vec3, Vec3> SurfaceModel::derivatives(double u, double v) const {
     return {ru, rv};
 }
 
+bool desc_in_domain(const SurfaceDesc& d, double u, double v) {
+    return u >= d.u_min - d.tu && u <= d.u_max + d.tu && v >= d.v_min - d.tv &&
+           v <= d.v_max + d.tv;
+}
+
 bool desc_accepts(const SurfaceDesc& d, double u, double v) {
-    if (u < d.u_min - d.tu || u > d.u_max + d.tu) {
-        return false;
-    }
-    if (v < d.v_min - d.tv || v > d.v_max + d.tv) {
+    if (!desc_in_domain(d, u, v)) {
         return false;
     }
     if (std::holds_alternative<NoAperture>(d.aperture)) {
         return true;
     }
     return aperture_contains(d.aperture, desc_eval(d, u, v));
+}
+
+void desc_in_domain_mask(const SurfaceDesc& d, const double* us, const double* vs,
+                         std::size_t n, unsigned char* out) {
+    for (std::size_t i = 0; i < n; ++i) {
+        out[i] = desc_in_domain(d, us[i], vs[i]) ? 1 : 0;
+    }
+}
+
+void desc_valid_parameters_mask(const SurfaceDesc& d, const double* us, const double* vs,
+                                std::size_t n, unsigned char* out) {
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!desc_in_domain(d, us[i], vs[i])) {
+            out[i] = 0;
+            continue;
+        }
+        const Vec3 p = desc_eval(d, us[i], vs[i]);
+        out[i] = finite3(p) && aperture_contains(d.aperture, p) ? 1 : 0;
+    }
+}
+
+void aperture_point_mask(double radius, double cx, double cy, const double* xs, const double* ys,
+                         const double* zs, std::size_t n, unsigned char* out) {
+    for (std::size_t i = 0; i < n; ++i) {
+        const Vec3 p = make_vec3(xs[i], ys[i], zs[i]);
+        if (!finite3(p)) {
+            out[i] = 0;
+            continue;
+        }
+        if (radius < 0.0) {
+            out[i] = 1;
+            continue;
+        }
+        const double dx = p[0] - cx;
+        const double dy = p[1] - cy;
+        out[i] = dx * dx + dy * dy <= radius * radius + APERTURE_EPS ? 1 : 0;
+    }
 }
 
 namespace {

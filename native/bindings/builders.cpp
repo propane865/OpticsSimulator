@@ -111,6 +111,31 @@ std::shared_ptr<TraceStack> build_trace_stack(
     return stack;
 }
 
+// Flat 1-D double arrays -> native membership mask -> bool ndarray.
+py::array_t<bool> mask_result(const std::vector<unsigned char>& mask) {
+    py::array_t<bool> out(static_cast<py::ssize_t>(mask.size()));
+    bool* dst = static_cast<bool*>(out.request().ptr);
+    for (std::size_t i = 0; i < mask.size(); ++i) {
+        dst[i] = mask[i] != 0;
+    }
+    return out;
+}
+
+py::array_t<bool> surface_parameter_mask(const Surface& self, const py::array_t<double>& us,
+                                         const py::array_t<double>& vs, bool domain_only) {
+    const ConstDoubles u = read_doubles(us, 1, "us");
+    const ConstDoubles v = read_doubles(vs, 1, "vs");
+    require(u.size == v.size, "us/vs sizes must match");
+    std::vector<unsigned char> mask(u.size, 0);
+    if (domain_only) {
+        optics::native::desc_in_domain_mask(self.desc(), u.data, v.data, u.size, mask.data());
+    } else {
+        optics::native::desc_valid_parameters_mask(self.desc(), u.data, v.data, u.size,
+                                                   mask.data());
+    }
+    return mask_result(mask);
+}
+
 }  // namespace
 
 namespace optics::bindings {
@@ -138,6 +163,30 @@ void register_builders(py::module_& m) {
 
     py::class_<Surface, std::shared_ptr<Surface>>(m, "NativeSurface")
         .def("is_graph_over_xy", &Surface::is_graph_over_xy)
+        .def(
+            "in_domain",
+            [](const Surface& self, double u, double v) {
+                return optics::native::desc_in_domain(self.desc(), u, v);
+            },
+            py::arg("u"), py::arg("v"))
+        .def(
+            "accepts",
+            [](const Surface& self, double u, double v) {
+                return optics::native::desc_accepts(self.desc(), u, v);
+            },
+            py::arg("u"), py::arg("v"))
+        .def(
+            "in_domain_mask",
+            [](const Surface& self, const py::array_t<double>& us, const py::array_t<double>& vs) {
+                return surface_parameter_mask(self, us, vs, true);
+            },
+            py::arg("us"), py::arg("vs"))
+        .def(
+            "valid_parameters_mask",
+            [](const Surface& self, const py::array_t<double>& us, const py::array_t<double>& vs) {
+                return surface_parameter_mask(self, us, vs, false);
+            },
+            py::arg("us"), py::arg("vs"))
         .def(
             "intersection_kind",
             [](const Surface& self) {

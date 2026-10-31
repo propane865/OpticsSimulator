@@ -4,7 +4,6 @@ from typing import Any
 import numpy as np
 
 from .. import _native
-from .. import constants as _c
 from ..expression import compile_parametric_surface
 from .aperture import CircularAperture
 from .hit import Hit
@@ -79,7 +78,6 @@ class Surface:
                 float(ap_cy),
                 np.ascontiguousarray(self.transform.rotation, dtype=float),
                 np.ascontiguousarray(self.transform.translation, dtype=float),
-                int(_c.SEED_GRID_N),
             )
         return self._native
 
@@ -104,12 +102,6 @@ class Surface:
     def tangents(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
         ru, rv = self.derivatives_local(u, v)
         return self.transform.vector_to_world(ru), self.transform.vector_to_world(rv)
-
-    def _inside_aperture(self, u: float, v: float) -> bool:
-        if self.aperture is None:
-            return True
-
-        return self.aperture.contains(self, u, v)
 
     def parameters_at(self, pos: np.ndarray | Sequence[float]) -> "tuple[float, float] | None":
         """Local parameters whose surface point matches ``pos`` within a tolerance."""
@@ -138,16 +130,20 @@ class Surface:
         Y: np.ndarray,
         Z: np.ndarray,
     ) -> np.ndarray:
-        finite = (
-            np.isfinite(X)
-            & np.isfinite(Y)
-            & np.isfinite(Z)
+        """Native aperture membership over local-space surface points."""
+        X, Y, Z = np.broadcast_arrays(
+            np.asarray(X, dtype=float), np.asarray(Y, dtype=float), np.asarray(Z, dtype=float)
         )
-
-        if self.aperture is None:
-            return finite
-
-        return self.aperture.mask(X, Y, Z)
+        ap_r, ap_cx, ap_cy = self._aperture_params()
+        mask = _native.aperture_point_mask(
+            ap_r,
+            ap_cx,
+            ap_cy,
+            np.ascontiguousarray(X.reshape(-1)),
+            np.ascontiguousarray(Y.reshape(-1)),
+            np.ascontiguousarray(Z.reshape(-1)),
+        )
+        return mask.reshape(X.shape)
 
     def intersect(self, ray: Ray) -> Hit | None:
         """Nearest forward hit of the ray on this surface, or ``None``.
@@ -203,24 +199,29 @@ class Surface:
         return None if n is None else np.asarray(n, dtype=float)
 
     def in_domain(self, u: Any, v: Any) -> Any:
-        """Vectorized check whether parameters (u, v) lie in the domain."""
-        tu = _c.DOMAIN_TOL * max(1.0, abs(self.u_range[1] - self.u_range[0]))
-        tv = _c.DOMAIN_TOL * max(1.0, abs(self.v_range[1] - self.v_range[0]))
-
-        return (
-            (u >= self.u_range[0] - tu)
-            & (u <= self.u_range[1] + tu)
-            & (v >= self.v_range[0] - tv)
-            & (v <= self.v_range[1] + tv)
+        """Whether parameters (u, v) lie in the surface domain (native kernel)."""
+        us = np.asarray(u, dtype=float)
+        vs = np.asarray(v, dtype=float)
+        if us.ndim == 0 and vs.ndim == 0:
+            return bool(self.native_surface.in_domain(float(us), float(vs)))
+        us, vs = np.broadcast_arrays(us, vs)
+        mask = self.native_surface.in_domain_mask(
+            np.ascontiguousarray(us.reshape(-1)), np.ascontiguousarray(vs.reshape(-1))
         )
+        return mask.reshape(us.shape)
+
+    def valid_parameters_mask(self, u: Any, v: Any) -> np.ndarray:
+        """Meshing validity predicate: in the domain, finite point, aperture."""
+        us, vs = np.broadcast_arrays(np.asarray(u, dtype=float), np.asarray(v, dtype=float))
+        mask = self.native_surface.valid_parameters_mask(
+            np.ascontiguousarray(us.reshape(-1)), np.ascontiguousarray(vs.reshape(-1))
+        )
+        return mask.reshape(us.shape)
 
     def contains_parameters(self, u: float, v: float) -> bool:
         """Whether (u,v) is in the surface domain."""
-        return bool(self.in_domain(float(u), float(v)))
+        return bool(self.native_surface.in_domain(float(u), float(v)))
 
     def accepts_parameters(self, u: float, v: float) -> bool:
         """Includes aperture restrictions."""
-        if not self.contains_parameters(u, v):
-            return False
-
-        return self._inside_aperture(u, v)
+        return bool(self.native_surface.accepts(float(u), float(v)))

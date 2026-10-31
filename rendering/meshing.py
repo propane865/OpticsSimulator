@@ -44,18 +44,7 @@ class SurfaceMesher:
         self.surface = surface
 
     def _valid_uv_array(self, u: np.ndarray, v: np.ndarray) -> np.ndarray:
-        surface = self.surface
-        ok = surface.in_domain(u, v)
-        pts = surface.evaluate_local(u, v)
-        ok &= np.all(np.isfinite(pts), axis=-1)
-        if surface.aperture is not None:
-            ok &= np.asarray(
-                surface.aperture.mask(
-                    pts[..., 0], pts[..., 1], pts[..., 2]
-                ),
-                dtype=bool,
-            )
-        return ok
+        return self.surface.valid_parameters_mask(u, v)
 
     def _bisect_edges(self, edge_lo: list, edge_hi: list) -> np.ndarray:
         surface = self.surface

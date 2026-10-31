@@ -107,6 +107,25 @@ inline void grid_nodes(const SurfaceDesc& d, int grid_n, Visit&& visit) {
 // Domain + circular-aperture membership.
 bool desc_accepts(const SurfaceDesc& d, double u, double v);
 
+// Domain membership only (no aperture check).
+bool desc_in_domain(const SurfaceDesc& d, double u, double v);
+
+// Vectorized batches of the membership predicates over flat parameter arrays;
+// ``out`` receives ``n`` bytes. ``desc_in_domain_mask`` checks the domain only;
+// ``desc_valid_parameters_mask`` is the meshing validity predicate: domain,
+// finite local point and aperture.
+void desc_in_domain_mask(const SurfaceDesc& d, const double* us, const double* vs,
+                         std::size_t n, unsigned char* out);
+void desc_valid_parameters_mask(const SurfaceDesc& d, const double* us, const double* vs,
+                                std::size_t n, unsigned char* out);
+
+// Aperture membership over local-space surface points: the finiteness gate
+// and, when ``radius >= 0``, the aperture disc (the same predicate as
+// ``aperture_contains``); ``radius < 0`` encodes "no aperture", leaving the
+// finiteness gate. ``out`` receives ``n`` bytes.
+void aperture_point_mask(double radius, double cx, double cy, const double* xs, const double* ys,
+                         const double* zs, std::size_t n, unsigned char* out);
+
 // Analytic tangents with the interior pull-back / FD fallback.
 std::pair<Vec3, Vec3> desc_derivatives(const SurfaceDesc& d, double u, double v);
 

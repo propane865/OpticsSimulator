@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "optics/common/constants.hpp"
+#include "optics/geometry/surface.hpp"
 #include "optics/intersection/mesh.hpp"
 #include "optics/intersection/plane.hpp"
 
@@ -59,6 +60,27 @@ std::tuple<double, std::int64_t, double, double, bool> py_mesh_intersect(
     return {hit->t, static_cast<std::int64_t>(hit->face), hit->u, hit->v, true};
 }
 
+// Aperture membership over flat local-space surface point arrays (the one
+// aperture predicate; ``radius < 0`` means "no aperture", finiteness gate only).
+py::array_t<bool> py_aperture_point_mask(double radius, double cx, double cy,
+                                         const py::array_t<double>& xs,
+                                         const py::array_t<double>& ys,
+                                         const py::array_t<double>& zs) {
+    const ConstDoubles x = read_doubles(xs, 1, "xs");
+    const ConstDoubles y = read_doubles(ys, 1, "ys");
+    const ConstDoubles z = read_doubles(zs, 1, "zs");
+    require(x.size == y.size && x.size == z.size, "xs/ys/zs sizes must match");
+    std::vector<unsigned char> mask(x.size, 0);
+    optics::native::aperture_point_mask(radius, cx, cy, x.data, y.data, z.data, x.size,
+                                        mask.data());
+    py::array_t<bool> out(static_cast<py::ssize_t>(x.size));
+    bool* dst = static_cast<bool*>(out.request().ptr);
+    for (std::size_t i = 0; i < x.size; ++i) {
+        dst[i] = mask[i] != 0;
+    }
+    return out;
+}
+
 }  // namespace
 
 namespace optics::bindings {
@@ -70,6 +92,8 @@ void register_kernels(py::module_& m) {
           py::arg("det_eps") = optics::native::DET_SINGULAR_EPS,
           py::arg("bary_tol") = optics::native::BARY_TOL,
           py::arg("min_face_t") = optics::native::MIN_FACE_T);
+    m.def("aperture_point_mask", &py_aperture_point_mask, py::arg("radius"), py::arg("cx"),
+          py::arg("cy"), py::arg("xs"), py::arg("ys"), py::arg("zs"));
 }
 
 }  // namespace optics::bindings

@@ -145,6 +145,44 @@ void test_aperture() {
     }
 }
 
+void test_membership_masks() {
+    Surface::Options o = plane_opts(3.0);
+    o.aperture_radius = 2.0;
+    const auto s = Surface::create(std::move(o));
+
+    CHECK(optics::native::desc_in_domain(s->desc(), 2.5, 0.0));  // domain, not aperture
+    CHECK(optics::native::desc_in_domain(s->desc(), 3.0 + 1e-10, 0.0));
+    CHECK(!optics::native::desc_in_domain(s->desc(), 3.0 + 1e-6, 0.0));
+
+    const std::vector<double> us = {0.0, 2.5, 4.0, 0.0};
+    const std::vector<double> vs = {0.0, 0.0, 0.0, 4.0};
+    std::vector<unsigned char> mask(4, 9);
+    optics::native::desc_in_domain_mask(s->desc(), us.data(), vs.data(), 4, mask.data());
+    CHECK(mask[0] == 1 && mask[1] == 1 && mask[2] == 0 && mask[3] == 0);
+    optics::native::desc_valid_parameters_mask(s->desc(), us.data(), vs.data(), 4, mask.data());
+    CHECK(mask[0] == 1 && mask[1] == 0 && mask[2] == 0 && mask[3] == 0);
+
+    // A non-finite point inside the domain fails the validity mask.
+    Surface::Options bad = plane_opts(3.0);
+    bad.z_src = "1 / u";
+    const auto ns = Surface::create(std::move(bad));
+    const std::vector<double> bus = {0.0};
+    const std::vector<double> bvs = {0.0};
+    optics::native::desc_valid_parameters_mask(ns->desc(), bus.data(), bvs.data(), 1,
+                                               mask.data());
+    CHECK(mask[0] == 0);
+
+    std::vector<double> px = {0.0, 1.9, 2.1, NAN};
+    std::vector<double> py = {0.0, 0.0, 0.0, 0.0};
+    std::vector<double> pz = {0.0, 0.0, 0.0, 0.0};
+    optics::native::aperture_point_mask(2.0, 0.0, 0.0, px.data(), py.data(), pz.data(), 4,
+                                        mask.data());
+    CHECK(mask[0] == 1 && mask[1] == 1 && mask[2] == 0 && mask[3] == 0);
+    optics::native::aperture_point_mask(-1.0, 0.0, 0.0, px.data(), py.data(), pz.data(), 4,
+                                        mask.data());
+    CHECK(mask[0] == 1 && mask[1] == 1 && mask[2] == 1 && mask[3] == 0);
+}
+
 void test_sphere_intersect() {
     Surface::Options o = plane_opts();
     o.z_src = "1 - sqrt(25 - u * u - v * v)";
@@ -302,6 +340,7 @@ void test_surface() {
     test_transformed();
     test_graph_probe();
     test_aperture();
+    test_membership_masks();
     test_sphere_intersect();
     test_intersect_regression();
     test_tiled_grid();

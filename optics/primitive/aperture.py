@@ -55,10 +55,6 @@ class CircularAperture:
         if not np.all(np.isfinite(self.center)):
             raise ValueError("Aperture center must be finite")
 
-    def contains(self, surface: "Surface", u: float, v: float) -> bool:
-        p = surface.evaluate_local(u, v)
-        return bool(self.mask(p[0], p[1], p[2]))
-
     def mask(
         self,
         X: np.ndarray,
@@ -66,12 +62,18 @@ class CircularAperture:
         Z: np.ndarray,
     ) -> np.ndarray:
         """Vectorized aperture membership over local-space surface points."""
-        finite = np.isfinite(X) & np.isfinite(Y) & np.isfinite(Z)
-
-        dx = X - self.center[0]
-        dy = Y - self.center[1]
-
-        return finite & (dx**2 + dy**2 <= self.radius**2 + _c.APERTURE_EPS)
+        X, Y, Z = np.broadcast_arrays(
+            np.asarray(X, dtype=float), np.asarray(Y, dtype=float), np.asarray(Z, dtype=float)
+        )
+        mask = _native.aperture_point_mask(
+            self.radius,
+            float(self.center[0]),
+            float(self.center[1]),
+            np.ascontiguousarray(X.reshape(-1)),
+            np.ascontiguousarray(Y.reshape(-1)),
+            np.ascontiguousarray(Z.reshape(-1)),
+        )
+        return mask.reshape(X.shape)
 
     def boundary(self, surface: "Surface", n: int = _c.APERTURE_BOUNDARY_N) -> np.ndarray:
         key = _rim_key(surface, self, n)
