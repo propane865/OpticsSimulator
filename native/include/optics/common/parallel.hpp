@@ -21,6 +21,15 @@ namespace optics::native {
 
 namespace pool_detail {
 
+// When true on the calling thread, ``run_chunks`` executes its kernel inline
+// instead of dispatching to the shared pool. Set by ``ScopedSerialTrace`` so a
+// candidate-concurrency worker thread (which is NOT a pool worker and must not
+// re-enter the busy-serialized pool) traces its ray fan serially on itself.
+inline bool& serial_mode() {
+    static thread_local bool value = false;
+    return value;
+}
+
 class WorkerPool {
   public:
     // Runs ``fn`` over ``[0, n)`` in chunks of ``chunk``.
@@ -138,9 +147,27 @@ class WorkerPool {
 
 }  // namespace pool_detail
 
+// RAII: forces nested ``run_chunks`` calls on this thread to run inline rather
+// than dispatch to the shared pool, saving/restoring the prior mode so it
+// nests. Used around per-candidate ray tracing in candidate concurrency.
+class ScopedSerialTrace {
+  public:
+    ScopedSerialTrace() : prev_(pool_detail::serial_mode()) { pool_detail::serial_mode() = true; }
+    ~ScopedSerialTrace() { pool_detail::serial_mode() = prev_; }
+    ScopedSerialTrace(const ScopedSerialTrace&) = delete;
+    ScopedSerialTrace& operator=(const ScopedSerialTrace&) = delete;
+
+  private:
+    bool prev_;
+};
+
 template <typename Fn>
 void run_chunks(std::size_t n, Fn&& fn) {
     if (n == 0) {
+        return;
+    }
+    if (pool_detail::serial_mode()) {
+        fn(std::size_t{0}, n);
         return;
     }
     unsigned hc = std::thread::hardware_concurrency();

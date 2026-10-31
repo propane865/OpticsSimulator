@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "optics/common/constants.hpp"
+#include "optics/common/parallel.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/measurement/measurement.hpp"
 #include "optics/measurement/reconstruct.hpp"
@@ -385,6 +386,63 @@ void test_fused_kernel() {
     CHECK(close(f_pws[1], 0.5, 1e-15));
 }
 
+// Serial-trace mode must produce bit-identical per-ray outputs to the shared
+// pool dispatch: measure's outputs are independent per ray, so forcing the
+// kernel inline on the calling thread (what candidate concurrency does inside a
+// non-pool worker) cannot reorder any cross-ray reduction. This is the load-
+// bearing invariant behind treating concurrent candidates as bit-exact.
+void test_serial_trace_matches_pool() {
+    const TraceStack stack = fixture::make_stack({
+        fixture::make_plate_ptr(1.5, 12.0, -0.5, 0.5, 0.0, 256, false),
+        fixture::make_plate_ptr(1.5, 12.0, -3.5, -2.5, 0.0, 256, false)});
+    const std::size_t n = 96;   // > one chunk on any real machine
+    const std::size_t p = 1;
+    std::vector<double> origins(3 * n), dirs(3 * n), powers(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        const double t = static_cast<double>(i) / static_cast<double>(n - 1);
+        origins[3 * i + 0] = -0.9 + 1.8 * t;
+        origins[3 * i + 1] = 0.0;
+        origins[3 * i + 2] = 6.0;
+        dirs[3 * i + 0] = -0.15 + 0.3 * t;   // tilt so many rays cross the plates
+        dirs[3 * i + 1] = 0.0;
+        dirs[3 * i + 2] = -1.0;
+        powers[i] = 1.0;
+    }
+    const double po[3] = {0.0, 0.0, 0.0};
+    const double pn[3] = {0.0, 0.0, 1.0};
+    const double lo[1] = {-10.0};
+    const double hi[1] = {10.0};
+    const double su[1] = {1.0};
+    const double sv[1] = {0.0};
+    const double tu[1] = {0.0};
+    const double tv[1] = {1.0};
+    const PlaneBatchView planes{po, pn, lo, hi, lo, hi, su, sv, tu, tv, p};
+    const RayBatchView rays{origins.data(), dirs.data(), powers.data(), n};
+
+    std::vector<double> us_p(p * n, kNan), vs_p(p * n, kNan), pws_p(p * n, 0.0);
+    measure_planes_multi(stack, rays, planes, optics::native::PLANE_EPS,
+                         MeasurementOutputView{us_p.data(), vs_p.data(), pws_p.data()});
+    std::vector<double> us_s(p * n, kNan), vs_s(p * n, kNan), pws_s(p * n, 0.0);
+    {
+        optics::native::ScopedSerialTrace serial;
+        measure_planes_multi(stack, rays, planes, optics::native::PLANE_EPS,
+                             MeasurementOutputView{us_s.data(), vs_s.data(), pws_s.data()});
+    }
+    int hit = 0;
+    for (std::size_t i = 0; i < p * n; ++i) {
+        const auto same = [](double a, double b) {
+            return a == b || (std::isnan(a) && std::isnan(b));
+        };
+        CHECK(same(us_p[i], us_s[i]));
+        CHECK(same(vs_p[i], vs_s[i]));
+        CHECK(same(pws_p[i], pws_s[i]));
+        if (std::isfinite(us_p[i])) {
+            ++hit;
+        }
+    }
+    CHECK(hit > 0);   // sanity: the fan actually crosses the plane
+}
+
 }  // namespace
 
 void test_measurement() {
@@ -393,4 +451,5 @@ void test_measurement() {
     test_measure_direct_compound_frame();
     test_planes_multi();
     test_fused_kernel();
+    test_serial_trace_matches_pool();
 }
