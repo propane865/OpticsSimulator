@@ -1,7 +1,8 @@
 // Least-squares 2D similarity fit (proper rotation + positive scale) with
-// MAD sigma clipping: the native mirror of ``optics.plane_transform``'s
-// Umeyama/Kabsch core, evaluated per layout candidate without Python, plus the
-// per-object-point spot radius used as the focus measure.
+// MAD sigma clipping: the canonical Umeyama/Kabsch core of the project,
+// evaluated natively both per layout candidate and for the Python-side
+// ``optics.plane_transform`` (through the ``fit_clipped_similarity`` binding),
+// plus the per-object-point spot radius used as the focus measure.
 #pragma once
 
 #include <cstddef>
@@ -20,13 +21,13 @@ struct SimilarityCore {
 
 // Umeyama fit on the ``keep``-marked subset of interleaved ``(2, n)``
 // ``src``/``dst`` correspondences (``keep == nullptr`` keeps every point).
-// Reflections are rejected the same way the Python fit does it, so a mirrored
+// Reflections are rejected (determinant sign correction), so a mirrored
 // correspondence degrades into a large residual instead of a flip.
 SimilarityCore fit_similarity(const double* src, const double* dst, std::size_t n,
                               const unsigned char* keep);
 
 // Per-point distance of ``dst`` from the similarity prediction of ``src``
-// (``n`` values; unkept points are evaluated too, mirroring the Python loop).
+// (``n`` values; unkept points are evaluated too).
 void similarity_residuals(const SimilarityCore& fit, const double* src, const double* dst,
                           std::size_t n, double* err);
 
@@ -38,14 +39,17 @@ struct ClippedSimilarity {
     std::size_t n_used;
 };
 
-// Mirror of ``plane_transform``'s clipping loop: refit for ``iters`` rounds,
+// The clipping loop: refit for ``iters`` rounds,
 // clip residuals above ``sigma`` median deviations (1.4826 MAD scaling), keep
 // at least four correspondences, and stop early once the residual is at
 // double-precision fit noise. When ``keep_out`` is non-null it receives the
 // final ``n``-byte keep mask (also written for an invalid fit, where every
-// point is kept).
+// point is kept). When ``core_out`` is non-null it always receives the final
+// similarity (identity default for an invalid fit), so the Python caller can
+// report rotation and translation without a second fit.
 ClippedSimilarity fit_clipped_similarity(const double* src, const double* dst, std::size_t n,
-                                         int iters, double sigma, unsigned char* keep_out = nullptr);
+                                         int iters, double sigma, unsigned char* keep_out = nullptr,
+                                         SimilarityCore* core_out = nullptr);
 
 // Pooled within-group power-weighted RMS spot radius (an ISO-style RMS spot
 // size) of interleaved ``(2, n)`` destination hits: every object point's hits

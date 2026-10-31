@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "optics/common/constants.hpp"
+#include "optics/optimizing/fit.hpp"
 #include "optics/optimizing/optimizer.hpp"
 
 #include "register.hpp"
@@ -226,6 +227,48 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
     return result;
 }
 
+// Similarity fit with MAD sigma clipping for the Python ``plane_transform``:
+// ``(n, 2)`` source/destination correspondences in, the canonical fit out
+// (valid flag, scale, RMS residual over kept points, kept count, rotation and
+// translation). This is the one Umeyama implementation the project uses.
+py::dict py_fit_clipped_similarity(const py::array_t<double>& src, const py::array_t<double>& dst,
+                                   std::int64_t iters, double sigma) {
+    const py::buffer_info s_info = src.request();
+    const py::buffer_info d_info = dst.request();
+    require(s_info.ndim == 2 && s_info.shape[1] == 2, "src: expected shape (n, 2)");
+    require(d_info.ndim == 2 && d_info.shape[1] == 2, "dst: expected shape (n, 2)");
+    require(s_info.size == d_info.size, "src/dst: correspondence counts must match");
+    require(is_contiguous(s_info), "src: array must be contiguous");
+    require(is_contiguous(d_info), "dst: array must be contiguous");
+    const std::size_t n = static_cast<std::size_t>(s_info.size) / 2;
+    const double* sp = static_cast<const double*>(s_info.ptr);
+    const double* dp = static_cast<const double*>(d_info.ptr);
+    optics::native::SimilarityCore core{};
+    const optics::native::ClippedSimilarity fit = [&] {
+        const py::gil_scoped_release release;
+        return optics::native::fit_clipped_similarity(sp, dp, n, static_cast<int>(iters), sigma,
+                                                      nullptr, &core);
+    }();
+    py::array_t<double> rotation(std::vector<py::ssize_t>{2, 2}, std::vector<py::ssize_t>{16, 8});
+    double* r = static_cast<double*>(rotation.request().ptr);
+    r[0] = core.r00;
+    r[1] = core.r01;
+    r[2] = core.r10;
+    r[3] = core.r11;
+    py::array_t<double> translation(std::vector<py::ssize_t>{2}, std::vector<py::ssize_t>{8});
+    double* t = static_cast<double*>(translation.request().ptr);
+    t[0] = core.t0;
+    t[1] = core.t1;
+    py::dict out;
+    out["valid"] = fit.valid;
+    out["scale"] = fit.scale;
+    out["rms"] = fit.rms;
+    out["n_used"] = fit.n_used;
+    out["rotation"] = rotation;
+    out["translation"] = translation;
+    return out;
+}
+
 }  // namespace
 
 namespace optics::bindings {
@@ -250,8 +293,10 @@ void register_optimizer(py::module_& m) {
           py::arg("ray_full") = 0, py::arg("pilot_min_shared") = 4,
           py::arg("min_rays_per_group") = 8, py::arg("archive_size") = 16,
           py::arg("archive_min_dist") = 0.05, py::arg("promotion_factor") = 3.0,
-          py::arg("finalist_count") = 4, py::arg("enable_candidate_concurrency") = false,
-          py::arg("total_threads") = 0);
+           py::arg("finalist_count") = 4, py::arg("enable_candidate_concurrency") = false,
+           py::arg("total_threads") = 0);
+    m.def("fit_clipped_similarity", &py_fit_clipped_similarity, py::arg("src"), py::arg("dst"),
+          py::arg("iters") = 3, py::arg("sigma") = 3.0);
 }
 
 }  // namespace optics::bindings

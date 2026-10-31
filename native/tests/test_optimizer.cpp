@@ -31,6 +31,7 @@ using optics::native::fidelity_ray_order;
 using optics::native::make_vec3;
 using optics::native::OptimizerOutcome;
 using optics::native::OptimizerSpec;
+using optics::native::SimilarityCore;
 using optics::native::rotation_from_z;
 using optics::native::spot_radius;
 using optics::native::Surface;
@@ -60,6 +61,15 @@ void test_fit_exact_similarity() {
     CHECK(close(fit.scale, s, 1e-9));
     CHECK(fit.rms < 1e-9);
     CHECK(fit.n_used == 12);
+    // The full core (rotation + translation) is what the Python
+    // ``plane_transform`` binding reports; it must match the generator.
+    SimilarityCore core{};
+    fit_clipped_similarity(src.data(), dst.data(), 12, 3, 3.0, nullptr, &core);
+    CHECK(core.valid);
+    CHECK(close(core.r00, c, 1e-9) && close(core.r01, -sn, 1e-9));
+    CHECK(close(core.r10, sn, 1e-9) && close(core.r11, c, 1e-9));
+    CHECK(close(core.scale, s, 1e-9));
+    CHECK(close(core.t0, t[0], 1e-9) && close(core.t1, t[1], 1e-9));
 }
 
 void test_fit_clips_outliers() {

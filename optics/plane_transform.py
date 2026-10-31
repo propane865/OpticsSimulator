@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from . import _native
 from .measurement_plane import MeasurementPlane, _direct_hits, rays_to_arrays
 from .primitive import Ray
 
@@ -61,44 +62,6 @@ class PlaneTransform:
     n_total: int
 
 
-def _fit_similarity(src: np.ndarray, dst: np.ndarray) -> "tuple[np.ndarray, float, np.ndarray]":
-    """Umeyama fit of ``dst ~= scale * R @ src + translation``.
-
-    Returns ``(R, scale, translation)`` with ``R`` a proper ``(2, 2)``
-    rotation; reflections are rejected via the determinant sign
-    correction, so a mirrored correspondence (e.g. detector frames
-    with opposite normals) degrades into a large residual instead of
-    being fitted as a flip. Raises :class:`ValueError` when the source
-    correspondence has no spatial spread.
-    """
-    src_mean = src.mean(axis=0)
-    dst_mean = dst.mean(axis=0)
-    X = src - src_mean
-    Y = dst - dst_mean
-    sxx = float(np.sum(X**2))
-    if not np.isfinite(sxx) or sxx <= 1e-24:
-        raise ValueError("correspondences have no spatial spread; similarity fit is degenerate")
-    U, s, Vt = np.linalg.svd(Y.T @ X)
-    R = U @ Vt
-    if np.linalg.det(R) < 0.0:
-        U = U.copy()
-        U[:, -1] *= -1.0
-        s = s.copy()
-        s[-1] *= -1.0
-        R = U @ Vt
-    scale = float(s.sum() / sxx)
-    translation = dst_mean - scale * (R @ src_mean)
-    return R, scale, translation
-
-
-def _residual_norms(
-    R: np.ndarray, scale: float, translation: np.ndarray, src: np.ndarray, dst: np.ndarray
-) -> np.ndarray:
-    """Per-point distance of ``dst`` from the similarity prediction of ``src``."""
-    err = dst - (scale * (src @ R.T) + translation)
-    return np.linalg.norm(err, axis=1)
-
-
 def plane_transform(
     rays: Sequence[Ray],
     planes: Sequence[MeasurementPlane],
@@ -113,7 +76,8 @@ def plane_transform(
     ``None``) exactly once against both planes, pairs the per-ray hits into a
     correspondence, and fits the plane ``planes[0]`` -> ``planes[1]``
     similarity — magnification, rotation and translation in detector-local
-    ``(u, v)`` — with the Umeyama/Kabsch SVD solution; the residual against
+    ``(u, v)`` — with the native Umeyama/Kabsch kernel
+    (:func:`optics._native.fit_clipped_similarity`); the residual against
     that fit quantifies everything the similarity cannot express (see
     :class:`PlaneTransform`).
 
@@ -160,30 +124,23 @@ def plane_transform(
     src = np.stack([ua[shared], va[shared]], axis=1)
     dst = np.stack([ub[shared], vb[shared]], axis=1)
 
-    scale = float(np.sqrt(np.mean(np.sum((dst - dst.mean(axis=0)) ** 2, axis=1))))
-    keep = np.ones(len(src), dtype=bool)
-    for _ in range(int(iters)):
-        R, s, t = _fit_similarity(src[keep], dst[keep])
-        err = _residual_norms(R, s, t, src, dst)
-        if float(np.sqrt(np.mean(err[keep] ** 2))) <= 1e-9 * max(scale, 1e-12):
-            break
-        median = float(np.median(err[keep]))
-        mad = float(np.median(np.abs(err[keep] - median)))
-        new = err <= median + float(sigma) * 1.4826 * mad
-        if int(np.count_nonzero(new)) < 4 or np.array_equal(new, keep):
-            break
-        keep = new
-
-    R, fit_scale, translation = _fit_similarity(src[keep], dst[keep])
-    err = _residual_norms(R, fit_scale, translation, src[keep], dst[keep])
-    rotation_deg = float(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
+    # The fit, the MAD sigma-clip loop and its residuals are the native
+    # kernel's; ``valid`` is false only for a correspondence without spread.
+    fit = _native.fit_clipped_similarity(
+        np.ascontiguousarray(src, dtype=float), np.ascontiguousarray(dst, dtype=float),
+        int(iters), float(sigma),
+    )
+    if not fit["valid"]:
+        raise ValueError("correspondences have no spatial spread; similarity fit is degenerate")
+    rotation = np.asarray(fit["rotation"], dtype=float)
+    rotation_deg = float(np.degrees(np.arctan2(rotation[1, 0], rotation[0, 0])))
     if abs(rotation_deg + 180.0) < 1e-12:
         rotation_deg = 180.0
     return PlaneTransform(
-        scale=fit_scale,
+        scale=float(fit["scale"]),
         rotation_deg=rotation_deg,
-        translation=translation,
-        rms_error=float(np.sqrt(np.mean(err**2))),
-        n_used=int(np.count_nonzero(keep)),
+        translation=np.asarray(fit["translation"], dtype=float),
+        rms_error=float(fit["rms"]),
+        n_used=int(fit["n_used"]),
         n_total=n_total,
     )

@@ -185,6 +185,9 @@ def measure_planes_multi(
     vs: np.ndarray,
     pws: np.ndarray,
 ) -> None: ...
+def fit_clipped_similarity(
+    src: np.ndarray, dst: np.ndarray, iters: int = 3, sigma: float = 3.0
+) -> dict[str, Any]: ...
 def optimize_layout(
     stack: TraceStack,
     free_indices: list[int],

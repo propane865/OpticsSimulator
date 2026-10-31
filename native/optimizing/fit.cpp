@@ -1,6 +1,7 @@
-// Least-squares 2D similarity fit with MAD sigma clipping (native mirror of
-// the Umeyama core in ``optics/plane_transform.py``) and the pooled per-object
-// -point spot radius used as the focus measure.
+// Least-squares 2D similarity fit with MAD sigma clipping: the canonical
+// Umeyama core of the project (used by the optimizer and, through the
+// ``fit_clipped_similarity`` binding, by ``optics/plane_transform.py``) and
+// the pooled per-object-point spot radius used as the focus measure.
 #include "optics/optimizing/fit.hpp"
 
 #include <algorithm>
@@ -102,8 +103,13 @@ void similarity_residuals(const SimilarityCore& fit, const double* src, const do
 }
 
 ClippedSimilarity fit_clipped_similarity(const double* src, const double* dst, std::size_t n,
-                                         int iters, double sigma, unsigned char* keep_out) {
+                                         int iters, double sigma, unsigned char* keep_out,
+                                         SimilarityCore* core_out) {
     ClippedSimilarity out{false, 0.0, 0.0, 0};
+    const SimilarityCore identity{1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, false};
+    if (core_out != nullptr) {
+        *core_out = identity;
+    }
     if (keep_out != nullptr) {
         std::fill_n(keep_out, n, static_cast<unsigned char>(1));
     }
@@ -173,6 +179,9 @@ ClippedSimilarity fit_clipped_similarity(const double* src, const double* dst, s
     }
 
     core = fit_similarity(src, dst, n, keep.data());
+    if (core_out != nullptr && core.valid) {
+        *core_out = core;
+    }
     if (!core.valid) {
         return out;
     }

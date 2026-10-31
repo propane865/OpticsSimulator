@@ -4,8 +4,9 @@ of the image mapping between two detector planes from one shared ray fan."""
 import numpy as np
 import pytest
 
+from optics import _native
 from optics.measurement_plane import MeasurementPlane
-from optics.plane_transform import PlaneTransform, _fit_similarity, plane_transform
+from optics.plane_transform import PlaneTransform, plane_transform
 from optics.primitive import Ray
 from optics.system import OpticalSystem
 
@@ -47,16 +48,23 @@ class TestFitSimilarity:
         theta = np.deg2rad(37.0)
         rotation = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
         dst = 1.7 * (src @ rotation.T) + np.array([2.0, -0.5])
-        R, scale, translation = _fit_similarity(src, dst)
-        assert scale == pytest.approx(1.7, rel=1e-12)
-        assert np.degrees(np.arctan2(R[1, 0], R[0, 0])) == pytest.approx(37.0, abs=1e-10)
-        np.testing.assert_allclose(translation, [2.0, -0.5], atol=1e-12)
+        fit = _native.fit_clipped_similarity(
+            np.ascontiguousarray(src), np.ascontiguousarray(dst), iters=0
+        )
+        assert fit["valid"]
+        assert fit["scale"] == pytest.approx(1.7, rel=1e-12)
+        assert np.degrees(np.arctan2(fit["rotation"][1, 0], fit["rotation"][0, 0])) == pytest.approx(
+            37.0, abs=1e-10
+        )
+        np.testing.assert_allclose(fit["translation"], [2.0, -0.5], atol=1e-12)
 
-    def test_degenerate_correspondences_raise(self):
+    def test_degenerate_correspondences_are_invalid(self):
         src = np.ones((6, 2))
         dst = np.tile([3.0, 4.0], (6, 1))
-        with pytest.raises(ValueError, match="no spatial spread"):
-            _fit_similarity(src, dst)
+        fit = _native.fit_clipped_similarity(
+            np.ascontiguousarray(src), np.ascontiguousarray(dst), iters=0
+        )
+        assert not fit["valid"]
 
 
 class TestStraightRayMappings:
