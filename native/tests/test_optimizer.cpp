@@ -371,6 +371,7 @@ void test_optimize_layout_pipeline() {
     pipe.ray_medium = 12;
     pipe.ray_full = 0;  // whole fan for validation
     pipe.finalist_count = 4;
+    pipe.stop_on_focus = false;  // exercise the full staged coarse->medium->full path
     const OptimizerOutcome run = optics::native::optimize_layout(pipe);
     CHECK(run.status == "ok");
     CHECK(run.n_shared >= 8);  // whole-fan winner keeps enough correspondences
@@ -384,6 +385,17 @@ void test_optimize_layout_pipeline() {
     const OptimizerOutcome again = optics::native::optimize_layout(pipe);
     CHECK(again.best == run.best);
     CHECK(again.blur == run.blur);
+
+    // stop_on_focus: a *validated* whole-fan winner found during coarse DE stops
+    // the global search early, so far fewer whole-fan evals than the exhaustive
+    // staged run above -- without weakening the acceptance (the stop probe IS the
+    // full-fidelity gate).
+    OptimizerSpec focused = pipe;
+    focused.stop_on_focus = true;
+    const OptimizerOutcome fast = optics::native::optimize_layout(focused);
+    CHECK(fast.status == "ok");
+    CHECK(fast.diagnostics.full_passes >= 1);
+    CHECK(fast.evals < run.evals);
 
     // An unmeetable tolerance stays an honest no-focus-found: a low coarse
     // objective never becomes success -- only a full finalist that passes

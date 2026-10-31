@@ -880,7 +880,27 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     std::vector<double> trial(d);
     int stalled = 0;
     double last_best = best_stats.cost;
+    std::vector<double> win_x;         // set early on a validated in-loop focus
+    LayoutObjective::Stats win;
+    bool won = false;
+    // stop_on_focus: validate the best layout the population already found.
+    // A whole-fan pass is a real focused winner, so the global search is skipped
+    // entirely -- exactly the legacy early stop, but gated on full fidelity.
+    if (spec.stop_on_focus && obj.evals() < spec.max_evals) {
+        LayoutObjective::Stats probe = obj.evaluate(best_swept.data(), k_full, true);
+        out.diagnostics.full_evals++;
+        out.diagnostics.rays_traced += static_cast<std::int64_t>(k_full);
+        if (probe.cost < kBadCost && focus_accepted(spec, probe)) {
+            out.diagnostics.full_passes++;
+            win_x = best_swept;
+            win = probe;
+            won = true;
+        }
+    }
     for (int gen = 0; gen < spec.generations; ++gen) {
+        if (won) {
+            break;
+        }
         for (int p = 0; p < pop; ++p) {
             if (obj.evals() >= coarse_budget) {
                 break;
@@ -923,6 +943,22 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
         }
         out.history.push_back(best_stats.cost);
         out.diagnostics.gen_best.push_back(best_stats.cost);
+        // stop_on_focus: periodically full-trace the coarse best. A *validated*
+        // focused winner (the full trace IS the acceptance gate) lets the global
+        // search stop early without ever weakening the hard acceptance. Bounded
+        // overhead: one whole-fan probe per few generations.
+        if (spec.stop_on_focus && !won && obj.evals() < spec.max_evals && gen % 5 == 4) {
+            LayoutObjective::Stats probe = obj.evaluate(best_swept.data(), k_full, true);
+            out.diagnostics.full_evals++;
+            out.diagnostics.rays_traced += static_cast<std::int64_t>(k_full);
+            if (probe.cost < kBadCost && focus_accepted(spec, probe)) {
+                out.diagnostics.full_passes++;
+                win_x = best_swept;
+                win = probe;
+                won = true;
+                break;
+            }
+        }
         if (best_stats.cost < last_best * (1.0 - 1e-12) - 1e-300) {
             last_best = best_stats.cost;
             stalled = 0;
@@ -934,6 +970,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
         }
     }
 
+    if (!won) {
     // --- Promotion: distinct coarse candidates near the coarse best ----------
     // Always keep the top ``finalist_count`` so finalists exist; additionally
     // promote coarse-competitive candidates within ``promotion_factor`` of the
@@ -1040,14 +1077,17 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     std::stable_sort(passers.begin(), passers.end(),
                      [&](const auto& a, const auto& b) { return better_stats(spec, a.second, b.second); });
 
-    std::vector<double> win_x = best_full_x;
-    LayoutObjective::Stats win = best_full;
-    bool won = false;
+    // Full-validation winner: the whole-fan passers decide, else the best full
+    // (unfocused) candidate is reported so a failure still has a layout.
+    win = best_full;
+    win_x = best_full_x;
     if (!passers.empty()) {
         win_x = passers.front().first;
         win = passers.front().second;
         won = true;
     }
+    }  // end if (!won): promoted / medium / full-fidelity validation path
+
     if (won && !win_x.empty() && obj.evals() < spec.max_evals) {
         nelder_mead(obj, spec, win_x, win);
         won = focus_accepted(spec, win);
