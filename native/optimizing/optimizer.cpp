@@ -754,12 +754,13 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
 }
 
 // Coarse-to-fine driver: a global DE at a coarse ray budget fills a diverse
-// archive of distinct candidates; a handful of finalists are re-traced at the
-// whole fan where the hard focus acceptance is the ONLY success gate. A low
-// coarse objective is never success -- it only decides which few candidates earn
-// a full-fidelity trace -- so the pipeline can reorder search but never weakens
-// the acceptance contract or reports an unfocused layout as focused. The search
-// is single-threaded and fully seeded, so it is bit-reproducible run to run.
+// archive of distinct candidates; a promoted subset is re-ranked at a medium ray
+// budget and only a few finalists are re-traced at the whole fan, where the hard
+// focus acceptance is the ONLY success gate. A low coarse/medium objective is
+// never success -- it only decides which few candidates earn a full-fidelity
+// trace -- so the pipeline can reorder search but never weakens the acceptance
+// contract or reports an unfocused layout as focused. The search is
+// single-threaded and fully seeded, so it is bit-reproducible run to run.
 void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     LayoutObjective obj(spec);
     const std::size_t d_full = spec.lo.size();
@@ -933,22 +934,82 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
         }
     }
 
-    // --- Finalist selection: distinct good coarse candidates -----------------
+    // --- Promotion: distinct coarse candidates near the coarse best ----------
+    // Always keep the top ``finalist_count`` so finalists exist; additionally
+    // promote coarse-competitive candidates within ``promotion_factor`` of the
+    // best, bounded by ``medium_cap`` so the medium stage stays budget-cheap.
     std::stable_sort(archive.begin(), archive.end(),
                      [&](const Entry& a, const Entry& b) { return better_stats(spec, a.s, b.s); });
-    std::vector<Entry> finalists;
+    const int need = std::max(1, spec.finalist_count);
+    const int medium_cap = std::max(need * 2, 4);
+    const double promote_limit = best_stats.cost * std::max(spec.promotion_factor, 1.0);
+    std::vector<Entry> promoted;
     for (const Entry& e : archive) {
         bool distinct = true;
+        for (const Entry& p : promoted) {
+            if (norm_dist(e.x.data(), p.x.data()) < spec.archive_min_dist) {
+                distinct = false;
+                break;
+            }
+        }
+        if (!distinct) {
+            continue;
+        }
+        if (static_cast<int>(promoted.size()) < need || e.s.cost <= promote_limit) {
+            promoted.push_back(e);
+        }
+        if (static_cast<int>(promoted.size()) >= medium_cap) {
+            break;
+        }
+    }
+    if (promoted.empty()) {
+        promoted.push_back(Entry{best_swept, best_stats});
+    }
+    out.diagnostics.medium_promoted += static_cast<std::int64_t>(promoted.size());
+
+    // --- Medium re-rank: re-trace the promoted set at a finer ray budget -----
+    // A medium candidate is still not success -- it only reorders which few
+    // finalists reach the whole-fan gate. The budget leaves a reserve so full
+    // validation always runs even under autofocus (each candidate is many
+    // traced focus-scan samples).
+    const std::size_t k_medium = spec.ray_medium > 0 ? std::min(spec.ray_medium, n_fan) : k_full;
+    const std::int64_t second_half =
+        coarse_budget + (static_cast<std::int64_t>(spec.max_evals) - coarse_budget) / 2;
+    const std::int64_t reserved = static_cast<std::int64_t>(need) * 30;
+    std::int64_t medium_budget = std::min(second_half, static_cast<std::int64_t>(spec.max_evals) - reserved);
+    medium_budget = std::max(coarse_budget, medium_budget);
+    std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> ranked;
+    for (const Entry& e : promoted) {
+        if (obj.evals() >= medium_budget) {
+            break;
+        }
+        LayoutObjective::Stats ms = obj.evaluate(e.x.data(), k_medium, true);
+        out.diagnostics.medium_evals++;
+        out.diagnostics.rays_traced += static_cast<std::int64_t>(k_medium);
+        ranked.emplace_back(e.x, ms);
+    }
+    if (ranked.empty()) {
+        for (const Entry& e : promoted) {
+            ranked.emplace_back(e.x, e.s);
+        }
+    }
+    std::stable_sort(ranked.begin(), ranked.end(),
+                     [&](const auto& a, const auto& b) { return better_stats(spec, a.second, b.second); });
+
+    // --- Finalist selection: distinct best medium candidates -----------------
+    std::vector<Entry> finalists;
+    for (const auto& r : ranked) {
+        bool distinct = true;
         for (const Entry& f : finalists) {
-            if (norm_dist(e.x.data(), f.x.data()) < spec.archive_min_dist) {
+            if (norm_dist(r.first.data(), f.x.data()) < spec.archive_min_dist) {
                 distinct = false;
                 break;
             }
         }
         if (distinct) {
-            finalists.push_back(e);
+            finalists.push_back(Entry{r.first, r.second});
         }
-        if (static_cast<int>(finalists.size()) >= std::max(1, spec.finalist_count)) {
+        if (static_cast<int>(finalists.size()) >= need) {
             break;
         }
     }

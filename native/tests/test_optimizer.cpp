@@ -375,6 +375,8 @@ void test_optimize_layout_pipeline() {
     CHECK(run.status == "ok");
     CHECK(run.n_shared >= 8);  // whole-fan winner keeps enough correspondences
     CHECK(run.diagnostics.coarse_evals >= 1);
+    CHECK(run.diagnostics.medium_evals >= 1);  // promoted subset re-ranked at medium
+    CHECK(run.diagnostics.medium_promoted >= 1);
     CHECK(run.diagnostics.full_evals >= 1);
     CHECK(run.diagnostics.full_passes >= 1);
 
