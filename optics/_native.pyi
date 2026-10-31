@@ -216,11 +216,11 @@ def optimize_layout(
     ray_medium: int = 3072,
     ray_full: int = 0,
     pilot_min_shared: int = 4,
+    min_rays_per_group: int = 8,
     archive_size: int = 16,
     archive_min_dist: float = 0.05,
     promotion_factor: float = 3.0,
     finalist_count: int = 4,
-    refine_iterations: int = 0,
     enable_candidate_concurrency: bool = False,
     total_threads: int = 0,
 ) -> dict[str, Any]: ...

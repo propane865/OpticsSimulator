@@ -44,9 +44,9 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
                             double worst_field_factor, double polish_gate, bool stop_on_focus,
                             bool autofocus_plane, bool enable_pipeline, std::int64_t ray_pilot,
                             std::int64_t ray_coarse, std::int64_t ray_medium, std::int64_t ray_full,
-                            std::int64_t pilot_min_shared, std::int64_t archive_size,
-                            double archive_min_dist, double promotion_factor,
-                            std::int64_t finalist_count, std::int64_t refine_iterations,
+                            std::int64_t pilot_min_shared, std::int64_t min_rays_per_group,
+                            std::int64_t archive_size, double archive_min_dist,
+                            double promotion_factor, std::int64_t finalist_count,
                             bool enable_candidate_concurrency, std::int64_t total_threads) {
     const ConstDoubles x0 = read_doubles(x_init, 1, "x_init");
     const ConstDoubles lower = read_doubles(lo, 1, "lo");
@@ -135,11 +135,12 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
     spec.ray_medium = static_cast<std::size_t>(std::max<std::int64_t>(0, ray_medium));
     spec.ray_full = static_cast<std::size_t>(std::max<std::int64_t>(0, ray_full));
     spec.pilot_min_shared = static_cast<std::size_t>(std::max<std::int64_t>(1, pilot_min_shared));
+    spec.min_rays_per_group =
+        static_cast<std::size_t>(std::max<std::int64_t>(2, min_rays_per_group));
     spec.archive_size = static_cast<int>(archive_size);
     spec.archive_min_dist = archive_min_dist;
     spec.promotion_factor = promotion_factor;
     spec.finalist_count = static_cast<int>(finalist_count);
-    spec.refine_iterations = static_cast<int>(refine_iterations);
     spec.enable_candidate_concurrency = enable_candidate_concurrency;
     spec.total_threads = static_cast<int>(total_threads);
     require(std::isfinite(spec.archive_min_dist) && spec.archive_min_dist >= 0.0,
@@ -200,18 +201,6 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
     if (!dg.gen_best.empty()) {
         std::memcpy(gen_best.request().ptr, dg.gen_best.data(), dg.gen_best.size() * sizeof(double));
     }
-    py::array_t<double> gen_median(
-        std::vector<py::ssize_t>{static_cast<py::ssize_t>(dg.gen_median.size())},
-        std::vector<py::ssize_t>{8});
-    if (!dg.gen_median.empty()) {
-        std::memcpy(gen_median.request().ptr, dg.gen_median.data(), dg.gen_median.size() * sizeof(double));
-    }
-    py::array_t<std::int64_t> gen_valid(
-        std::vector<py::ssize_t>{static_cast<py::ssize_t>(dg.gen_valid.size())},
-        std::vector<py::ssize_t>{8});
-    if (!dg.gen_valid.empty()) {
-        std::memcpy(gen_valid.request().ptr, dg.gen_valid.data(), dg.gen_valid.size() * sizeof(std::int64_t));
-    }
     py::dict diagnostics;
     diagnostics["generated"] = dg.generated;
     diagnostics["geometry_rejects"] = dg.geometry_rejects;
@@ -223,20 +212,15 @@ py::dict py_optimize_layout(const TraceStack& stack, std::vector<std::int64_t> f
     diagnostics["medium_promoted"] = dg.medium_promoted;
     diagnostics["full_passes"] = dg.full_passes;
     diagnostics["full_failures"] = dg.full_failures;
-    diagnostics["rays_requested"] = dg.rays_requested;
     diagnostics["rays_traced"] = dg.rays_traced;
     diagnostics["ns_geometry"] = dg.ns_geometry;
     diagnostics["ns_pilot"] = dg.ns_pilot;
     diagnostics["ns_coarse"] = dg.ns_coarse;
     diagnostics["ns_medium"] = dg.ns_medium;
     diagnostics["ns_full"] = dg.ns_full;
-    diagnostics["ns_objective"] = dg.ns_objective;
-    diagnostics["ns_bookkeeping"] = dg.ns_bookkeeping;
     diagnostics["candidate_threads"] = dg.candidate_threads;
     diagnostics["ray_threads"] = dg.ray_threads;
     diagnostics["gen_best"] = gen_best;
-    diagnostics["gen_median"] = gen_median;
-    diagnostics["gen_valid"] = gen_valid;
     result["diagnostics"] = diagnostics;
     return result;
 }
@@ -262,10 +246,11 @@ void register_optimizer(py::module_& m) {
           py::arg("polish_gate") = 5.0, py::arg("stop_on_focus") = true,
           py::arg("autofocus_plane") = false, py::arg("enable_pipeline") = false,
           py::arg("ray_pilot") = 48, py::arg("ray_coarse") = 512, py::arg("ray_medium") = 3072,
-          py::arg("ray_full") = 0, py::arg("pilot_min_shared") = 4, py::arg("archive_size") = 16,
+          py::arg("ray_full") = 0, py::arg("pilot_min_shared") = 4,
+          py::arg("min_rays_per_group") = 8, py::arg("archive_size") = 16,
           py::arg("archive_min_dist") = 0.05, py::arg("promotion_factor") = 3.0,
-          py::arg("finalist_count") = 4, py::arg("refine_iterations") = 0,
-          py::arg("enable_candidate_concurrency") = false, py::arg("total_threads") = 0);
+          py::arg("finalist_count") = 4, py::arg("enable_candidate_concurrency") = false,
+          py::arg("total_threads") = 0);
 }
 
 }  // namespace optics::bindings

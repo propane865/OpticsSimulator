@@ -901,10 +901,17 @@ class AnalysisEditor:
                 f"spot={result.spot_radius_mm:.3g} mm, M={fit.scale:.4g}"
             )
         else:
+            bound_note = (
+                f" -- pinned to {', '.join(result.window_limited)}; the focus "
+                "likely lies outside the searched range"
+                if result.window_limited
+                else ""
+            )
             self._set_status(
                 f"Optimized (suboptimal: no focused layout, status {result.status}) "
                 f"in {result.evaluations} evaluations: spot={result.spot_radius_mm:.3g} mm, "
                 f"worst field={result.worst_field_mm:.3g} mm, M={fit.scale:.4g}"
+                f"{bound_note}"
             )
 
     def _on_optimize_failed(self, message: str) -> None:

@@ -95,17 +95,22 @@ struct OptimizerSpec {
     // --- Phase-2 coarse-to-fine pipeline ------------------------------------
     // When enabled the global DE search runs at a coarse ray budget behind a
     // geometry precheck and a catastrophic-only pilot filter; a diverse archive
-    // of distinct coarse winners is re-ranked at medium fidelity and only a few
-    // finalists are traced at full fidelity, where the hard focus acceptance is
-    // the sole success gate. Disabled (the C++ default) the driver reproduces
-    // the legacy full-fidelity-per-candidate search exactly; the Python wrapper
-    // turns the pipeline on by default. ``enable_pipeline`` never weakens the
-    // acceptance contract -- a low coarse/medium objective is not success, only
-    // a full-fidelity candidate that passes ``focus_accepted`` is.
+    // of distinct coarse winners is re-ranked at medium fidelity and candidates
+    // are validated at the whole fan -- in best-candidate order, continuing into
+    // the archive until one passes or the budget reserve runs out -- where the
+    // hard focus acceptance is the sole success gate. Disabled (the C++ default)
+    // the driver reproduces the legacy full-fidelity-per-candidate search
+    // exactly; the Python wrapper turns the pipeline on by default.
+    // ``enable_pipeline`` never weakens the acceptance contract -- a low
+    // coarse/medium objective is not success, only a full-fidelity candidate
+    // that passes ``focus_accepted`` is.
     bool enable_pipeline = false;
     // Per-level ray budgets (each clamped to the fan size, never upsampled).
-    // Higher levels are supersets of lower ones via a single deterministic,
-    // low-discrepancy ray ordering whose prefixes nest (see the driver).
+    // Higher levels are supersets of lower ones: every budget traces whole
+    // object points, each with a nested subset of its own cone, so a reduced
+    // level shrinks the *number of sampled object points* before it shrinks the
+    // rays per point (see ``fidelity_ray_order``). A budget at or above the fan
+    // size traces the whole fan in its natural order.
     std::size_t ray_pilot = 48;    // catastrophic rejection
     std::size_t ray_coarse = 512;  // global DE
     std::size_t ray_medium = 3072; // archive re-rank
@@ -114,12 +119,19 @@ struct OptimizerSpec {
     // yields the minimum correspondence count -- deliberately loose, so a
     // genuinely focusable layout is never discarded.
     std::size_t pilot_min_shared = 4;
+    // Rays kept per sampled object point at reduced fidelity. The focus measure
+    // is a per-object-point spread, so a reduced level that leaves a sampled
+    // point with a single ray measures zero blur for it; this floor keeps the
+    // coarse/medium objective an honest (if sparse-field) estimate of blur. It
+    // also sets the measurability floor: a reduced-fidelity candidate whose
+    // sampled points are not at least half measurable (>= 2 valid hits) is
+    // unmeasurable rather than sharp.
+    std::size_t min_rays_per_group = 8;
     // Diverse candidate archive (distinct best coarse candidates kept).
     int archive_size = 16;
     double archive_min_dist = 0.05;   // min normalized parameter distance to be distinct
     double promotion_factor = 3.0;    // promote if objective <= best * this factor
-    int finalist_count = 4;           // medium survivors promoted to full validation
-    int refine_iterations = 0;        // optional bounded local refinement (0: off)
+    int finalist_count = 4;           // first full-validation batch (best medium)
     // Parallel budget. The sequential DE loop is never parallelized; instead the
     // independent medium-re-rank and full-validation stages fan their candidates
     // out across worker threads, each tracing its ray fan inline (never
@@ -157,20 +169,15 @@ struct OptimizerDiagnostics {
     std::int64_t medium_promoted = 0;
     std::int64_t full_passes = 0;
     std::int64_t full_failures = 0;
-    std::int64_t rays_requested = 0;   // sum of per-eval ray budgets
     std::int64_t rays_traced = 0;      // sum of rays actually traced
-    std::int64_t ns_geometry = 0;
-    std::int64_t ns_pilot = 0;
-    std::int64_t ns_coarse = 0;
-    std::int64_t ns_medium = 0;
-    std::int64_t ns_full = 0;
-    std::int64_t ns_objective = 0;
-    std::int64_t ns_bookkeeping = 0;
+    std::int64_t ns_geometry = 0;      // stacking precheck (no tracing)
+    std::int64_t ns_pilot = 0;         // pilot traces
+    std::int64_t ns_coarse = 0;        // coarse-fidelity candidate traces
+    std::int64_t ns_medium = 0;        // medium re-rank stage
+    std::int64_t ns_full = 0;          // whole-fan validation traces
     std::int64_t candidate_threads = 1;
     std::int64_t ray_threads = 1;
     std::vector<double> gen_best;      // best coarse cost per DE generation
-    std::vector<double> gen_median;    // median coarse cost per DE generation
-    std::vector<std::int64_t> gen_valid;  // coarse-valid candidate count per generation
 };
 
 struct OptimizerOutcome {
@@ -192,5 +199,21 @@ struct OptimizerOutcome {
 };
 
 OptimizerOutcome optimize_layout(const OptimizerSpec& spec);
+
+// Deterministic, group-aware ray ordering for a reduced-fidelity evaluation.
+// Returns up to ``budget`` source-ray indices (into ``0..n_rays``) chosen so a
+// budget traces *whole object points*: object points are spread across the fan
+// (bit-reversed group order) and each sampled point contributes a balanced,
+// nested subset of its own cone, with at least ``min_rays_per_group`` rays per
+// sampled point whenever the budget allows. A larger budget is a superset of a
+// smaller one, and a budget at or above ``n_rays`` returns an empty vector,
+// meaning "trace the fan in its own order". A null ``groups`` is one object
+// point (the metric's convention), so the budget deepens that single cone. The
+// subsampling is what keeps a reduced level's per-object-point spot radius
+// meaningful: spreading the same budget one ray per object point would measure
+// zero blur for every point and rank candidates on correspondence count alone.
+std::vector<std::size_t> fidelity_ray_order(const std::int32_t* groups, std::size_t n_groups,
+                                            std::size_t n_rays, std::size_t budget,
+                                            std::size_t min_rays_per_group);
 
 }  // namespace optics::native

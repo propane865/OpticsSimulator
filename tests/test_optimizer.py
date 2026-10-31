@@ -566,3 +566,148 @@ def test_pipeline_reports_a_structured_failure_reason():
     with pytest.raises(OptimizationError, match="reason:"):
         _optimize_pipeline(schema, source, p1, p2, replace(_PIPELINE, max_normalized_blur=0.0))
 
+
+# A search window wide enough that no layout near the base focus is acceptable,
+# forcing the search to actually follow blur across the window.
+_WIDE_BOUNDS = {"lens1": (-5.0, 22.0), "lens2": (-22.0, 5.0)}
+_WIDE_IMAGE_BOUNDS = (-45.0, -15.0)
+
+
+def _grouped_problem(side: int = 8, pitch: float = 2.0):
+    doc = json.loads((Path(_examples.__file__).parent / "doublet.json").read_text())
+    schema, _stored, planes = parse_project(doc)
+    source = PointSource(
+        position=[0.0, 0.0, _SOURCE_Z],
+        power=1.0,
+        num_rays=16,
+        source_type="point_array",
+        cone_angle=1.0,
+        weights=np.ones((side, side)),
+        pixel_pitch=pitch,
+    )
+    return schema, source, planes[0][1], planes[1][1]
+
+
+_GROUPED = LensOptimization(
+    seed=3,
+    generations=200,
+    max_evals=2500,
+    nm_iterations=1000,
+    anchor_weight=1e-6,
+    max_normalized_blur=0.25,
+    stop_on_focus=True,
+    ray_pilot=48,
+    ray_coarse=48,
+    ray_medium=192,
+)
+
+
+def test_pipeline_converges_on_a_grouped_fan_in_one_run():
+    schema, source, p1, p2 = _grouped_problem()
+    origins, dirs, powers = source.emit_arrays()
+    assert origins.shape[0] == 1024  # 64 object points of 16 rays each
+    result = optimize_layout(
+        schema, p1, p2, origins, dirs, powers,
+        element_bounds=_WIDE_BOUNDS, image_bounds=_WIDE_IMAGE_BOUNDS,
+        optimization=_GROUPED,
+    )
+    legacy = optimize_layout(
+        schema, p1, p2, origins, dirs, powers,
+        element_bounds=_WIDE_BOUNDS, image_bounds=_WIDE_IMAGE_BOUNDS,
+        optimization=replace(_GROUPED, enable_pipeline=False, allow_suboptimal=True),
+    )
+    # The coarse level gets 48 rays for 64 object points. Spread one ray per
+    # object point, a point's spread about itself is zero: the coarse stage
+    # ranks layouts on how many rays survive and never sees blur at all, so the
+    # run stalls on a best-effort layout and only walks into focus over several
+    # repeated clicks (each re-centering the window on the last best effort).
+    assert result.status == "ok"
+    assert result.spot_radius_mm <= legacy.spot_radius_mm * 1.15
+
+
+_FAR_A = "-5 + (0.02*(u**2 + v**2) / (1 + sqrt(1 + 0.0004*(u**2 + v**2))))"
+_FAR_B = "5 - (0.02*(u**2 + v**2) / (1 + sqrt(1 + 0.0004*(u**2 + v**2))))"
+
+
+def _far_focus_problem():
+    """A fast f/1.25 singlet 50 mm from its object, with the image plane parked
+    30 mm behind it -- about where a naive guess puts it, and 32 mm short of
+    where the singlet actually focuses. Nothing but the image-plane window's
+    extent separates this from a well-prescreened layout."""
+
+    def face(z: str) -> dict[str, object]:
+        return {
+            "x": "u", "y": "v", "z": z,
+            "u_range": [-20.0, 20.0], "v_range": [-20.0, 20.0],
+            "aperture": {"radius": 20.0},
+        }
+
+    schema = {
+        "singlet": {
+            "surface1": face(_FAR_A),
+            "surface2": face(_FAR_B),
+            "material": {"refractive_index": 2.0},
+            "position": [0.0, 0.0, -20.0],
+            "orientation": [0.0, 0.0, 1.0],
+        }
+    }
+    source = MeasurementPlane(
+        origin=[0.0, 0.0, 29.99], normal=[0.0, 0.0, 1.0],
+        u_range=[-20.0, 20.0], v_range=[-20.0, 20.0], resolution=[64, 64],
+    )
+    image = MeasurementPlane(
+        origin=[0.0, 0.0, -50.0], normal=[0.0, 0.0, 1.0],
+        u_range=[-20.0, 20.0], v_range=[-20.0, 20.0], resolution=[64, 64],
+    )
+    source_points = PointSource(
+        position=[0.0, 0.0, 30.0], power=1.0, num_rays=8, source_type="point_array",
+        cone_angle=15.0, weights=[[1.0] * 7] * 7, pixel_pitch=1.0,
+    )
+    origins, dirs, powers = source_points.emit_arrays()
+    return schema, source, image, origins, dirs, powers
+
+
+_FAR_FOCUS = LensOptimization(
+    seed=11,
+    generations=150,
+    max_evals=1200,
+    nm_iterations=600,
+    ray_pilot=48,
+    ray_coarse=256,
+    ray_medium=1024,
+    allow_suboptimal=True,
+)
+
+
+def test_default_image_window_reaches_a_far_focus():
+    schema, source, image, origins, dirs, powers = _far_focus_problem()
+    result = optimize_layout(schema, source, image, origins, dirs, powers, optimization=_FAR_FOCUS)
+    # Where a stack focuses is the very thing the search is for, so the image
+    # plane's default window scales with the tail-element distance instead of
+    # capping at a flat +/-15 mm: a fixed window puts this focus outside the
+    # searched range, and the run stalls on the window floor no matter how often
+    # it is clicked.
+    assert result.status == "ok"
+    assert result.best_z[-1] < -65.0  # beyond the flat window's downstream floor
+    assert result.window_limited == ()
+
+
+def test_window_limited_reports_the_bound_the_winner_hit():
+    schema, source, image, origins, dirs, powers = _far_focus_problem()
+    # The same problem with the focus deliberately outside the allowed window:
+    # the winner presses on the bound, and the result has to say so -- more
+    # iterations inside the same window cannot converge, only widening it can.
+    result = optimize_layout(
+        schema, source, image, origins, dirs, powers,
+        image_bounds=(-65.0, -35.0), optimization=_FAR_FOCUS,
+    )
+    assert result.status == "no-focus-found"
+    assert len(result.window_limited) == 1
+    assert "image plane" in result.window_limited[0]
+    with pytest.raises(OptimizationError, match="outside the searched range"):
+        optimize_layout(
+            schema, source, image, origins, dirs, powers,
+            image_bounds=(-65.0, -35.0),
+            optimization=replace(_FAR_FOCUS, allow_suboptimal=False),
+        )
+

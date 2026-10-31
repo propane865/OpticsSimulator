@@ -4,6 +4,7 @@
 // (trace equivalence against from-scratch rebuilds), and the layout driver's
 // focus-acceptance contract (statuses, LHS determinism, polish gating, early
 // focus stop).
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -26,6 +27,7 @@ namespace {
 
 using optics::native::ClippedSimilarity;
 using optics::native::fit_clipped_similarity;
+using optics::native::fidelity_ray_order;
 using optics::native::make_vec3;
 using optics::native::OptimizerOutcome;
 using optics::native::OptimizerSpec;
@@ -356,6 +358,70 @@ void test_optimize_layout_autofocus() {
     CHECK(strict_run.best[1] <= strict_run.best[0] - 1.0 + 1e-9);
 }
 
+void test_fidelity_ray_order_is_group_aware() {
+    // Four object points, eight rays each. A budget that cannot serve every
+    // point the minimum rays must sample fewer points *deeply*, never one ray
+    // from each: a single hit per object point has zero spread about itself, so
+    // it would report a perfectly sharp field point that was never measured.
+    const std::size_t n = 32;
+    std::vector<std::int32_t> groups(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        groups[i] = static_cast<std::int32_t>(i / 8);
+    }
+    const std::vector<std::size_t> eight = fidelity_ray_order(groups.data(), 4, n, 8, 4);
+    CHECK(eight.size() == 8);
+    int per_group[4] = {0, 0, 0, 0};
+    for (const std::size_t i : eight) {
+        CHECK(i < n);
+        ++per_group[groups[i]];
+    }
+    int deep = 0;
+    int touched = 0;
+    for (const int c : per_group) {
+        touched += c > 0 ? 1 : 0;
+        deep += c >= 4 ? 1 : 0;
+    }
+    CHECK(touched == 2);  // two object points, not eight rays scattered as one each
+    CHECK(deep == 2);
+    // Every point's rays are the leading rays of its own cone.
+    for (const int c : per_group) {
+        CHECK(c == 0 || c == 4);
+    }
+
+    // Larger budgets are supersets, and they widen the sampled field before
+    // they deepen an already-covered cone.
+    const std::vector<std::size_t> four = fidelity_ray_order(groups.data(), 4, n, 4, 4);
+    const std::vector<std::size_t> sixteen = fidelity_ray_order(groups.data(), 4, n, 16, 4);
+    const std::vector<std::size_t> twenty_four = fidelity_ray_order(groups.data(), 4, n, 24, 4);
+    CHECK(four.size() == 4);
+    CHECK(sixteen.size() == 16);
+    CHECK(twenty_four.size() == 24);
+    auto contains = [](const std::vector<std::size_t>& set, const std::vector<std::size_t>& sub) {
+        for (const std::size_t i : sub) {
+            if (std::find(set.begin(), set.end(), i) == set.end()) {
+                return false;
+            }
+        }
+        return true;
+    };
+    CHECK(contains(eight, four));
+    CHECK(contains(sixteen, eight));
+    CHECK(contains(twenty_four, sixteen));
+
+    // A whole-fan budget traces the fan in its own order, and a fan with no
+    // group ids is one object point whose cone gets the whole budget.
+    CHECK(fidelity_ray_order(groups.data(), 4, n, n, 4).empty());
+    CHECK(fidelity_ray_order(groups.data(), 4, n, n + 8, 4).empty());
+    const std::vector<std::size_t> ungrouped = fidelity_ray_order(nullptr, 0, n, 8, 4);
+    CHECK(ungrouped.size() == 8);
+    std::vector<std::size_t> sorted = ungrouped;
+    std::sort(sorted.begin(), sorted.end());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+    CHECK(sorted.size() == 8);  // eight distinct rays of the one cone
+    CHECK(sorted.back() < n);
+    CHECK(fidelity_ray_order(std::vector<std::int32_t>(n, 0).data(), 1, n, 8, 4) == ungrouped);
+}
+
 void test_optimize_layout_pipeline() {
     DriverProblem problem;
 
@@ -465,6 +531,7 @@ void test_optimizer() {
     test_fit_exact_similarity();
     test_fit_clips_outliers();
     test_spot_radius_pools_per_object_point();
+    test_fidelity_ray_order_is_group_aware();
     test_optimize_layout_status_and_determinism();
     test_optimize_layout_autofocus();
     test_optimize_layout_pipeline();

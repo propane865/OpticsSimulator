@@ -65,8 +65,16 @@ __all__ = ["LensOptimization", "OptimizationError", "OptimizationResult", "optim
 _DEFAULT_WINDOW = 12.0
 # Minimum axial spacing kept between neighboring stack elements (mm).
 _DEFAULT_MIN_GAP = 1.0
-# Default window for the image plane (mm), upstream and downstream.
+# Default window for the image plane (mm), upstream of its current position and
+# the floor of the downstream span below.
 _IMAGE_WINDOW = 15.0
+# How far downstream of its current position the image plane may move, as a
+# multiple of the tail-element-to-plane distance. Where the focus lands is the
+# least-known quantity in a layout (it follows the focal length, which the
+# search is free to change), so a flat guess silently excludes the answer for
+# anything but a well-prescreened plane: a plane 30 mm behind the last element
+# gets a 60 mm downstream span rather than 15 mm.
+_IMAGE_DOWNSTREAM_FACTOR = 2.0
 
 
 class OptimizationError(RuntimeError):
@@ -128,19 +136,27 @@ class LensOptimization:
     generations: int = 200
     max_evals: int = 5000
     nm_iterations: int = 1000
+    # DE leaves the global search once no candidate improved for this many
+    # generations.
+    stall_generations: int = 60
     # Coarse-to-fine pipeline (default on at this layer; the C++ default is
     # off so the native solver stays bit-identical to the legacy search unless
     # asked). Global DE runs at a coarse ray budget and only a few diverse
     # finalists are re-traced at the whole fan, where the hard focus acceptance
     # is the sole success gate -- so this reorders *which* candidates reach full
-    # fidelity but never weakens the acceptance contract. Higher levels are
-    # nested supersets of a deterministic low-discrepancy ray ordering; budgets
-    # are clamped to the fan size (a 0 ray budget means "whole fan").
+    # fidelity but never weakens the acceptance contract. A reduced-fidelity
+    # budget traces whole object points (``min_rays_per_group`` rays of each
+    # sampled point's own cone), so a coarse candidate is a sparse-field blur
+    # estimate rather than the degenerate zero a one-ray-per-point subset would
+    # report; higher levels are supersets of lower ones under a deterministic
+    # ordering, and whole-fan validation traces every ray in its natural order.
+    # Budgets are clamped to the fan size (a 0 ray budget means "whole fan").
     enable_pipeline: bool = True
     ray_pilot: int = 48
     ray_coarse: int = 512
     ray_medium: int = 3072
     ray_full: int = 0
+    min_rays_per_group: int = 8
     finalist_count: int = 4
     archive_size: int = 16
     archive_min_dist: float = 0.05
@@ -186,6 +202,13 @@ class OptimizationResult:
     # With the coarse-to-fine pipeline this is well below ``evaluations * fan``;
     # the legacy path traces the whole fan every evaluation.
     rays_traced: int = 0
+    # Parameters whose best value sits on a search-window bound, e.g.
+    # ``("image plane z=-65.0 (window floor)",)``. Non-empty on an unfocused
+    # run means the search could not reach the answer: the focus lies beyond the
+    # range it was allowed to look in, so widening that window -- not more
+    # iterations -- is what converges. Empty for a focused layout and whenever
+    # the best minimum is interior.
+    window_limited: tuple[str, ...] = ()
 
 
 def _stack_z_positions(schema: Mapping[str, Any]) -> list[float]:
@@ -193,6 +216,43 @@ def _stack_z_positions(schema: Mapping[str, Any]) -> list[float]:
         float(np.asarray(entry.get("position", [0.0, 0.0, 0.0]), dtype=float)[2])
         for entry in schema.values()
     ]
+
+
+def _image_window(z_image: float, z_tail: float) -> tuple[float, float]:
+    """Default (downstream, upstream) z window for the image plane.
+
+    Upstream of its current position the plane only has a short way to go, so a
+    flat ``_IMAGE_WINDOW`` is generous there. Downstream, the reachable focus
+    distance scales with the layout: the image of a stack sits roughly where the
+    stack puts it, so the span grows with the tail-element-to-plane distance and
+    never shrinks below the flat window.
+    """
+    downstream = max(_IMAGE_WINDOW, _IMAGE_DOWNSTREAM_FACTOR * abs(z_image - z_tail))
+    return z_image - downstream, z_image + _IMAGE_WINDOW
+
+
+def _window_limited(
+    best: np.ndarray, lo: Sequence[float], hi: Sequence[float], names: Sequence[str]
+) -> tuple[str, ...]:
+    """Parameters whose best value sits on a search-window bound.
+
+    A minimum pressed against a bound is not a converged answer: the search ran
+    into the wall of the range it was given and stopped there, so iterating more
+    or restarting inside the same window cannot help -- only widening that
+    parameter's window can. A pinned (zero-span) window is excluded: the user set
+    that bound on purpose.
+    """
+    pinned: list[str] = []
+    for value, bound_lo, bound_hi, name in zip(best, lo, hi, names, strict=True):
+        span = float(bound_hi) - float(bound_lo)
+        eps = max(1e-3, 1e-3 * span)
+        if span <= eps:
+            continue
+        if float(value) - bound_lo <= eps:
+            pinned.append(f"{name} z={float(value):.4g} (window minimum)")
+        elif bound_hi - float(value) <= eps:
+            pinned.append(f"{name} z={float(value):.4g} (window maximum)")
+    return tuple(pinned)
 
 
 def optimize_layout(
@@ -217,7 +277,11 @@ def optimize_layout(
     not part of the cost: it is whatever the focused layout produces, reported
     as :attr:`OptimizationResult.transform`'s ``scale``. Free elements default
     to every stack element; explicit ``element_bounds`` / ``image_bounds``
-    override the default windows. A degenerate ``image_bounds=(z, z)`` window
+    override the default windows: elements get :data:`_DEFAULT_WINDOW` about
+    their current z, while the image plane gets a flat window upstream and a
+    downstream span scaled by the tail-element-to-plane distance (where a
+    stack's focus lands is exactly what the search is looking for, so a flat
+    window would exclude it). A degenerate ``image_bounds=(z, z)`` window
     pins the image plane (locks its z) so only the elements are searched;
     otherwise ``LensOptimization.autofocus_image_plane`` profiles the image
     plane's z out of the global search, evaluating each candidate layout at
@@ -229,7 +293,10 @@ def optimize_layout(
     always a validated focused layout, unless
     ``LensOptimization.allow_suboptimal`` is set, in which case a budget-
     exhausted unfocused best-effort layout is returned with status
-    ``no-focus-found``.
+    ``no-focus-found``. Either way, when the best layout sits on a search-window
+    bound the answer lies outside the searched range, and the offending bounds
+    are listed in the error message and in
+    :attr:`OptimizationResult.window_limited`.
     """
     layout = optimization if optimization is not None else LensOptimization()
     if source_plane is image_plane:
@@ -280,11 +347,11 @@ def optimize_layout(
             raise ValueError(f"element {name!r} has no feasible z window")
         lo.append(b_lo)
         hi.append(b_hi)
+    tail = len(base_z) - 1
     if image_bounds is not None:
         p_lo, p_hi = float(min(image_bounds)), float(max(image_bounds))
     else:
-        p_lo, p_hi = z_image - _IMAGE_WINDOW, z_image + _IMAGE_WINDOW
-    tail = len(base_z) - 1
+        p_lo, p_hi = _image_window(z_image, base_z[tail])
     if tail not in indices:
         # A fixed stack tail hard-clips the plane below it; when the tail is
         # free the consecutive-parameter gap penalty keeps the order.
@@ -374,6 +441,7 @@ def optimize_layout(
         generations=int(layout.generations),
         max_evals=int(layout.max_evals),
         nm_iterations=int(layout.nm_iterations),
+        stall_generations=int(layout.stall_generations),
         max_norm_blur=float(layout.max_normalized_blur),
         blur_all_factor=float(layout.blur_all_factor),
         worst_field_factor=float(layout.worst_field_factor),
@@ -385,6 +453,7 @@ def optimize_layout(
         ray_coarse=int(layout.ray_coarse),
         ray_medium=int(layout.ray_medium),
         ray_full=int(layout.ray_full),
+        min_rays_per_group=int(layout.min_rays_per_group),
         finalist_count=int(layout.finalist_count),
         archive_size=int(layout.archive_size),
         archive_min_dist=float(layout.archive_min_dist),
@@ -393,6 +462,12 @@ def optimize_layout(
     )
 
     status = str(outcome["status"])
+    best = np.asarray(outcome["best"], dtype=float)
+    # An unfocused winner pressed against a bound means the answer is outside the
+    # searched range, which is a different problem from an exhausted budget.
+    window_limited: tuple[str, ...] = ()
+    if status != "ok":
+        window_limited = _window_limited(best, lo, hi, [*free, "image plane"])
     if status != "ok" and not (status == "no-focus-found" and layout.allow_suboptimal):
         # The native solver only reports ``ok`` for a layout that passed every
         # focus acceptance check; anything else is a failure, never a result,
@@ -404,16 +479,22 @@ def optimize_layout(
         tol = float(layout.max_normalized_blur) * blur_ref
         reason = str(outcome.get("failure_reason", "") or "").strip()
         reason_note = f" (reason: {reason})" if reason and reason != "none" else ""
+        bound_note = (
+            " Best layout is pinned to a search-window bound: "
+            f"{', '.join(window_limited)}; the focus likely lies outside the "
+            "searched range."
+            if window_limited
+            else ""
+        )
         raise OptimizationError(
             f"no focused configuration was found within the allowed parameter "
             f"ranges after {evals} evaluations ({status}). Best RMS spot "
             f"radius: {float(outcome['blur']):.4g} mm clipped, "
             f"{float(outcome['blur_all']):.4g} mm unclipped, worst field "
             f"{float(outcome['blur_max']):.4g} mm; required at most "
-            f"{tol:.4g} mm clipped{reason_note}."
+            f"{tol:.4g} mm clipped{reason_note}.{bound_note}"
         )
 
-    best = np.asarray(outcome["best"], dtype=float)
     updated: dict[str, Any] = copy.deepcopy(dict(elements_schema))
     for param, name in enumerate(free):
         entry = updated[name]
@@ -468,4 +549,5 @@ def optimize_layout(
         blur_all_mm=float(outcome["blur_all"]),
         worst_field_mm=float(outcome["blur_max"]),
         rays_traced=int(outcome["diagnostics"]["rays_traced"]),
+        window_limited=window_limited,
     )
