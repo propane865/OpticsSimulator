@@ -9,8 +9,10 @@
 // domain types instead.
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "optics/common/vector.hpp"
 #include "optics/tracing/context.hpp"
@@ -80,6 +82,23 @@ struct MeasurementOutputView {
 double accumulate_power(double* grid, const double* u, const double* v, const double* power,
                         std::size_t n, double u_min, double u_max, double v_min, double v_max,
                         int ru, int rv, double interval_u, double interval_v);
+
+// Single-ray plane crossing in detector-local coordinates: the forward
+// ``plane_intersect`` hit mapped through ``frame`` into the plane's
+// in-plane frame. ``(u, v, t)`` on a crossing, ``nullopt`` otherwise
+// (vertical plane, parallel/degenerate ray).
+std::optional<std::array<double, 3>> plane_hit_local(const Vec3& ro, const Vec3& d, const Vec3& o,
+                                                     const Vec3& n, const PlaneFrame& frame,
+                                                     double eps);
+
+// Hit-validity predicate over flat ``(u, v)`` detector coordinates and
+// powers: finite ``(u, v)``, inside the plane extent and positive power.
+// This is the one correspondence mask (``plane_transform`` pairing, the
+// optimizer's base-layout check and the native objective share it). ``out``
+// receives ``n`` bytes.
+void valid_hits_mask(const double* us, const double* vs, const double* pws, std::size_t n,
+                     double u_min, double u_max, double v_min, double v_max,
+                     unsigned char* out);
 
 // Plane-intersect every ray (parallel); writes detector-local ``(u, v, power)``
 // per ray (mapped through ``frame``), leaving non-hits as-is.

@@ -214,18 +214,18 @@ class MeasurementPlane:
         if not (np.all(np.isfinite(ro)) and np.all(np.isfinite(d))):
             return None
 
-        _u, _v, t, ok = _native.plane_intersect(
+        s_u, s_v, t_u, t_v = self._coeffs
+        u, v, t, ok = _native.plane_hit_local(
             np.ascontiguousarray(ro, dtype=float),
             np.ascontiguousarray(d, dtype=float),
             np.ascontiguousarray(self.o, dtype=float),
             np.ascontiguousarray(self.n, dtype=float),
+            s_u, s_v, t_u, t_v,
         )
         if not ok:
             return None
 
-        point = ray.at(t)
-        offset = point - self.o
-        return point, float(offset @ self._e1), float(offset @ self._e2)
+        return ray.at(t), float(u), float(v)
 
     def contains(self, u: Any, v: Any) -> Any:
         """Boolean mask for parameters inside the plane extent."""

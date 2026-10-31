@@ -368,13 +368,12 @@ def optimize_layout(
     )
 
     # Base-layout check + the focus normalization length: the source-plane hit
-    # footprint radius. Also confirms the ray fan produces correspondences.
+    # footprint radius. Also confirms the ray fan produces correspondences
+    # (the native hit-validity predicate).
     us, vs, pws = system.measure_planes(origins, dirs, powers, [source_plane, image_plane])
-    valid_a = (
-        np.isfinite(us[0])
-        & np.isfinite(vs[0])
-        & source_plane.contains(us[0], vs[0])
-        & (pws[0] > 0.0)
+    valid_a = _native.valid_hits_mask(
+        np.ascontiguousarray(us[0]), np.ascontiguousarray(vs[0]), np.ascontiguousarray(pws[0]),
+        source_plane.u_min, source_plane.u_max, source_plane.v_min, source_plane.v_max,
     )
     if int(np.count_nonzero(valid_a)) < 4:
         raise ValueError("source plane sees fewer than 4 valid hits")

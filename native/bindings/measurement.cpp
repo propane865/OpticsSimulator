@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "optics/common/constants.hpp"
 #include "optics/measurement/measurement.hpp"
@@ -63,6 +64,46 @@ void py_measure_direct(const py::array_t<double>& origins, const py::array_t<dou
     const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
     optics::native::measure_direct(rays, ov, nv, s_u, s_v, t_u, t_v, eps, out);
+}
+
+std::tuple<double, double, double, bool> py_plane_hit_local(
+    const py::array_t<double>& ro, const py::array_t<double>& d, const py::array_t<double>& o,
+    const py::array_t<double>& n, double s_u, double s_v, double t_u, double t_v, double eps) {
+    const Vec3 rov = to_vec3(ro, "origin");
+    const Vec3 dv = to_vec3(d, "direction");
+    const Vec3 ov = to_vec3(o, "plane origin");
+    const Vec3 nv = to_vec3(n, "plane normal");
+    const optics::native::PlaneFrame frame{s_u, s_v, t_u, t_v};
+    const auto hit = [&] {
+        const py::gil_scoped_release release;
+        return optics::native::plane_hit_local(rov, dv, ov, nv, frame, eps);
+    }();
+    if (!hit.has_value()) {
+        return {0.0, 0.0, 0.0, false};
+    }
+    return {hit->at(0), hit->at(1), hit->at(2), true};
+}
+
+// Flat ``(u, v, power)`` hit arrays -> bool ndarray of the validity mask.
+py::array_t<bool> py_valid_hits_mask(const py::array_t<double>& us, const py::array_t<double>& vs,
+                                     const py::array_t<double>& pws, double u_min, double u_max,
+                                     double v_min, double v_max) {
+    const ConstDoubles u = read_doubles(us, 1, "us");
+    const ConstDoubles v = read_doubles(vs, 1, "vs");
+    const ConstDoubles pw = read_doubles(pws, 1, "pws");
+    require(u.size == v.size && u.size == pw.size, "us/vs/pws sizes must match");
+    std::vector<unsigned char> mask(u.size, 0);
+    {
+        const py::gil_scoped_release release;
+        optics::native::valid_hits_mask(u.data, v.data, pw.data, u.size, u_min, u_max, v_min,
+                                        v_max, mask.data());
+    }
+    py::array_t<bool> out(static_cast<py::ssize_t>(u.size));
+    bool* dst = static_cast<bool*>(out.request().ptr);
+    for (std::size_t i = 0; i < u.size; ++i) {
+        dst[i] = mask[i] != 0;
+    }
+    return out;
 }
 
 // Shared plane-array validation lives in ``support.hpp`` (``read_planes``).
@@ -126,6 +167,11 @@ void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<dou
 namespace optics::bindings {
 
 void register_measurement(py::module_& m) {
+    m.def("plane_hit_local", &py_plane_hit_local, py::arg("ro"), py::arg("d"), py::arg("o"),
+          py::arg("n"), py::arg("s_u"), py::arg("s_v"), py::arg("t_u"), py::arg("t_v"),
+          py::arg("eps") = optics::native::PLANE_EPS);
+    m.def("valid_hits_mask", &py_valid_hits_mask, py::arg("us"), py::arg("vs"), py::arg("pws"),
+          py::arg("u_min"), py::arg("u_max"), py::arg("v_min"), py::arg("v_max"));
     m.def("accumulate", &py_accumulate, py::arg("grid"), py::arg("u"), py::arg("v"),
           py::arg("power"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"), py::arg("v_max"),
           py::arg("ru"), py::arg("rv"), py::arg("interval_u"), py::arg("interval_v"));

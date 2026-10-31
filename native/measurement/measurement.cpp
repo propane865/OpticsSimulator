@@ -160,6 +160,30 @@ double accumulate_power(double* grid, const double* u, const double* v, const do
     return total;
 }
 
+std::optional<std::array<double, 3>> plane_hit_local(const Vec3& ro, const Vec3& d, const Vec3& o,
+                                                     const Vec3& n, const PlaneFrame& frame,
+                                                     double eps) {
+    const std::optional<std::array<double, 3>> hit = plane_intersect(ro, d, o, n, eps);
+    if (!hit.has_value()) {
+        return std::nullopt;
+    }
+    double s = 0.0;
+    double t = 0.0;
+    crossing_local(frame, o, hit->at(0), hit->at(1), &s, &t);
+    return std::array<double, 3>{s, t, hit->at(2)};
+}
+
+void valid_hits_mask(const double* us, const double* vs, const double* pws, std::size_t n,
+                     double u_min, double u_max, double v_min, double v_max,
+                     unsigned char* out) {
+    for (std::size_t i = 0; i < n; ++i) {
+        out[i] = std::isfinite(us[i]) && std::isfinite(vs[i]) && us[i] >= u_min &&
+                         us[i] <= u_max && vs[i] >= v_min && vs[i] <= v_max && pws[i] > 0.0
+                     ? 1
+                     : 0;
+    }
+}
+
 void measure_direct(const RayBatchView& rays, const Vec3& o, const Vec3& nrm, double s_u,
                     double s_v, double t_u, double t_v, double eps, MeasurementOutputView out) {
     const PlaneFrame frame{s_u, s_v, t_u, t_v};

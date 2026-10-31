@@ -90,13 +90,6 @@ def emit_cone_array(
     points: np.ndarray, weights: np.ndarray, base_dirs: np.ndarray, total_power: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
 
-def plane_intersect(
-    ro: np.ndarray,
-    d: np.ndarray,
-    o: np.ndarray,
-    n: np.ndarray,
-    eps: float = ...,
-) -> tuple[float, float, float, bool]: ...
 def mesh_intersect(
     o: np.ndarray,
     d: np.ndarray,
@@ -163,6 +156,26 @@ def reconstruct(
     neighbors: int,
     bandwidth_scale: float,
 ) -> float: ...
+def plane_hit_local(
+    ro: np.ndarray,
+    d: np.ndarray,
+    o: np.ndarray,
+    n: np.ndarray,
+    s_u: float,
+    s_v: float,
+    t_u: float,
+    t_v: float,
+    eps: float = ...,
+) -> tuple[float, float, float, bool]: ...
+def valid_hits_mask(
+    us: np.ndarray,
+    vs: np.ndarray,
+    pws: np.ndarray,
+    u_min: float,
+    u_max: float,
+    v_min: float,
+    v_max: float,
+) -> np.ndarray: ...
 def measure_direct(
     origins: np.ndarray,
     dirs: np.ndarray,

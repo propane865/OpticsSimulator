@@ -45,7 +45,6 @@ import bench_common as bc
 import numpy as np
 
 from optics import _native
-from optics import constants as _c
 from optics import examples as _examples
 from optics.config import stack_from_config
 from optics.measurement_plane import MeasurementPlane
@@ -165,11 +164,10 @@ def prepare(problem: Problem, times: "dict[str, float] | None" = None) -> Prep:
     )
 
     def normalize() -> float:
-        valid = (
-            np.isfinite(us[0])
-            & np.isfinite(vs[0])
-            & problem.source_plane.contains(us[0], vs[0])
-            & (pws[0] > 0.0)
+        valid = _native.valid_hits_mask(
+            np.ascontiguousarray(us[0]), np.ascontiguousarray(vs[0]), np.ascontiguousarray(pws[0]),
+            problem.source_plane.u_min, problem.source_plane.u_max,
+            problem.source_plane.v_min, problem.source_plane.v_max,
         )
         blur = float(np.sqrt(np.mean(us[0][valid] ** 2 + vs[0][valid] ** 2)))
         return max(blur, 1e-6)
@@ -207,7 +205,6 @@ def prepare(problem: Problem, times: "dict[str, float] | None" = None) -> Prep:
             "t_v": np.ascontiguousarray([sp.frame_coeffs[3], ip.frame_coeffs[3]]),
             "groups": groups,
             "dest_plane": 1,
-            "eps": _c.PLANE_EPS,
             "w_focus": 1.0,
             "blur_ref": blur_ref,
             "min_fraction": _MIN_FRACTION,

@@ -378,7 +378,8 @@ class LayoutObjective {
         const std::int32_t* group_ptr = lvl.natural ? spec_.groups : lvl.groups.data();
         measure_planes_multi(variant, fan, planes_view_, spec_.plane_eps, out);
 
-        // Shared valid correspondences (same mask as ``plane_transform``).
+        // Shared valid correspondences (the ``valid_hits_mask`` predicate,
+        // also used by ``plane_transform`` and the Python optimizer checks).
         const double* ua = us_.data();
         const double* ub = us_.data() + n;
         const double* va = vs_.data();

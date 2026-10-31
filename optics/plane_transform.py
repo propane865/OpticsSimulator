@@ -106,16 +106,17 @@ def plane_transform(
         va, vb = vs[0], vs[1]
         pa, pb = pws[0], pws[1]
 
-    shared = (
-        np.isfinite(ua)
-        & np.isfinite(va)
-        & plane_a.contains(ua, va)
-        & (pa > 0.0)
-        & np.isfinite(ub)
-        & np.isfinite(vb)
-        & plane_b.contains(ub, vb)
-        & (pb > 0.0)
+    # Correspondence pairing goes through the native hit-validity predicate
+    # (finite coordinates, inside the plane extent, positive power).
+    shared_a = _native.valid_hits_mask(
+        np.ascontiguousarray(ua), np.ascontiguousarray(va), np.ascontiguousarray(pa),
+        plane_a.u_min, plane_a.u_max, plane_a.v_min, plane_a.v_max,
     )
+    shared_b = _native.valid_hits_mask(
+        np.ascontiguousarray(ub), np.ascontiguousarray(vb), np.ascontiguousarray(pb),
+        plane_b.u_min, plane_b.u_max, plane_b.v_min, plane_b.v_max,
+    )
+    shared = shared_a & shared_b
     n_shared = int(np.count_nonzero(shared))
     if n_shared < 4:
         raise ValueError(

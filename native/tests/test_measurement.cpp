@@ -26,12 +26,15 @@ using optics::native::measure_direct;
 using optics::native::measure_planes_multi;
 using optics::native::MeasurementOutputView;
 using optics::native::PlaneBatchView;
+using optics::native::PlaneFrame;
+using optics::native::plane_hit_local;
 using optics::native::RayBatchView;
 using optics::native::reconstruct_irradiance;
 using optics::native::SegmentOutputView;
 using optics::native::trace_segments_and_planes;
 using optics::native::TraceOptions;
 using optics::native::TraceStack;
+using optics::native::valid_hits_mask;
 using optics::native::Vec3;
 
 constexpr double kCos1 = 0.9539392014169457;  // sqrt(1 - 0.3^2)
@@ -263,6 +266,31 @@ void test_measure_direct_compound_frame() {
     CHECK(close(pws[0], 2.0));
 }
 
+void test_plane_hit_local_and_valid_mask() {
+    const PlaneFrame frame{1.0, 0.0, 0.0, 1.0};
+    const Vec3 o = make_vec3(0.0, 0.0, 0.0);
+    const Vec3 nrm = make_vec3(0.0, 0.0, 1.0);
+    const auto hit = plane_hit_local(make_vec3(1.5, -2.5, 3.0), make_vec3(0.0, 0.0, -1.0), o, nrm,
+                                     frame, optics::native::PLANE_EPS);
+    CHECK(hit.has_value());
+    if (hit.has_value()) {
+        CHECK(close(hit->at(0), 1.5) && close(hit->at(1), -2.5) && close(hit->at(2), 3.0));
+    }
+    const auto miss = plane_hit_local(make_vec3(0.0, 0.0, 3.0), make_vec3(1.0, 0.0, 0.0), o, nrm,
+                                      frame, optics::native::PLANE_EPS);
+    CHECK(!miss.has_value());
+
+    const std::vector<double> us = {0.5, 1.5, NAN, 0.5};
+    const std::vector<double> vs = {0.0, 0.0, 0.0, 0.0};
+    const std::vector<double> pws = {1.0, 1.0, 1.0, 0.0};
+    std::vector<unsigned char> mask(4, 9);
+    valid_hits_mask(us.data(), vs.data(), pws.data(), 4, -1.0, 1.0, -1.0, 1.0, mask.data());
+    CHECK(mask[0] == 1);  // finite, in extent, positive power
+    CHECK(mask[1] == 0);  // outside the extent
+    CHECK(mask[2] == 0);  // non-finite coordinate
+    CHECK(mask[3] == 0);  // zero power
+}
+
 void test_planes_multi() {
     const TraceStack stack = fixture::make_stack({plate_at(0.0)});
     const double origins[6] = {0.0, 0.0, 4.0, -0.4, 0.0, 4.0};
@@ -449,6 +477,7 @@ void test_measurement() {
     test_accumulate();
     test_measure_direct();
     test_measure_direct_compound_frame();
+    test_plane_hit_local_and_valid_mask();
     test_planes_multi();
     test_fused_kernel();
     test_serial_trace_matches_pool();
