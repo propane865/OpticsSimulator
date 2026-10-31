@@ -91,6 +91,81 @@ struct OptimizerSpec {
     int stall_generations = 60;
     double xatol = 1e-6;  // relative simplex x spread (fraction of box span)
     double fatol = 1e-10;
+
+    // --- Phase-2 coarse-to-fine pipeline ------------------------------------
+    // When enabled the global DE search runs at a coarse ray budget behind a
+    // geometry precheck and a catastrophic-only pilot filter; a diverse archive
+    // of distinct coarse winners is re-ranked at medium fidelity and only a few
+    // finalists are traced at full fidelity, where the hard focus acceptance is
+    // the sole success gate. Disabled (the C++ default) the driver reproduces
+    // the legacy full-fidelity-per-candidate search exactly; the Python wrapper
+    // turns the pipeline on by default. ``enable_pipeline`` never weakens the
+    // acceptance contract -- a low coarse/medium objective is not success, only
+    // a full-fidelity candidate that passes ``focus_accepted`` is.
+    bool enable_pipeline = false;
+    // Per-level ray budgets (each clamped to the fan size, never upsampled).
+    // Higher levels are supersets of lower ones via a single deterministic,
+    // low-discrepancy ray ordering whose prefixes nest (see the driver).
+    std::size_t ray_pilot = 48;    // catastrophic rejection
+    std::size_t ray_coarse = 512;  // global DE
+    std::size_t ray_medium = 3072; // archive re-rank
+    std::size_t ray_full = 0;      // 0: the whole fan (final validation)
+    // Pilot: reject a candidate only when *no* plane position in the window
+    // yields the minimum correspondence count -- deliberately loose, so a
+    // genuinely focusable layout is never discarded.
+    std::size_t pilot_min_shared = 4;
+    // Diverse candidate archive (distinct best coarse candidates kept).
+    int archive_size = 16;
+    double archive_min_dist = 0.05;   // min normalized parameter distance to be distinct
+    double promotion_factor = 3.0;    // promote if objective <= best * this factor
+    int finalist_count = 4;           // medium survivors promoted to full validation
+    int refine_iterations = 0;        // optional bounded local refinement (0: off)
+    // Parallel budget. ``total_threads`` 0 means every hardware thread. When
+    // ``enable_candidate_concurrency`` is false (default) the search stays
+    // bit-reproducible with single-candidate tracing (all threads on rays);
+    // enabling it fans independent coarse candidates out within the budget.
+    bool enable_candidate_concurrency = false;
+    int total_threads = 0;
+};
+
+// Structured reason for a failed optimization, so callers (and the GUI) can
+// report *why* no focused layout was found instead of a least-bad layout.
+enum class OptimizationFailureReason {
+    NONE = 0,
+    NO_GEOMETRICALLY_VALID_CANDIDATES,
+    INSUFFICIENT_CORRESPONDENCE,
+    BLUR_THRESHOLD_NOT_MET,
+    WORST_FIELD_THRESHOLD_NOT_MET,
+    NO_FULL_VALIDATION_PASS,
+};
+
+// Per-run counters and timings for diagnostics (WP20). Times are nanoseconds
+// attributed to the phase that incurred them; ray counts are totals traced.
+struct OptimizerDiagnostics {
+    std::int64_t generated = 0;        // candidates drawn
+    std::int64_t geometry_rejects = 0;  // rejected before any tracing
+    std::int64_t pilot_rejects = 0;     // rejected by the pilot trace
+    std::int64_t coarse_evals = 0;
+    std::int64_t medium_evals = 0;
+    std::int64_t full_evals = 0;
+    std::int64_t archive_inserts = 0;
+    std::int64_t medium_promoted = 0;
+    std::int64_t full_passes = 0;
+    std::int64_t full_failures = 0;
+    std::int64_t rays_requested = 0;   // sum of per-eval ray budgets
+    std::int64_t rays_traced = 0;      // sum of rays actually traced
+    std::int64_t ns_geometry = 0;
+    std::int64_t ns_pilot = 0;
+    std::int64_t ns_coarse = 0;
+    std::int64_t ns_medium = 0;
+    std::int64_t ns_full = 0;
+    std::int64_t ns_objective = 0;
+    std::int64_t ns_bookkeeping = 0;
+    std::int64_t candidate_threads = 1;
+    std::int64_t ray_threads = 1;
+    std::vector<double> gen_best;      // best coarse cost per DE generation
+    std::vector<double> gen_median;    // median coarse cost per DE generation
+    std::vector<std::int64_t> gen_valid;  // coarse-valid candidate count per generation
 };
 
 struct OptimizerOutcome {
@@ -106,7 +181,9 @@ struct OptimizerOutcome {
     std::size_t n_total = 0;
     std::int64_t evals = 0;
     std::string status;  // ok | no-focus-found | infeasible | empty-problem
+    std::string failure_reason;  // structured failure classification (see enum)
     std::vector<double> history;  // best cost after each DE generation
+    OptimizerDiagnostics diagnostics;
 };
 
 OptimizerOutcome optimize_layout(const OptimizerSpec& spec);

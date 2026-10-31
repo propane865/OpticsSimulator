@@ -355,6 +355,48 @@ void test_optimize_layout_autofocus() {
     CHECK(strict_run.best[1] <= strict_run.best[0] - 1.0 + 1e-9);
 }
 
+void test_optimize_layout_pipeline() {
+    DriverProblem problem;
+
+    // Coarse-to-fine on the same diverging problem: global DE runs at a coarse
+    // ray budget (8 of 16) but the finalist validation re-traces at the whole
+    // fan, so the winner still carries all correspondences and the full
+    // focus acceptance -- the sole success gate -- is what reports ``ok``.
+    OptimizerSpec pipe = problem.spec;
+    pipe.blur_ref = 1e9;  // accept any traced layout at the full gate
+    pipe.autofocus_plane = true;
+    pipe.enable_pipeline = true;
+    pipe.ray_pilot = 4;
+    pipe.ray_coarse = 8;
+    pipe.ray_medium = 12;
+    pipe.ray_full = 0;  // whole fan for validation
+    pipe.finalist_count = 4;
+    const OptimizerOutcome run = optics::native::optimize_layout(pipe);
+    CHECK(run.status == "ok");
+    CHECK(run.n_shared >= 8);  // whole-fan winner keeps enough correspondences
+    CHECK(run.diagnostics.coarse_evals >= 1);
+    CHECK(run.diagnostics.full_evals >= 1);
+    CHECK(run.diagnostics.full_passes >= 1);
+
+    // Bit-reproducible: identical seed and a single-threaded search.
+    const OptimizerOutcome again = optics::native::optimize_layout(pipe);
+    CHECK(again.best == run.best);
+    CHECK(again.blur == run.blur);
+
+    // An unmeetable tolerance stays an honest no-focus-found: a low coarse
+    // objective never becomes success -- only a full finalist that passes
+    // focus_accepted does -- and a structured reason is reported.
+    OptimizerSpec strict = pipe;
+    strict.blur_ref = 1.0;
+    strict.max_norm_blur = 1e-12;
+    strict.polish_gate = 1e15;
+    const OptimizerOutcome strict_run = optics::native::optimize_layout(strict);
+    CHECK(strict_run.status == "no-focus-found");
+    CHECK(strict_run.best[1] <= strict_run.best[0] - 1.0 + 1e-9);
+    CHECK(!strict_run.failure_reason.empty());
+    CHECK(strict_run.diagnostics.full_failures >= 1);
+}
+
 }  // namespace
 
 void test_optimizer() {
@@ -363,6 +405,7 @@ void test_optimizer() {
     test_spot_radius_pools_per_object_point();
     test_optimize_layout_status_and_determinism();
     test_optimize_layout_autofocus();
+    test_optimize_layout_pipeline();
     test_variant_trace_equivalence();
     test_surface_variant_with_rotation();
 }

@@ -128,6 +128,22 @@ class LensOptimization:
     generations: int = 200
     max_evals: int = 5000
     nm_iterations: int = 1000
+    # Coarse-to-fine pipeline (default on at this layer; the C++ default is
+    # off so the native solver stays bit-identical to the legacy search unless
+    # asked). Global DE runs at a coarse ray budget and only a few diverse
+    # finalists are re-traced at the whole fan, where the hard focus acceptance
+    # is the sole success gate -- so this reorders *which* candidates reach full
+    # fidelity but never weakens the acceptance contract. Higher levels are
+    # nested supersets of a deterministic low-discrepancy ray ordering; budgets
+    # are clamped to the fan size (a 0 ray budget means "whole fan").
+    enable_pipeline: bool = True
+    ray_pilot: int = 48
+    ray_coarse: int = 512
+    ray_medium: int = 3072
+    ray_full: int = 0
+    finalist_count: int = 4
+    archive_size: int = 16
+    archive_min_dist: float = 0.05
 
 
 @dataclass(frozen=True)
@@ -159,6 +175,10 @@ class OptimizationResult:
     # per-object-point RMS spot radius over every valid correspondence.
     blur_all_mm: float = float("nan")
     worst_field_mm: float = float("nan")
+    # Total rays traced over the run (sum of the per-evaluation ray budgets).
+    # With the coarse-to-fine pipeline this is well below ``evaluations * fan``;
+    # the legacy path traces the whole fan every evaluation.
+    rays_traced: int = 0
 
 
 def _stack_z_positions(schema: Mapping[str, Any]) -> list[float]:
@@ -304,6 +324,14 @@ def optimize_layout(
     _, group_index = np.unique(np.round(origins, decimals=9), axis=0, return_inverse=True)
     groups = np.ascontiguousarray(group_index, dtype=np.int32)
 
+    # Coarse-to-fine only pays off when the coarse budget is genuinely below the
+    # fan size; on a small fan the coarse level equals the whole fan (no ray
+    # savings) and the pipeline also gives up DE early-stop, so keep such runs on
+    # the proven legacy path. Real workloads (fans well above ``ray_coarse``) run
+    # the pipeline. An explicit ``enable_pipeline=False`` is always honored.
+    n_rays = int(np.asarray(origins).reshape(-1, 3).shape[0])
+    pipeline_on = bool(layout.enable_pipeline) and int(layout.ray_coarse) < n_rays
+
     # The optimizer walks the persistent native stack directly; the variant
     # elements it sweeps share this system's compiled surfaces.
     outcome = _native.optimize_layout(
@@ -345,6 +373,14 @@ def optimize_layout(
         polish_gate=float(layout.polish_gate),
         stop_on_focus=bool(layout.stop_on_focus),
         autofocus_plane=bool(layout.autofocus_image_plane),
+        enable_pipeline=pipeline_on,
+        ray_pilot=int(layout.ray_pilot),
+        ray_coarse=int(layout.ray_coarse),
+        ray_medium=int(layout.ray_medium),
+        ray_full=int(layout.ray_full),
+        finalist_count=int(layout.finalist_count),
+        archive_size=int(layout.archive_size),
+        archive_min_dist=float(layout.archive_min_dist),
     )
 
     status = str(outcome["status"])
@@ -357,13 +393,15 @@ def optimize_layout(
         # guarantees).
         evals = int(outcome["evals"])
         tol = float(layout.max_normalized_blur) * blur_ref
+        reason = str(outcome.get("failure_reason", "") or "").strip()
+        reason_note = f" (reason: {reason})" if reason and reason != "none" else ""
         raise OptimizationError(
             f"no focused configuration was found within the allowed parameter "
             f"ranges after {evals} evaluations ({status}). Best RMS spot "
             f"radius: {float(outcome['blur']):.4g} mm clipped, "
             f"{float(outcome['blur_all']):.4g} mm unclipped, worst field "
             f"{float(outcome['blur_max']):.4g} mm; required at most "
-            f"{tol:.4g} mm clipped."
+            f"{tol:.4g} mm clipped{reason_note}."
         )
 
     best = np.asarray(outcome["best"], dtype=float)
@@ -420,4 +458,5 @@ def optimize_layout(
         status=status,
         blur_all_mm=float(outcome["blur_all"]),
         worst_field_mm=float(outcome["blur_max"]),
+        rays_traced=int(outcome["diagnostics"]["rays_traced"]),
     )

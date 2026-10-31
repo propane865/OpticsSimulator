@@ -466,3 +466,84 @@ def test_early_focus_stop_saves_evaluations():
     assert early.status == "ok" and exhaustive.status == "ok"
     assert early.evaluations < exhaustive.evaluations / 3.0
     assert early.spot_radius_mm <= exhaustive.spot_radius_mm * 1.05
+
+
+# --- Coarse-to-fine pipeline (ray budgets below the fan enable it) ----------
+# The point-source fan is 128 rays, so a coarse budget of 24 keeps the pipeline
+# on while the final validation still traces the whole fan -- the hard focus
+# acceptance the legacy path uses is the sole success gate here too.
+_PIPELINE = replace(
+    _FAST,
+    enable_pipeline=True,
+    ray_pilot=12,
+    ray_coarse=24,
+    ray_medium=48,
+    ray_full=0,
+    finalist_count=4,
+)
+
+
+def _optimize_pipeline(schema, source, p1, p2, spec=_PIPELINE):
+    origins, dirs, powers = source.emit_arrays()
+    return optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_BOUNDS,
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=spec,
+    )
+
+
+def test_pipeline_converges_to_best_focus():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    system = _system(schema)
+    base_radius = _spot_radius(system, p2, origins, dirs, powers, p1)
+    _, ref_radius = _sweep_best_z(system, p1, p2, origins, dirs, powers)
+    result = _optimize_pipeline(schema, source, p1, p2)
+    assert result.status == "ok"
+    assert result.spot_radius_mm <= ref_radius * 1.1
+    assert result.spot_radius_mm < base_radius / 3.0
+
+
+def test_pipeline_spot_matches_a_retrace():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    result = _optimize_pipeline(schema, source, p1, p2)
+    assert result.status == "ok"
+    image = _plane_at(p2, result.best_z[-1])
+    recomputed = _spot_radius(_system(result.elements_config), image, origins, dirs, powers, p1)
+    assert result.spot_radius_mm > 0.0
+    assert result.spot_radius_mm <= recomputed * (1.0 + 1e-9)
+
+
+def test_pipeline_is_deterministic():
+    schema, source, p1, p2 = _problem()
+    a = _optimize_pipeline(schema, source, p1, p2)
+    b = _optimize_pipeline(schema, source, p1, p2)
+    assert a.status == "ok" and b.status == "ok"
+    assert a.best_z == b.best_z
+    assert a.spot_radius_mm == b.spot_radius_mm
+
+
+def test_pipeline_traces_fewer_rays_than_legacy():
+    schema, source, p1, p2 = _problem()
+    pipe = _optimize_pipeline(schema, source, p1, p2)
+    legacy = _optimize_pipeline(schema, source, p1, p2, replace(_FAST, enable_pipeline=False))
+    assert pipe.status == "ok" and legacy.status == "ok"
+    # Coarse-to-fine must trace strictly fewer total rays than the legacy
+    # full-fidelity-per-candidate search for the same problem and seed.
+    assert pipe.rays_traced < legacy.rays_traced
+
+
+def test_pipeline_reports_a_structured_failure_reason():
+    schema, source, p1, p2 = _problem()
+    # A zero tolerance can never be met by this finite spot, so the pipeline
+    # must fail with a structured reason rather than report a least-bad layout.
+    with pytest.raises(OptimizationError, match="reason:"):
+        _optimize_pipeline(schema, source, p1, p2, replace(_PIPELINE, max_normalized_blur=0.0))
+

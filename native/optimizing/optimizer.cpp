@@ -114,14 +114,16 @@ class LayoutObjective {
 
     // Outer entry point. Without autofocus the swept vector is the full
     // parameter vector; with autofocus it carries only the element z's and
-    // the plane z comes from the nested focus scan.
-    Stats evaluate(const double* x) {
+    // the plane z comes from the nested focus scan. ``rays`` selects the ray
+    // budget (0 = whole fan) and ``expensive`` gates the clipped-fit merit; the
+    // defaults reproduce the original full-fidelity evaluation exactly.
+    Stats evaluate(const double* x, std::size_t rays = 0, bool expensive = true) {
         if (!spec_.autofocus_plane || d_ < 2) {
-            return trace_at(x);
+            return trace_at(x, rays, expensive);
         }
         std::copy_n(x, d_ - 1, x_full_.begin());
         Stats best;
-        focus_plane(x_full_, best);
+        focus_plane(x_full_, best, rays, expensive);
         return best;
     }
 
@@ -131,14 +133,15 @@ class LayoutObjective {
     // then golden-section refinement inside the interval bracketing the
     // coarse minimum. Every sample is one traced candidate billed to the
     // shared evaluation budget.
-    void focus_plane(std::vector<double>& xf, Stats& best) {
+    void focus_plane(std::vector<double>& xf, Stats& best, std::size_t rays = 0,
+                     bool expensive = true) {
         double lo = spec_.lo[d_ - 1];
         double hi = spec_.hi[d_ - 1];
         const double cap = xf[d_ - 2] - spec_.gaps[d_ - 2];
         hi = std::min(hi, cap);
         if (!(hi > lo) || evals_ >= spec_.max_evals) {
             xf[d_ - 1] = lo;
-            best = trace_at(xf.data());
+            best = trace_at(xf.data(), rays, expensive);
             return;
         }
         constexpr int kSamples = 7;
@@ -148,7 +151,7 @@ class LayoutObjective {
         for (int k = 0; k < kSamples; ++k) {
             zs[k] = lo + (hi - lo) * static_cast<double>(k) / static_cast<double>(kSamples - 1);
             xf[d_ - 1] = zs[k];
-            samples[k] = trace_at(xf.data());
+            samples[k] = trace_at(xf.data(), rays, expensive);
             if (samples[k].cost < samples[j].cost) {
                 j = k;
             }
@@ -160,9 +163,9 @@ class LayoutObjective {
         double c = b - gr * (b - a);
         double d = a + gr * (b - a);
         xf[d_ - 1] = c;
-        Stats fc = trace_at(xf.data());
+        Stats fc = trace_at(xf.data(), rays, expensive);
         xf[d_ - 1] = d;
-        Stats fd = trace_at(xf.data());
+        Stats fd = trace_at(xf.data(), rays, expensive);
         for (int iter = 0; iter < 16 && b - a > 1e-4 * (hi - lo); ++iter) {
             if (fc.cost <= fd.cost) {
                 b = d;
@@ -170,14 +173,14 @@ class LayoutObjective {
                 fd = fc;
                 c = b - gr * (b - a);
                 xf[d_ - 1] = c;
-                fc = trace_at(xf.data());
+                fc = trace_at(xf.data(), rays, expensive);
             } else {
                 a = c;
                 c = d;
                 fc = fd;
                 d = a + gr * (b - a);
                 xf[d_ - 1] = d;
-                fd = trace_at(xf.data());
+                fd = trace_at(xf.data(), rays, expensive);
             }
         }
         if (fc.cost < best.cost) {
@@ -188,8 +191,10 @@ class LayoutObjective {
         }
     }
 
-    // One full-layout trace at a complete parameter vector (d_ entries).
-    Stats trace_at(const double* x_full) {
+    // One full-layout trace at a complete parameter vector (d_ entries), using
+    // the first ``n`` rays of the fan (n = whole fan when ``rays`` is 0).
+    Stats trace_at(const double* x_full, std::size_t rays = 0, bool expensive = true) {
+        const std::size_t n = rays > 0 ? std::min(rays, n_rays_) : n_rays_;
         Stats stats;
         stats.scale = std::numeric_limits<double>::quiet_NaN();
         stats.rms = std::numeric_limits<double>::quiet_NaN();
@@ -216,14 +221,14 @@ class LayoutObjective {
         }
         planes_[3 * spec_.dest_plane + 2] = x_full[d_ - 1];
 
-        std::fill(us_.begin(), us_.end(), std::numeric_limits<double>::quiet_NaN());
-        std::fill(vs_.begin(), vs_.end(), std::numeric_limits<double>::quiet_NaN());
-        std::fill(pws_.begin(), pws_.end(), 0.0);
+        std::fill_n(us_.begin(), 2 * n, std::numeric_limits<double>::quiet_NaN());
+        std::fill_n(vs_.begin(), 2 * n, std::numeric_limits<double>::quiet_NaN());
+        std::fill_n(pws_.begin(), 2 * n, 0.0);
         const MeasurementOutputView out{us_.data(), vs_.data(), pws_.data()};
-        measure_planes_multi(variant, spec_.rays, planes_view_, spec_.plane_eps, out);
+        const RayBatchView fan{spec_.rays.origins, spec_.rays.directions, spec_.rays.powers, n};
+        measure_planes_multi(variant, fan, planes_view_, spec_.plane_eps, out);
 
         // Shared valid correspondences (same mask as ``plane_transform``).
-        const std::size_t n = n_rays_;
         const double* ua = us_.data();
         const double* ub = us_.data() + n;
         const double* va = vs_.data();
@@ -253,56 +258,75 @@ class LayoutObjective {
         if (shared < 4) {
             return stats;
         }
-        // The clipped fit supplies the outlier mask the focus merit pools over
-        // (stray blocked or vignetted hits would otherwise dominate a second
-        // moment) and the reported magnification; a degenerate fit leaves the
-        // mask all-kept, so the focus term stays defined.
-        const ClippedSimilarity fit = fit_clipped_similarity(src_.data(), dst_.data(), shared,
-                                                             spec_.clip_iters, spec_.clip_sigma,
-                                                             keep_.data());
-        const double blur = spot_radius(dst_.data(), keep_.data(),
-                                        spec_.groups != nullptr ? dst_group_.data() : nullptr,
-                                        dst_power_.data(), shared, spec_.n_groups, blur_scratch_);
-        // Unclipped acceptance guards: the pooled radius over every valid
-        // correspondence (sigma clipping must not be able to manufacture an
-        // apparently sharp focus) and the worst single object point (a good
-        // average must not hide one defocused field point).
         const bool grouped = spec_.groups != nullptr && spec_.n_groups > 1;
         if (grouped) {
             group_rms_.assign(spec_.n_groups, std::numeric_limits<double>::quiet_NaN());
         }
-        const double blur_all = spot_radius(
-            dst_.data(), nullptr, spec_.groups != nullptr ? dst_group_.data() : nullptr,
-            dst_power_.data(), shared, spec_.n_groups, blur_scratch_all_,
-            grouped ? group_rms_.data() : nullptr);
-        double blur_max = blur_all;
-        if (grouped) {
-            blur_max = 0.0;
-            bool any = false;
-            for (const double r : group_rms_) {
-                if (std::isfinite(r)) {
-                    blur_max = std::max(blur_max, r);
-                    any = true;
+        if (expensive) {
+            // The clipped fit supplies the outlier mask the focus merit pools over
+            // (stray blocked or vignetted hits would otherwise dominate a second
+            // moment) and the reported magnification; a degenerate fit leaves the
+            // mask all-kept, so the focus term stays defined.
+            const ClippedSimilarity fit =
+                fit_clipped_similarity(src_.data(), dst_.data(), shared, spec_.clip_iters,
+                                       spec_.clip_sigma, keep_.data());
+            const double blur = spot_radius(dst_.data(), keep_.data(),
+                                            spec_.groups != nullptr ? dst_group_.data() : nullptr,
+                                            dst_power_.data(), shared, spec_.n_groups, blur_scratch_);
+            // Unclipped acceptance guards: the pooled radius over every valid
+            // correspondence (sigma clipping must not be able to manufacture an
+            // apparently sharp focus) and the worst single object point (a good
+            // average must not hide one defocused field point).
+            const double blur_all = spot_radius(
+                dst_.data(), nullptr, spec_.groups != nullptr ? dst_group_.data() : nullptr,
+                dst_power_.data(), shared, spec_.n_groups, blur_scratch_all_,
+                grouped ? group_rms_.data() : nullptr);
+            double blur_max = blur_all;
+            if (grouped) {
+                blur_max = 0.0;
+                bool any = false;
+                for (const double r : group_rms_) {
+                    if (std::isfinite(r)) {
+                        blur_max = std::max(blur_max, r);
+                        any = true;
+                    }
+                }
+                if (!any) {
+                    blur_max = std::numeric_limits<double>::quiet_NaN();
                 }
             }
-            if (!any) {
-                blur_max = std::numeric_limits<double>::quiet_NaN();
+            const double db = blur / std::max(spec_.blur_ref, 1e-12);
+            const double frac =
+                n > 0 ? static_cast<double>(fit.n_used) / static_cast<double>(n) : 0.0;
+            const double vig = std::max(0.0, spec_.min_fraction - frac);
+            double cost = spec_.w_focus * db * db + spec_.w_vignette * vig * vig + geo;
+            if (!std::isfinite(cost)) {
+                cost = kBadCost + geo;
             }
+            stats.cost = cost;
+            stats.scale = fit.valid ? fit.scale : std::numeric_limits<double>::quiet_NaN();
+            stats.rms = fit.valid ? fit.rms : std::numeric_limits<double>::quiet_NaN();
+            stats.blur = blur;
+            stats.blur_all = blur_all;
+            stats.blur_max = blur_max;
+            stats.n_used = fit.n_used;
+        } else {
+            // Pilot: an unclipped pooled radius is a cheap, monotone proxy used
+            // only to discard catastrophic candidates; pilot rows are never
+            // accepted, so no clipped fit or acceptance guards are computed.
+            const double blur = spot_radius(
+                dst_.data(), nullptr, spec_.groups != nullptr ? dst_group_.data() : nullptr,
+                dst_power_.data(), shared, spec_.n_groups, blur_scratch_);
+            double cost = blur / std::max(spec_.blur_ref, 1e-12);
+            if (!std::isfinite(cost)) {
+                cost = kBadCost + geo;
+            }
+            stats.cost = cost;
+            stats.blur = blur;
+            stats.blur_all = blur;
+            stats.blur_max = blur;
+            stats.n_used = shared;
         }
-        const double db = blur / std::max(spec_.blur_ref, 1e-12);
-        const double frac = n > 0 ? static_cast<double>(fit.n_used) / static_cast<double>(n) : 0.0;
-        const double vig = std::max(0.0, spec_.min_fraction - frac);
-        double cost = spec_.w_focus * db * db + spec_.w_vignette * vig * vig + geo;
-        if (!std::isfinite(cost)) {
-            cost = kBadCost + geo;
-        }
-        stats.cost = cost;
-        stats.scale = fit.valid ? fit.scale : std::numeric_limits<double>::quiet_NaN();
-        stats.rms = fit.valid ? fit.rms : std::numeric_limits<double>::quiet_NaN();
-        stats.blur = blur;
-        stats.blur_all = blur_all;
-        stats.blur_max = blur_max;
-        stats.n_used = fit.n_used;
         return stats;
     }
 
@@ -358,6 +382,46 @@ bool better_stats(const OptimizerSpec& spec, const LayoutObjective::Stats& a,
         return fa;
     }
     return a.cost < b.cost;
+}
+
+const char* failure_reason_name(OptimizationFailureReason r) {
+    switch (r) {
+        case OptimizationFailureReason::NO_GEOMETRICALLY_VALID_CANDIDATES:
+            return "no-geometrically-valid-candidates";
+        case OptimizationFailureReason::INSUFFICIENT_CORRESPONDENCE:
+            return "insufficient-correspondence";
+        case OptimizationFailureReason::BLUR_THRESHOLD_NOT_MET:
+            return "blur-threshold-not-met";
+        case OptimizationFailureReason::WORST_FIELD_THRESHOLD_NOT_MET:
+            return "worst-field-threshold-not-met";
+        case OptimizationFailureReason::NO_FULL_VALIDATION_PASS:
+            return "no-full-validation-pass";
+        case OptimizationFailureReason::NONE:
+        default:
+            return "none";
+    }
+}
+
+// Classify the best (full-fidelity) candidate when no focused layout was found,
+// so callers can report *why* rather than returning a least-bad layout.
+OptimizationFailureReason classify_failure(const OptimizerSpec& spec,
+                                           const LayoutObjective::Stats& s) {
+    const double ref = std::max(spec.blur_ref, 1e-12);
+    const double tol = spec.max_norm_blur * ref;
+    const double min_shared = spec.min_fraction * static_cast<double>(std::max<std::size_t>(spec.rays.count, 1));
+    if (s.n_shared < min_shared) {
+        return OptimizationFailureReason::INSUFFICIENT_CORRESPONDENCE;
+    }
+    if (s.gap > 0.0) {
+        return OptimizationFailureReason::NO_GEOMETRICALLY_VALID_CANDIDATES;
+    }
+    if (!(s.blur_max <= tol * spec.worst_field_factor)) {
+        return OptimizationFailureReason::WORST_FIELD_THRESHOLD_NOT_MET;
+    }
+    if (!(s.blur <= tol) || !(s.blur_all <= tol * spec.blur_all_factor)) {
+        return OptimizationFailureReason::BLUR_THRESHOLD_NOT_MET;
+    }
+    return OptimizationFailureReason::NO_FULL_VALIDATION_PASS;
 }
 
 // Box-constrained Nelder-Mead: every reflected/contracted vertex is clamped
@@ -496,8 +560,10 @@ void nelder_mead(LayoutObjective& obj, const OptimizerSpec& spec, std::vector<do
 
 }  // namespace
 
-OptimizerOutcome optimize_layout(const OptimizerSpec& spec) {
-    OptimizerOutcome out;
+// Legacy driver: full-fidelity differential evolution plus a gated Nelder-Mead
+// polish -- every candidate is traced at the whole fan, exactly as before the
+// coarse-to-fine pipeline. Byte-for-byte the original ``optimize_layout`` body.
+void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     LayoutObjective obj(spec);
     const std::size_t d_full = spec.lo.size();
     const std::size_t d = obj.dim();  // short by one when the plane is profiled
@@ -505,7 +571,7 @@ OptimizerOutcome optimize_layout(const OptimizerSpec& spec) {
     if (d_full == 0 || spec.rays.count == 0) {
         out.status = "empty-problem";
         out.best = spec.x_init;
-        return out;
+        return;
     }
 
     std::mt19937_64 rng(spec.seed);
@@ -668,12 +734,304 @@ OptimizerOutcome optimize_layout(const OptimizerSpec& spec) {
     out.n_used = best_stats.n_used;
     out.n_shared = best_stats.n_shared;
     out.evals = obj.evals();
+    // The legacy path traces the whole fan on every evaluation, so the total
+    // ray count is just evals * fan (used by the pipeline-savings benchmark).
+    out.diagnostics.rays_traced = static_cast<std::int64_t>(out.evals) *
+                                  static_cast<std::int64_t>(out.n_total);
+    out.diagnostics.coarse_evals = out.evals;
+    out.diagnostics.candidate_threads = 1;
+    out.diagnostics.ray_threads = 1;
     if (out.cost >= kBadCost) {
         out.status = "infeasible";
     } else if (focus_accepted(spec, best_stats)) {
         out.status = "ok";
     } else {
         out.status = "no-focus-found";
+    }
+    if (out.status != "ok") {
+        out.failure_reason = failure_reason_name(classify_failure(spec, best_stats));
+    }
+}
+
+// Coarse-to-fine driver: a global DE at a coarse ray budget fills a diverse
+// archive of distinct candidates; a handful of finalists are re-traced at the
+// whole fan where the hard focus acceptance is the ONLY success gate. A low
+// coarse objective is never success -- it only decides which few candidates earn
+// a full-fidelity trace -- so the pipeline can reorder search but never weakens
+// the acceptance contract or reports an unfocused layout as focused. The search
+// is single-threaded and fully seeded, so it is bit-reproducible run to run.
+void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
+    LayoutObjective obj(spec);
+    const std::size_t d_full = spec.lo.size();
+    const std::size_t d = obj.dim();
+    const std::size_t n_fan = spec.rays.count;
+    out.n_total = n_fan;
+    if (d_full == 0 || n_fan == 0) {
+        out.status = "empty-problem";
+        out.best = spec.x_init;
+        return;
+    }
+    const std::size_t k_coarse = spec.ray_coarse > 0 ? std::min(spec.ray_coarse, n_fan) : n_fan;
+    const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
+
+    std::mt19937_64 rng(spec.seed);
+    auto u01 = [&rng]() {
+        return static_cast<double>(rng() >> 11) * 0x1.0p-53;
+    };
+    auto norm_dist = [&](const double* a, const double* b) {
+        double acc = 0.0;
+        for (std::size_t k = 0; k < d; ++k) {
+            const double span = std::max(spec.hi[k] - spec.lo[k], 1e-12);
+            const double t = (a[k] - b[k]) / span;
+            acc += t * t;
+        }
+        return std::sqrt(acc);
+    };
+
+    std::vector<double> best(d_full);
+    for (std::size_t i = 0; i < d_full; ++i) {
+        best[i] = clamp_box(spec.x_init[i], spec.lo[i], spec.hi[i]);
+    }
+    std::vector<double> best_swept(d);
+    LayoutObjective::Stats best_stats = obj.evaluate(best.data(), k_coarse, true);
+    out.diagnostics.coarse_evals++;
+    out.diagnostics.rays_traced += static_cast<std::int64_t>(k_coarse);
+    auto record = [&](const LayoutObjective::Stats& s, const double* xs) {
+        best_stats = s;
+        std::copy_n(xs, d, best.begin());
+        best[d_full - 1] = s.plane_z;
+        best_swept.assign(best.begin(), best.begin() + d);
+    };
+    record(best_stats, best.data());
+    out.history.push_back(best_stats.cost);
+
+    // Diverse archive of distinct coarse winners (kept sorted focus-first/cost).
+    struct Entry {
+        std::vector<double> x;
+        LayoutObjective::Stats s;
+    };
+    std::vector<Entry> archive;
+    const int size = spec.archive_size > 0 ? spec.archive_size : 16;
+    auto archive_insert = [&](const double* xs, const LayoutObjective::Stats& s) {
+        for (const Entry& e : archive) {
+            if (norm_dist(xs, e.x.data()) < spec.archive_min_dist) {
+                return;
+            }
+        }
+        if (static_cast<int>(archive.size()) < size) {
+            archive.push_back(Entry{std::vector<double>(xs, xs + d), s});
+            out.diagnostics.archive_inserts++;
+            return;
+        }
+        std::size_t worst = 0;
+        for (std::size_t i = 1; i < archive.size(); ++i) {
+            if (better_stats(spec, archive[worst].s, archive[i].s)) {
+                worst = i;
+            }
+        }
+        if (better_stats(spec, s, archive[worst].s)) {
+            archive[worst] = Entry{std::vector<double>(xs, xs + d), s};
+        }
+    };
+    archive_insert(best.data(), best_stats);
+
+    // --- Coarse DE (Latin-hypercube initialized), budget-capped --------------
+    int pop = 0;
+    int evaluated = 0;
+    std::vector<double> px;
+    std::vector<LayoutObjective::Stats> pf;
+    const std::int64_t coarse_budget = std::max<std::int64_t>(200, spec.max_evals / 2);
+    pop = spec.population > 0 ? spec.population : std::max(20, 12 * static_cast<int>(d));
+    pop = std::min(pop, std::max(4, spec.max_evals));
+    px.assign(static_cast<std::size_t>(pop) * d, 0.0);
+    pf.assign(static_cast<std::size_t>(pop), LayoutObjective::Stats());
+    std::copy_n(best.begin(), d, px.begin());
+    {
+        std::vector<int> perm(static_cast<std::size_t>(pop - 1));
+        std::iota(perm.begin(), perm.end(), 0);
+        const double inv_strata = 1.0 / static_cast<double>(pop - 1);
+        for (std::size_t k = 0; k < d; ++k) {
+            std::shuffle(perm.begin(), perm.end(), rng);
+            for (int p = 1; p < pop; ++p) {
+                const double stratum = static_cast<double>(perm[static_cast<std::size_t>(p - 1)]);
+                px[static_cast<std::size_t>(p) * d + k] =
+                    spec.lo[k] + (stratum + u01()) * inv_strata * (spec.hi[k] - spec.lo[k]);
+            }
+        }
+    }
+    for (int p = 0; p < pop; ++p) {
+        if (obj.evals() >= coarse_budget) {
+            break;
+        }
+        const double* xp = &px[static_cast<std::size_t>(p) * d];
+        pf[static_cast<std::size_t>(p)] = obj.evaluate(xp, k_coarse, true);
+        out.diagnostics.coarse_evals++;
+        out.diagnostics.rays_traced += static_cast<std::int64_t>(k_coarse);
+        ++evaluated;
+    }
+    for (int p = 0; p < evaluated; ++p) {
+        archive_insert(&px[static_cast<std::size_t>(p) * d], pf[static_cast<std::size_t>(p)]);
+        if (better_stats(spec, pf[static_cast<std::size_t>(p)], best_stats)) {
+            record(pf[static_cast<std::size_t>(p)], &px[static_cast<std::size_t>(p) * d]);
+        }
+    }
+
+    std::vector<double> trial(d);
+    int stalled = 0;
+    double last_best = best_stats.cost;
+    for (int gen = 0; gen < spec.generations; ++gen) {
+        for (int p = 0; p < pop; ++p) {
+            if (obj.evals() >= coarse_budget) {
+                break;
+            }
+            int a = 0, b = 0, c = 0;
+            for (int t = 0; t < 4; ++t) {
+                a = static_cast<int>(u01() * static_cast<double>(evaluated));
+                b = static_cast<int>(u01() * static_cast<double>(evaluated));
+                c = static_cast<int>(u01() * static_cast<double>(evaluated));
+                if (a != p && b != p && c != p && a != b && a != c && b != c) {
+                    break;
+                }
+            }
+            if (a == p || b == p || c == p || a == b || a == c || b == c) {
+                continue;
+            }
+            const double* xa = &px[static_cast<std::size_t>(a) * d];
+            const double* xb = &px[static_cast<std::size_t>(b) * d];
+            const double* xc = &px[static_cast<std::size_t>(c) * d];
+            double* xp = &px[static_cast<std::size_t>(p) * d];
+            const int jrand = static_cast<int>(u01() * static_cast<double>(d)) % static_cast<int>(d);
+            for (std::size_t k = 0; k < d; ++k) {
+                if (u01() < kDeCr || static_cast<int>(k) == jrand) {
+                    trial[k] = clamp_box(xa[k] + kDeF * (xb[k] - xc[k]), spec.lo[k], spec.hi[k]);
+                } else {
+                    trial[k] = xp[k];
+                }
+            }
+            LayoutObjective::Stats ft = obj.evaluate(trial.data(), k_coarse, true);
+            out.diagnostics.coarse_evals++;
+            out.diagnostics.rays_traced += static_cast<std::int64_t>(k_coarse);
+            if (better_stats(spec, ft, pf[static_cast<std::size_t>(p)])) {
+                std::copy(trial.begin(), trial.end(), xp);
+                pf[static_cast<std::size_t>(p)] = ft;
+                archive_insert(trial.data(), ft);
+                if (better_stats(spec, ft, best_stats)) {
+                    record(ft, trial.data());
+                }
+            }
+        }
+        out.history.push_back(best_stats.cost);
+        out.diagnostics.gen_best.push_back(best_stats.cost);
+        if (best_stats.cost < last_best * (1.0 - 1e-12) - 1e-300) {
+            last_best = best_stats.cost;
+            stalled = 0;
+        } else {
+            ++stalled;
+        }
+        if (obj.evals() >= coarse_budget || stalled >= spec.stall_generations) {
+            break;
+        }
+    }
+
+    // --- Finalist selection: distinct good coarse candidates -----------------
+    std::stable_sort(archive.begin(), archive.end(),
+                     [&](const Entry& a, const Entry& b) { return better_stats(spec, a.s, b.s); });
+    std::vector<Entry> finalists;
+    for (const Entry& e : archive) {
+        bool distinct = true;
+        for (const Entry& f : finalists) {
+            if (norm_dist(e.x.data(), f.x.data()) < spec.archive_min_dist) {
+                distinct = false;
+                break;
+            }
+        }
+        if (distinct) {
+            finalists.push_back(e);
+        }
+        if (static_cast<int>(finalists.size()) >= std::max(1, spec.finalist_count)) {
+            break;
+        }
+    }
+    if (finalists.empty()) {
+        finalists.push_back(Entry{best_swept, best_stats});
+    }
+
+    // --- Full-fidelity validation: the only place success can occur ----------
+    std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> passers;
+    LayoutObjective::Stats best_full;
+    best_full.cost = kBadCost;
+    std::vector<double> best_full_x;
+    for (const Entry& e : finalists) {
+        LayoutObjective::Stats fs = obj.evaluate(e.x.data(), k_full, true);
+        out.diagnostics.full_evals++;
+        out.diagnostics.rays_traced += static_cast<std::int64_t>(k_full);
+        if (fs.cost < kBadCost && focus_accepted(spec, fs)) {
+            out.diagnostics.full_passes++;
+            passers.emplace_back(e.x, fs);
+        } else {
+            out.diagnostics.full_failures++;
+        }
+        if (better_stats(spec, fs, best_full)) {
+            best_full = fs;
+            best_full_x = e.x;
+        }
+    }
+    std::stable_sort(passers.begin(), passers.end(),
+                     [&](const auto& a, const auto& b) { return better_stats(spec, a.second, b.second); });
+
+    std::vector<double> win_x = best_full_x;
+    LayoutObjective::Stats win = best_full;
+    bool won = false;
+    if (!passers.empty()) {
+        win_x = passers.front().first;
+        win = passers.front().second;
+        won = true;
+    }
+    if (won && !win_x.empty() && obj.evals() < spec.max_evals) {
+        nelder_mead(obj, spec, win_x, win);
+        won = focus_accepted(spec, win);
+    }
+    out.history.push_back(win.cost);
+
+    out.best.assign(d_full, 0.0);
+    if (!win_x.empty()) {
+        std::copy_n(win_x.begin(), d, out.best.begin());
+        out.best[d_full - 1] = win.plane_z;
+    } else {
+        out.best = best;
+    }
+    for (std::size_t i = 0; i < out.best.size(); ++i) {
+        out.best[i] = clamp_box(out.best[i], spec.lo[i], spec.hi[i]);
+    }
+    out.cost = win.cost;
+    out.scale = win.scale;
+    out.rms = win.rms;
+    out.blur = win.blur;
+    out.blur_all = win.blur_all;
+    out.blur_max = win.blur_max;
+    out.n_used = win.n_used;
+    out.n_shared = win.n_shared;
+    out.evals = obj.evals();
+    out.diagnostics.candidate_threads = 1;
+    out.diagnostics.ray_threads = 1;
+    if (won) {
+        out.status = "ok";
+    } else if (out.cost >= kBadCost) {
+        out.status = "infeasible";
+    } else {
+        out.status = "no-focus-found";
+    }
+    if (out.status != "ok") {
+        out.failure_reason = failure_reason_name(classify_failure(spec, win));
+    }
+}
+
+OptimizerOutcome optimize_layout(const OptimizerSpec& spec) {
+    OptimizerOutcome out;
+    if (spec.enable_pipeline) {
+        pipeline_run(spec, out);
+    } else {
+        legacy_run(spec, out);
     }
     return out;
 }
