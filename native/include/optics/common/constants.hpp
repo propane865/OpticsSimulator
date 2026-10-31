@@ -14,6 +14,11 @@ inline constexpr double kInf = std::numeric_limits<double>::infinity();
 // Full circle in radians.
 inline constexpr double kTwoPi = 6.28318530717958647692528676655900577;
 
+// Golden angle (pi * (3 - sqrt(5))): the Fibonacci-cone spiral step and the
+// per-point fan phase of the point-array source. Exact IEEE double of that
+// expression, written as a hex literal to keep it bit-exact.
+inline constexpr double GOLDEN_ANGLE = 0x1.3331febfa4bfbp+1;
+
 // --- Damped Newton iteration (solver) ---
 inline constexpr int MAX_NEWTON_ITER = 50;
 inline constexpr double STEP_REL_TOL = 1e-14;

@@ -86,6 +86,9 @@ def segments_capacity(n_elements: int) -> int: ...
 def emit_cone(
     position: np.ndarray, power: float, count: int, cone_angle_deg: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+def emit_cone_array(
+    points: np.ndarray, weights: np.ndarray, base_dirs: np.ndarray, total_power: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
 
 def plane_intersect(
     ro: np.ndarray,

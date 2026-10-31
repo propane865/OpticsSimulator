@@ -16,10 +16,6 @@ POINT_ARRAY = "point_array"
 DEFAULT_PIXEL_PITCH = 0.05
 MAX_ARRAY_RAYS = 16384
 
-# Golden angle used to give each grid point its own cone orientation so the
-# per-pixel ray footprints decorrelate (see ``PointSource._emit_arrays_grid``).
-_GOLDEN_ANGLE = np.pi * (3.0 - np.sqrt(5.0))
-
 # Pluggable PNG codec, registered by the Qt UI layer (see ``ui.imagecodec``).
 # Keeping it injected means the core stays Qt-free and dependency-free:
 # ``decode`` maps a base64 PNG string to an ``(H, W)`` float grid in ``[0, 1]``
@@ -154,9 +150,11 @@ class PointSource:
     def _emit_arrays_grid(self) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
         """Tile the single-point cone fan across every active grid point.
 
-        Each point's fan is rotated about the z axis by its own phase so the
-        cones are not identical across pixels (identical cones alias into
-        repeated images when defocused; decorrelated cones blur smoothly).
+        The native kernel rotates each point's fan about the z axis by its own
+        golden-angle phase so the cones are not identical across pixels
+        (identical cones alias into repeated images when defocused;
+        decorrelated cones blur smoothly) and splits the total power by
+        brightness.
         """
         points, weights = self.grid_points()
         count = points.shape[0]
@@ -169,25 +167,12 @@ class PointSource:
         _fan_origins, dirs, _fan_powers = _native.emit_cone(
             np.zeros(3), 1.0, self.num_rays, self.cone_angle
         )
-        dirs = np.ascontiguousarray(dirs, dtype=float)
-        origins = np.repeat(points, self.num_rays, axis=0)
-        # Rotate each point's fan about the optical (z) axis by its own golden-angle
-        # phase so the per-pixel direction sets differ; this decorrelates the
-        # defocused ray footprints, giving a smooth blur instead of repeated arrays.
-        theta = np.repeat(np.arange(count, dtype=float) * _GOLDEN_ANGLE, self.num_rays)
-        cos_t = np.cos(theta)
-        sin_t = np.sin(theta)
-        base_x = np.tile(dirs[:, 0], count)
-        base_y = np.tile(dirs[:, 1], count)
-        base_z = np.tile(dirs[:, 2], count)
-        all_dirs = np.column_stack(
-            [base_x * cos_t - base_y * sin_t, base_x * sin_t + base_y * cos_t, base_z]
+        origins, all_dirs, powers = _native.emit_cone_array(
+            np.ascontiguousarray(points, dtype=float),
+            np.ascontiguousarray(weights, dtype=float),
+            np.ascontiguousarray(dirs, dtype=float),
+            self.power,
         )
-        if count == 0 or self.power <= 0.0:
-            powers = np.zeros(total, dtype=float)
-        else:
-            per_ray = (self.power / weights.sum()) / self.num_rays
-            powers = np.repeat(weights * per_ray, self.num_rays)
         return coerce_ray_arrays(origins, all_dirs, powers)
 
     def emit_arrays(self) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
