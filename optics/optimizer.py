@@ -144,6 +144,13 @@ class LensOptimization:
     finalist_count: int = 4
     archive_size: int = 16
     archive_min_dist: float = 0.05
+    # Opt-in candidate concurrency: fan the independent medium-re-rank and full
+    # validation stages across worker threads (each traces its ray fan inline).
+    # Off by default so results stay single-threaded; enabling it never changes
+    # the outcome or the accounting, only the wall time of those stages.
+    # ``candidate_threads`` 0 means every hardware thread.
+    enable_candidate_concurrency: bool = False
+    candidate_threads: int = 0
 
 
 @dataclass(frozen=True)
@@ -381,6 +388,8 @@ def optimize_layout(
         finalist_count=int(layout.finalist_count),
         archive_size=int(layout.archive_size),
         archive_min_dist=float(layout.archive_min_dist),
+        enable_candidate_concurrency=bool(layout.enable_candidate_concurrency),
+        total_threads=int(layout.candidate_threads),
     )
 
     status = str(outcome["status"])

@@ -120,10 +120,15 @@ struct OptimizerSpec {
     double promotion_factor = 3.0;    // promote if objective <= best * this factor
     int finalist_count = 4;           // medium survivors promoted to full validation
     int refine_iterations = 0;        // optional bounded local refinement (0: off)
-    // Parallel budget. ``total_threads`` 0 means every hardware thread. When
-    // ``enable_candidate_concurrency`` is false (default) the search stays
-    // bit-reproducible with single-candidate tracing (all threads on rays);
-    // enabling it fans independent coarse candidates out within the budget.
+    // Parallel budget. The sequential DE loop is never parallelized; instead the
+    // independent medium-re-rank and full-validation stages fan their candidates
+    // out across worker threads, each tracing its ray fan inline (never
+    // re-entering the ray pool). When ``enable_candidate_concurrency`` is false
+    // (default) the search is single-candidate serial. Enabling it only reorders
+    // independent evaluation: a stage is run concurrently only when the budget
+    // provably fits, so every candidate reaches its standalone result and the
+    // outcome is bit-identical to serial -- it changes wall time, never the answer
+    // or the accounting. ``total_threads`` 0 means every hardware thread.
     bool enable_candidate_concurrency = false;
     int total_threads = 0;
 };

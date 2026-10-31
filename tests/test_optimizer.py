@@ -530,6 +530,25 @@ def test_pipeline_is_deterministic():
     assert a.spot_radius_mm == b.spot_radius_mm
 
 
+def test_pipeline_candidate_concurrency_matches_serial():
+    # Opt-in candidate concurrency only reorders independent stage evaluations;
+    # with the same configuration the result must be identical to serial.
+    schema, source, p1, p2 = _problem()
+    base = replace(_PIPELINE, finalist_count=6, archive_min_dist=0.0)
+    serial = _optimize_pipeline(
+        schema, source, p1, p2, replace(base, enable_candidate_concurrency=False)
+    )
+    conc = _optimize_pipeline(
+        schema, source, p1, p2,
+        replace(base, enable_candidate_concurrency=True, candidate_threads=0),
+    )
+    assert serial.status == "ok" and conc.status == "ok"
+    assert serial.best_z == conc.best_z
+    assert serial.spot_radius_mm == conc.spot_radius_mm
+    assert serial.evaluations == conc.evaluations
+    assert serial.rays_traced == conc.rays_traced
+
+
 def test_pipeline_traces_fewer_rays_than_legacy():
     schema, source, p1, p2 = _problem()
     pipe = _optimize_pipeline(schema, source, p1, p2)

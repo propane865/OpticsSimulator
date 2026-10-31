@@ -8,11 +8,15 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <numeric>
 #include <random>
+#include <thread>
 #include <utility>
+#include <vector>
 
+#include "optics/common/parallel.hpp"
 #include "optics/optimizing/fit.hpp"
 
 namespace optics::native {
@@ -127,6 +131,10 @@ class LayoutObjective {
     }
 
     std::int64_t evals() const { return evals_; }
+    // Credit evaluations billed by a concurrent candidate fan-back onto the main
+    // objective's budget so downstream budget checks and reporting are identical
+    // to a serial run of the same candidates.
+    void add_evals(std::int64_t n) { evals_ += n; }
     // Swept dimension: under autofocus the plane z drops out of the global
     // search (it is recovered by the nested 1-D focus scan).
     std::size_t dim() const { return spec_.autofocus_plane && d_ > 1 ? d_ - 1 : d_; }
@@ -404,6 +412,79 @@ class LayoutObjective {
     std::vector<double> x_full_;
     std::int64_t evals_ = 0;
 };
+
+// Upper bound on the traced evaluations one candidate's 1-D focus scan can issue
+// (coarse bracket samples + golden-section refinement). Used to prove a stage
+// has enough budget headroom that no per-evaluation ``max_evals`` early-out can
+// fire mid-candidate -- which would make a concurrent run diverge from serial.
+constexpr std::int64_t kMaxFocusScanTraces = 25;
+
+// Number of worker threads a candidate stage of ``n`` items should use, honouring
+// ``total_threads`` (0: every hardware thread) and clamping to the work size.
+std::size_t effective_threads(int requested, std::size_t n) {
+    std::size_t hw = std::thread::hardware_concurrency();
+    if (hw == 0) {
+        hw = 1;
+    }
+    const std::size_t want = requested > 0 ? static_cast<std::size_t>(requested) : hw;
+    return std::max<std::size_t>(1, std::min({want, hw, std::max<std::size_t>(n, 1)}));
+}
+
+// Fan independent candidates out across ``effective_threads`` worker threads,
+// each owning a PRIVATE ``LayoutObjective`` (its own scratch, so no shared
+// mutable state) that traces its ray fan inline via ``ScopedSerialTrace`` rather
+// than re-entering the busy-serialized shared ray pool. Every thread handles a
+// contiguous index range and ``body`` writes caller-owned, per-index outputs, so
+// completion order cannot affect the result. Returns the total evaluations the
+// private objectives consumed. Safe to use ONLY when the caller has already
+// proven the whole stage fits the budget, which guarantees each candidate runs
+// to its standalone result (bit-exact with a serial run) and no worker can trip
+// an internal budget early-out.
+template <typename Body>
+std::int64_t parallel_candidates(std::size_t n, int requested, const OptimizerSpec& spec,
+                                 Body&& body) {
+    const std::size_t threads = effective_threads(requested, n);
+    if (threads <= 1) {
+        LayoutObjective obj(spec);
+        for (std::size_t i = 0; i < n; ++i) {
+            body(obj, i);
+        }
+        return obj.evals();
+    }
+    std::vector<std::int64_t> evals(threads, 0);
+    std::vector<std::exception_ptr> errors(threads);
+    std::vector<std::thread> workers;
+    workers.reserve(threads);
+    for (std::size_t t = 0; t < threads; ++t) {
+        const std::size_t lo = n * t / threads;
+        const std::size_t hi = n * (t + 1) / threads;
+        workers.emplace_back([&, t, lo, hi] {
+            try {
+                ScopedSerialTrace serial;
+                LayoutObjective obj(spec);
+                for (std::size_t i = lo; i < hi; ++i) {
+                    body(obj, i);
+                }
+                evals[t] = obj.evals();
+            } catch (...) {
+                errors[t] = std::current_exception();
+            }
+        });
+    }
+    for (std::thread& th : workers) {
+        th.join();
+    }
+    for (const std::exception_ptr& exc : errors) {
+        if (exc) {
+            std::rethrow_exception(exc);
+        }
+    }
+    std::int64_t total = 0;
+    for (const std::int64_t e : evals) {
+        total += e;
+    }
+    return total;
+}
 
 // Focus acceptance for a candidate: traced, gap-free geometry, enough valid
 // correspondences and all three normalized spot radii under tolerance (NaN
@@ -818,6 +899,7 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
 // single-threaded and fully seeded, so it is bit-reproducible run to run.
 void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     LayoutObjective obj(spec);
+    int cand_threads = 1;  // widened if an independent stage actually fans out
     const std::size_t d_full = spec.lo.size();
     const std::size_t d = obj.dim();
     const std::size_t n_fan = spec.rays.count;
@@ -1071,14 +1153,39 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     std::int64_t medium_budget = std::min(second_half, static_cast<std::int64_t>(spec.max_evals) - reserved);
     medium_budget = std::max(coarse_budget, medium_budget);
     std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> ranked;
-    for (const Entry& e : promoted) {
-        if (obj.evals() >= medium_budget) {
-            break;
+    const std::int64_t med_head =
+        static_cast<std::int64_t>(promoted.size()) * kMaxFocusScanTraces;
+    const bool med_parallel = spec.enable_candidate_concurrency && promoted.size() > 1 &&
+                              obj.evals() + med_head <= medium_budget;
+    if (med_parallel) {
+        // Headroom guarantees the serial loop would not break early, so a
+        // full-fan re-trace of every promoted candidate is bit-identical to the
+        // serial path; fan it out, then rebuild ``ranked`` in promoted order.
+        std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> res(
+            promoted.size());
+        const std::int64_t used = parallel_candidates(
+            promoted.size(), spec.total_threads, spec,
+            [&](LayoutObjective& local, std::size_t i) {
+                res[i] = {promoted[i].x, local.evaluate(promoted[i].x.data(), k_medium, true)};
+            });
+        obj.add_evals(used);
+        out.diagnostics.medium_evals += static_cast<std::int64_t>(promoted.size());
+        out.diagnostics.rays_traced +=
+            static_cast<std::int64_t>(promoted.size()) * static_cast<std::int64_t>(k_medium);
+        for (auto& r : res) {
+            ranked.push_back(std::move(r));
         }
-        LayoutObjective::Stats ms = obj.evaluate(e.x.data(), k_medium, true);
-        out.diagnostics.medium_evals++;
-        out.diagnostics.rays_traced += static_cast<std::int64_t>(k_medium);
-        ranked.emplace_back(e.x, ms);
+        cand_threads = std::max(cand_threads, static_cast<int>(effective_threads(spec.total_threads, promoted.size())));
+    } else {
+        for (const Entry& e : promoted) {
+            if (obj.evals() >= medium_budget) {
+                break;
+            }
+            LayoutObjective::Stats ms = obj.evaluate(e.x.data(), k_medium, true);
+            out.diagnostics.medium_evals++;
+            out.diagnostics.rays_traced += static_cast<std::int64_t>(k_medium);
+            ranked.emplace_back(e.x, ms);
+        }
     }
     if (ranked.empty()) {
         for (const Entry& e : promoted) {
@@ -1114,19 +1221,52 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     LayoutObjective::Stats best_full;
     best_full.cost = kBadCost;
     std::vector<double> best_full_x;
-    for (const Entry& e : finalists) {
-        LayoutObjective::Stats fs = obj.evaluate(e.x.data(), k_full, true);
-        out.diagnostics.full_evals++;
-        out.diagnostics.rays_traced += static_cast<std::int64_t>(k_full);
-        if (fs.cost < kBadCost && focus_accepted(spec, fs)) {
-            out.diagnostics.full_passes++;
-            passers.emplace_back(e.x, fs);
-        } else {
-            out.diagnostics.full_failures++;
+    const std::int64_t full_head =
+        static_cast<std::int64_t>(finalists.size()) * kMaxFocusScanTraces;
+    const bool full_parallel = spec.enable_candidate_concurrency && finalists.size() > 1 &&
+                               obj.evals() + full_head <= spec.max_evals;
+    if (full_parallel) {
+        // Each finalist gets a private objective (headroom keeps every trace at
+        // full budget); the pass/failure classification and best pick are reduced
+        // here in finalist order, so the outcome is identical to the serial loop.
+        std::vector<LayoutObjective::Stats> fs(finalists.size());
+        const std::int64_t used = parallel_candidates(
+            finalists.size(), spec.total_threads, spec,
+            [&](LayoutObjective& local, std::size_t i) {
+                fs[i] = local.evaluate(finalists[i].x.data(), k_full, true);
+            });
+        obj.add_evals(used);
+        out.diagnostics.full_evals += static_cast<std::int64_t>(finalists.size());
+        out.diagnostics.rays_traced +=
+            static_cast<std::int64_t>(finalists.size()) * static_cast<std::int64_t>(k_full);
+        for (std::size_t i = 0; i < finalists.size(); ++i) {
+            if (fs[i].cost < kBadCost && focus_accepted(spec, fs[i])) {
+                out.diagnostics.full_passes++;
+                passers.emplace_back(finalists[i].x, fs[i]);
+            } else {
+                out.diagnostics.full_failures++;
+            }
+            if (better_stats(spec, fs[i], best_full)) {
+                best_full = fs[i];
+                best_full_x = finalists[i].x;
+            }
         }
-        if (better_stats(spec, fs, best_full)) {
-            best_full = fs;
-            best_full_x = e.x;
+        cand_threads = std::max(cand_threads, static_cast<int>(effective_threads(spec.total_threads, finalists.size())));
+    } else {
+        for (const Entry& e : finalists) {
+            LayoutObjective::Stats fs = obj.evaluate(e.x.data(), k_full, true);
+            out.diagnostics.full_evals++;
+            out.diagnostics.rays_traced += static_cast<std::int64_t>(k_full);
+            if (fs.cost < kBadCost && focus_accepted(spec, fs)) {
+                out.diagnostics.full_passes++;
+                passers.emplace_back(e.x, fs);
+            } else {
+                out.diagnostics.full_failures++;
+            }
+            if (better_stats(spec, fs, best_full)) {
+                best_full = fs;
+                best_full_x = e.x;
+            }
         }
     }
     std::stable_sort(passers.begin(), passers.end(),
@@ -1168,7 +1308,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     out.n_used = win.n_used;
     out.n_shared = win.n_shared;
     out.evals = obj.evals();
-    out.diagnostics.candidate_threads = 1;
+    out.diagnostics.candidate_threads = cand_threads;
     out.diagnostics.ray_threads = 1;
     if (won) {
         out.status = "ok";
