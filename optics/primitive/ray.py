@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .vector import normalize
+from .vector import as_finite_vector, normalize
 
 
 @dataclass(frozen=True, eq=False)
@@ -12,21 +12,11 @@ class Ray:
     power: float
 
     def __post_init__(self) -> None:
-        origin = np.asarray(self.origin, dtype=float)
-        direction = np.asarray(self.direction, dtype=float)
+        origin = as_finite_vector(self.origin, "Origin", "Ray origin must be finite")
+        direction = as_finite_vector(
+            self.direction, "Direction", "Ray direction must be finite"
+        )
         power = float(self.power)
-
-        if origin.shape != (3,):
-            raise ValueError("Origin must be array of shape (3,)")
-
-        if not np.all(np.isfinite(origin)):
-            raise ValueError("Ray origin must be finite")
-
-        if direction.shape != (3,):
-            raise ValueError("Direction must be array of shape (3,)")
-
-        if not np.all(np.isfinite(direction)):
-            raise ValueError("Ray direction must be finite")
 
         if np.linalg.norm(direction) < 1e-12:
             raise ValueError("Ray direction must be nonzero")

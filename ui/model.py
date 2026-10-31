@@ -14,9 +14,18 @@ from typing import Any
 
 import numpy as np
 
-from optics.config import refractive_element_from_config, stack_from_config
+from optics.config import (
+    element_position,
+    refractive_element_from_config,
+    stack_from_config,
+)
 from optics.element import RefractiveElement
-from optics.measurement_plane import MeasurementPlane, MeasurementResult, rays_to_arrays
+from optics.measurement_plane import (
+    MeasurementPlane,
+    MeasurementResult,
+    rays_to_arrays,
+    results_from_hits,
+)
 from optics.primitive import Ray
 from optics.project import (
     DEFAULT_SOURCE_CONFIG,
@@ -289,7 +298,7 @@ class ProjectState:
             named.append((name, config))
 
         incoming_front = max(
-            float(config.get("position", [0.0, 0.0, 0.0])[2]) for _, config in named
+            element_position(config)[2] for _, config in named
         )
         if self._elements:
             anchor = min(float(element.surface2.point(0.0, 0.0)[2]) for element in self._elements)
@@ -301,7 +310,7 @@ class ProjectState:
         built: list[RefractiveElement] = []
         for name, config in named:
             new_config = copy.deepcopy(config)
-            position = [float(value) for value in new_config.get("position", [0.0, 0.0, 0.0])]
+            position = element_position(new_config)
             position[2] += delta
             new_config["position"] = position
             offset_configs[name] = new_config
@@ -343,14 +352,19 @@ class ProjectState:
         return self._split_hits(*self.system.measure_planes(origins, dirs, powers, planes))
 
     def _result_from_row(self, plane: MeasurementPlane, row: PlaneRow) -> MeasurementResult:
-        """Detector image for one hit row, filled in the current display mode."""
+        """Detector image for one hit row, filled in the current display mode.
+
+        The fill-mode policy lives in core (:func:`results_from_hits`), so the
+        cached-row display path cannot drift from the one-shot ``measure`` path.
+        """
         u, v, power = row
-        result = plane.new_result()
-        if self._plane_reconstruct:
-            result.reconstruct(u, v, power)
-        else:
-            result.accumulate(u, v, power)
-        return result
+        return results_from_hits(
+            [plane],
+            np.asarray(u)[np.newaxis, :],
+            np.asarray(v)[np.newaxis, :],
+            np.asarray(power)[np.newaxis, :],
+            reconstruct=self._plane_reconstruct,
+        )[0]
 
     def _derive_results(self, planes: Sequence[MeasurementPlane] | None = None) -> list[MeasurementResult]:
         rows = self._plane_hit_rows

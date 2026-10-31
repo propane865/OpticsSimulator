@@ -53,7 +53,7 @@ import numpy as np
 from . import _native
 from . import constants as _c
 from ._util import coerce_ray_arrays
-from .config import stack_from_config
+from .config import element_position, stack_from_config
 from .measurement_plane import MeasurementPlane, arrays_to_rays
 from .plane_transform import PlaneTransform, plane_transform
 from .project import plane_from_config, plane_to_config
@@ -212,10 +212,7 @@ class OptimizationResult:
 
 
 def _stack_z_positions(schema: Mapping[str, Any]) -> list[float]:
-    return [
-        float(np.asarray(entry.get("position", [0.0, 0.0, 0.0]), dtype=float)[2])
-        for entry in schema.values()
-    ]
+    return [element_position(entry)[2] for entry in schema.values()]
 
 
 def _image_window(z_image: float, z_tail: float) -> tuple[float, float]:
@@ -491,7 +488,7 @@ def optimize_layout(
     updated: dict[str, Any] = copy.deepcopy(dict(elements_schema))
     for param, name in enumerate(free):
         entry = updated[name]
-        position = [float(v) for v in entry.get("position", [0.0, 0.0, 0.0])]
+        position = element_position(entry)
         position[2] = float(best[param])
         entry["position"] = position
     plane_config = plane_to_config("image plane", image_plane)

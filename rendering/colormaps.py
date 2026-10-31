@@ -11,12 +11,16 @@ import numpy as np
 from vispy.color import get_colormap
 
 __all__ = [
+    "MEASUREMENT_COLORMAP",
     "MEASUREMENT_IDLE_COLOR",
     "MEASUREMENT_IDLE_RGB",
     "colormap_lut",
     "normalize_irradiance",
     "sample_lut",
 ]
+
+# The one colormap every irradiance render uses (3D detector mesh, 2D plane view).
+MEASUREMENT_COLORMAP = "viridis"
 
 # Idle detector tint when no power is collected (0.5, 0.5, 0.55 in RGB).
 MEASUREMENT_IDLE_COLOR = (0.5, 0.5, 0.55, 0.35)

@@ -24,12 +24,27 @@ from typing import Any
 import numpy as np
 from PySide6 import QtCore, QtWidgets
 
-from optics.config import refractive_element_from_config
+from optics.config import (
+    element_orientation,
+    element_position,
+    refractive_element_from_config,
+)
 from optics.measurement_plane import MeasurementPlane
 from optics.optimizer import LensOptimization, OptimizationResult, optimize_layout
 from optics.plane_transform import plane_transform
-from optics.project import DEFAULT_MEASUREMENT_CONFIG, plane_from_config
-from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource, resample_grid
+from optics.project import (
+    DEFAULT_MAX_GRID_DIM,
+    DEFAULT_MEASUREMENT_CONFIG,
+    plane_from_config,
+)
+from optics.source import (
+    DEFAULT_PIXEL_PITCH,
+    MAX_ARRAY_RAYS,
+    POINT_ARRAY,
+    SINGLE_POINT,
+    PointSource,
+    resample_grid,
+)
 
 from . import imagecodec
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState, classify_element_edit
@@ -271,11 +286,9 @@ class ElementEditor(_SelectorEditor):
         self._radius2_spin.setValue(float(radius2))
         self._surface1_edit.setText(str(config["surface1"]["z"]))
         self._surface2_edit.setText(str(config["surface2"]["z"]))
-        position = config.get("position", [0.0, 0.0, 0.0])
-        orientation = config.get("orientation", [0.0, 0.0, 1.0])
-        for spin, value in zip(self._pos_spins, position):
+        for spin, value in zip(self._pos_spins, element_position(config)):
             spin.setValue(float(value))
-        for spin, value in zip(self._normal_spins, orientation):
+        for spin, value in zip(self._normal_spins, element_orientation(config)):
             spin.setValue(float(value))
 
     def _build_current(self) -> tuple[str, dict[str, Any], Any] | None:
@@ -370,9 +383,11 @@ class SourceEditor:
 
         configure_spin(self._power_spin, 0.0, 1000.0, 0.1)
         configure_spin(self._cone_spin, 0.0, 360.0, 1.0)
-        configure_spin(self._num_rays_spin, 1, 16384)
+        configure_spin(self._num_rays_spin, 1, MAX_ARRAY_RAYS)
         configure_spin(self._pitch_spin, 0.0001, 10.0, 0.01, 4)
         configure_spin(self._max_grid_spin, 1, 256)
+        self._pitch_spin.setValue(DEFAULT_PIXEL_PITCH)
+        self._max_grid_spin.setValue(DEFAULT_MAX_GRID_DIM)
         for spin in (self._x_spin, self._y_spin, self._z_spin):
             configure_spin(spin, -1000.0, 1000.0, 0.1)
 

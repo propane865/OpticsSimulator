@@ -17,6 +17,7 @@ from optics.source import POINT_ARRAY
 from optics.system import OpticalSystem
 
 from .colormaps import (
+    MEASUREMENT_COLORMAP,
     MEASUREMENT_IDLE_COLOR,
     colormap_lut,
     normalize_irradiance,
@@ -33,7 +34,6 @@ SOURCE_COLOR = (1.0, 0.85, 0.25, 1.0)
 RAY_COLOR = (1.0, 1.0, 0.0, 0.2)
 
 MEASUREMENT_OUTLINE_COLOR = (0.75, 0.35, 0.85, 1.0)
-MEASUREMENT_COLORMAP = "viridis"
 MEASUREMENT_MESH_ORDER = -10
 
 AXIS_COLORS = {

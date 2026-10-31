@@ -6,6 +6,7 @@ from . import _native
 from ._util import coerce_ray_arrays
 from .measurement_plane import arrays_to_rays
 from .primitive import Ray
+from .primitive.vector import as_finite_vector
 
 SINGLE_POINT = "single_point"
 POINT_ARRAY = "point_array"
@@ -105,11 +106,7 @@ class PointSource:
         pixel_pitch: float = DEFAULT_PIXEL_PITCH,
         image_b64: str | None = None,
     ) -> None:
-        self.position = np.asarray(position, dtype=float)
-        if self.position.shape != (3,):
-            raise ValueError("Position must be array of shape (3,)")
-        if not np.all(np.isfinite(self.position)):
-            raise ValueError("Position must be finite")
+        self.position = as_finite_vector(position, "Position")
 
         self.power = float(power)
         if not np.isfinite(self.power) or self.power < 0.0:

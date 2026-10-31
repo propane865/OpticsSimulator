@@ -15,11 +15,15 @@ import numpy as np
 from PySide6 import QtGui, QtWidgets
 
 from optics.measurement_plane import MeasurementResult
-from rendering.colormaps import MEASUREMENT_IDLE_RGB, colormap_lut, normalize_irradiance, sample_lut
+from rendering.colormaps import (
+    MEASUREMENT_COLORMAP,
+    MEASUREMENT_IDLE_RGB,
+    colormap_lut,
+    normalize_irradiance,
+    sample_lut,
+)
 
 __all__ = ["PlaneView"]
-
-PLANE_VIEW_COLORMAP = "viridis"
 
 
 def _result_rgba(result: MeasurementResult) -> np.ndarray:
@@ -34,7 +38,7 @@ def _result_rgba(result: MeasurementResult) -> np.ndarray:
     if normalized is None:
         rgb = np.tile(np.asarray(MEASUREMENT_IDLE_RGB, dtype=np.uint8), irradiance.shape + (1,))
     else:
-        lut = colormap_lut(PLANE_VIEW_COLORMAP, uint8_rgb=True)
+        lut = colormap_lut(MEASUREMENT_COLORMAP, uint8_rgb=True)
         rgb = sample_lut(lut, normalized).reshape(irradiance.shape + (3,))
     alpha = np.full(irradiance.shape, 255, dtype=np.uint8)
     return np.ascontiguousarray(np.dstack([np.flipud(rgb), alpha]))

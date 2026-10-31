@@ -1,5 +1,5 @@
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -7,6 +7,21 @@ import numpy as np
 from .element import RefractiveElement
 from .primitive import CircularAperture, Material, Surface, Transform
 from .primitive.vector import rotation_from_z
+
+# Implicit element placement when a config omits ``position``/``orientation``:
+# at the origin, facing +Z. One convention, read through the accessors below.
+DEFAULT_ELEMENT_POSITION: tuple[float, float, float] = (0.0, 0.0, 0.0)
+DEFAULT_ELEMENT_ORIENTATION: tuple[float, float, float] = (0.0, 0.0, 1.0)
+
+
+def element_position(config: Mapping[str, Any]) -> list[float]:
+    """Element placement from a config, with the implicit origin default."""
+    return [float(v) for v in config.get("position", DEFAULT_ELEMENT_POSITION)]
+
+
+def element_orientation(config: Mapping[str, Any]) -> list[float]:
+    """Element orientation from a config, with the implicit +Z default."""
+    return [float(v) for v in config.get("orientation", DEFAULT_ELEMENT_ORIENTATION)]
 
 
 def aperture_from_config(config: dict[str, Any]) -> CircularAperture:
@@ -52,9 +67,9 @@ def refractive_element_from_config(
     if not isinstance(config, dict):
         raise ValueError("Element config must be an object")
     if orientation is None:
-        orientation = config.get("orientation", [0.0, 0.0, 1.0])
+        orientation = config.get("orientation", DEFAULT_ELEMENT_ORIENTATION)
     if position is None:
-        position = config.get("position", [0.0, 0.0, 0.0])
+        position = config.get("position", DEFAULT_ELEMENT_POSITION)
     orientation = np.asarray(orientation, dtype=float)
     position = np.asarray(position, dtype=float)
     transform = Transform(rotation_from_z(orientation), position)

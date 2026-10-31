@@ -7,7 +7,7 @@ from . import _native
 from . import constants as _c
 from ._util import coerce_ray_arrays
 from .primitive import Ray
-from .primitive.vector import normalize
+from .primitive.vector import as_finite_vector, normalize
 
 if TYPE_CHECKING:
     from .system import OpticalSystem
@@ -118,11 +118,7 @@ class MeasurementPlane:
         v_range: Sequence[float],
         resolution: Sequence[int],
     ) -> None:
-        self.o = np.asarray(origin, dtype=float)
-        if self.o.shape != (3,):
-            raise ValueError("Origin must be array of shape (3,)")
-        if not np.all(np.isfinite(self.o)):
-            raise ValueError("Origin must be finite")
+        self.o = as_finite_vector(origin, "Origin")
 
         self.n = normalize(normal)
         if abs(self.n[2]) <= _EPS:
