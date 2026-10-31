@@ -11,6 +11,7 @@
 
 #include "optics/common/constants.hpp"
 #include "optics/common/numeric.hpp"
+#include "optics/common/slab.hpp"
 #include "optics/geometry/surface.hpp"
 #include "optics/intersection/mesh.hpp"
 #include "optics/intersection/solver.hpp"
@@ -148,29 +149,10 @@ BoxHit element_box_hit(const Element& elem, const Vec3& o, const Vec3& d, double
     }
     double t_enter = -kInf;
     double t_exit = kInf;
-    for (int i = 0; i < 3; ++i) {
-        if (d[i] == 0.0) {
-            if (o[i] < elem.box_lo[i] || o[i] > elem.box_hi[i]) {
-                return BoxHit{false, kInf, -kInf};
-            }
-            continue;
-        }
-        double t0 = (elem.box_lo[i] - o[i]) / d[i];
-        double t1 = (elem.box_hi[i] - o[i]) / d[i];
-        if (t0 > t1) {
-            std::swap(t0, t1);
-        }
-        if (t0 > t_enter) {
-            t_enter = t0;
-        }
-        if (t1 < t_exit) {
-            t_exit = t1;
-        }
+    if (!ray_box_interval(elem.box_lo, elem.box_hi, o, d, min_t, t_enter, t_exit)) {
+        return BoxHit{false, kInf, -kInf};
     }
-    if (t_exit > min_t && t_enter <= t_exit) {
-        return BoxHit{true, t_enter, t_exit};
-    }
-    return BoxHit{false, kInf, -kInf};
+    return BoxHit{true, t_enter, t_exit};
 }
 
 namespace {
@@ -211,18 +193,9 @@ bool wall_reachable(const Element& elem, const Vec3& o, const Vec3& d, double mi
     const double zslack = 1e-6 * zscale;
     double tz_lo = -kInf;
     double tz_hi = kInf;
-    if (dl[2] == 0.0) {
-        if (lo[2] < elem.wall_z_lo - zslack || lo[2] > elem.wall_z_hi + zslack) {
-            return false;
-        }
-    } else {
-        double a = (elem.wall_z_lo - zslack - lo[2]) / dl[2];
-        double b = (elem.wall_z_hi + zslack - lo[2]) / dl[2];
-        if (a > b) {
-            std::swap(a, b);
-        }
-        tz_lo = a;
-        tz_hi = b;
+    if (!slab_interval_axis(elem.wall_z_lo - zslack, elem.wall_z_hi + zslack, lo[2], dl[2], tz_lo,
+                            tz_hi)) {
+        return false;
     }
     // Radial exclusion interval: r(t)^2 < wall_r_min^2 (inside the cylinder).
     const double rscale = std::max(elem.wall_r_min, 1.0);

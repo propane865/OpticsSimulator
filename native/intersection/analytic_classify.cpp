@@ -12,10 +12,12 @@
 #include <vector>
 
 #include "optics/common/constants.hpp"
+#include "optics/common/slab.hpp"
 #include "optics/expression/expression.hpp"
 #include "optics/geometry/aperture.hpp"
 #include "optics/geometry/surface.hpp"
 #include "optics/intersection/analytic.hpp"
+#include "optics/intersection/rim.hpp"
 
 namespace optics::native {
 
@@ -27,7 +29,6 @@ std::atomic<bool>& enabled_flag() {
 }
 
 constexpr int kMaxSlots = 8;
-constexpr double kTwoPi = 6.28318530717958647692528676655900577;
 
 // --- AST pattern helpers -----------------------------------------------------
 
@@ -687,25 +688,37 @@ double analytic_z_local(const SurfaceDesc& desc, double x, double y) {
     return sag.ok ? s.z_vertex + sag.sag : NAN;
 }
 
-Vec3 analytic_normal_local(const SurfaceDesc& desc, double x, double y) {
+// Radial slope ``dz/dr`` of the analytic sheet at local ``(x, y)``, shared by
+// the normal and the parametric derivatives: zero on a plane and on the odd-
+// asphere axis, ``2 * dsag/dq`` for the q-form sheets and ``dsag/dr / r`` for
+// the r-form. Returns false when the sheet is invalid at the point.
+bool analytic_slope_local(const SurfaceDesc& desc, double x, double y, double& slope) {
     const AnalyticSurface& s = desc.analytic;
-    double slope = 0.0;  // d z / d r along the radial direction
+    slope = 0.0;
     if (desc.kind == IntersectionKind::OddAsphere) {
         const double r = std::sqrt(x * x + y * y);
         if (r <= s.r_axis_eps) {
-            return make_vec3(0.0, 0.0, -1.0);  // axis normal (central-difference limit)
+            return true;
         }
         const SagR sag = eval_sag_r(s, r);
         if (!sag.ok) {
-            return nan3();
+            return false;
         }
         slope = sag.dsag_dr / r;
     } else if (desc.kind != IntersectionKind::Plane) {
         const SagQ sag = eval_sag_q(s, x * x + y * y);
         if (!sag.ok) {
-            return nan3();
+            return false;
         }
         slope = 2.0 * sag.dsag_dq;
+    }
+    return true;
+}
+
+Vec3 analytic_normal_local(const SurfaceDesc& desc, double x, double y) {
+    double slope = 0.0;  // d z / d r along the radial direction
+    if (!analytic_slope_local(desc, x, y, slope)) {
+        return nan3();
     }
     // The local normal is ``(slope * x, slope * y, -1)``. A conic sheet reaches
     // an infinite slope at its sqrt-domain edge, so the |slope|-scaled form is
@@ -728,25 +741,8 @@ Vec3 analytic_normal_local(const SurfaceDesc& desc, double x, double y) {
 }
 
 bool analytic_derivatives_local(const SurfaceDesc& desc, double x, double y, Vec3& r_u, Vec3& r_v) {
-    const AnalyticSurface& s = desc.analytic;
     double slope = 0.0;
-    if (desc.kind == IntersectionKind::OddAsphere) {
-        const double r = std::sqrt(x * x + y * y);
-        if (r > s.r_axis_eps) {
-            const SagR sag = eval_sag_r(s, r);
-            if (!sag.ok) {
-                return false;
-            }
-            slope = sag.dsag_dr / r;
-        }
-    } else if (desc.kind != IntersectionKind::Plane) {
-        const SagQ sag = eval_sag_q(s, x * x + y * y);
-        if (!sag.ok) {
-            return false;
-        }
-        slope = 2.0 * sag.dsag_dq;
-    }
-    if (!std::isfinite(slope)) {
+    if (!analytic_slope_local(desc, x, y, slope) || !std::isfinite(slope)) {
         return false;
     }
     r_u = make_vec3(1.0, 0.0, slope * x);
@@ -765,20 +761,13 @@ bool analytic_ray_interval(const SurfaceDesc& desc, const Vec3& o_world, const V
 
     // Axial slab of the bounding box.
     {
-        const double d = d_local[2];
-        if (d == 0.0) {
-            if (o_local[2] < lo[2] || o_local[2] > hi[2]) {
-                return false;
-            }
-        } else {
-            double ta = (lo[2] - o_local[2]) / d;
-            double tb = (hi[2] - o_local[2]) / d;
-            if (ta > tb) {
-                std::swap(ta, tb);
-            }
-            t_enter = std::max(t_enter, ta);
-            t_exit = std::min(t_exit, tb);
+        double ta = -kInf;
+        double tb = kInf;
+        if (!slab_interval_axis(lo[2], hi[2], o_local[2], d_local[2], ta, tb)) {
+            return false;
         }
+        t_enter = std::max(t_enter, ta);
+        t_exit = std::min(t_exit, tb);
     }
 
     // Radial clip to the circumscribed disc: the membership region and the sag
@@ -838,27 +827,12 @@ std::optional<std::pair<double, double>> analytic_parameters_at_xy(const Surface
 
 void analytic_rim(const SurfaceDesc& desc, double radius, double cx, double cy, int n,
                   std::vector<double>& out) {
-    out.clear();
-    if (n <= 0) {
-        return;
-    }
-    out.reserve(3 * static_cast<std::size_t>(n));
-    const double step = kTwoPi / static_cast<double>(n);
-    for (int i = 0; i < n; ++i) {
-        const double theta = step * static_cast<double>(i);
-        const double x = cx + radius * std::cos(theta);
-        const double y = cy + radius * std::sin(theta);
+    sample_rim(radius, cx, cy, n, [&](double x, double y) {
         if (!analytic_accepts(desc, x, y)) {
-            throw std::invalid_argument("Aperture boundary point does not lie on the surface");
+            rim_off_surface();
         }
-        const double z = analytic_z_local(desc, x, y);
-        if (!std::isfinite(z)) {
-            throw std::invalid_argument("Non-finite point on aperture boundary");
-        }
-        out.push_back(x);
-        out.push_back(y);
-        out.push_back(z);
-    }
+        return make_vec3(x, y, analytic_z_local(desc, x, y));
+    }, out);
 }
 
 }  // namespace optics::native

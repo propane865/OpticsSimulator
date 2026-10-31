@@ -27,18 +27,9 @@ double py_accumulate(const py::array_t<double>& grid, const py::array_t<double>&
                      const py::array_t<double>& v, const py::array_t<double>& power, double u_min,
                      double u_max, double v_min, double v_max, int ru, int rv, double interval_u,
                      double interval_v) {
-    const py::buffer_info g_info = grid.request();
-    require(g_info.ndim == 2 && !g_info.readonly && static_cast<int>(g_info.shape[1]) == ru &&
-                static_cast<int>(g_info.shape[0]) == rv,
-            "grid: expected writeable shape (rv, ru)");
-    require(is_contiguous(g_info),
-            "grid: array must be contiguous");
-    const ConstDoubles ud = read_doubles(u, 1, "u");
-    const ConstDoubles vd = read_doubles(v, 1, "v");
-    const ConstDoubles pd = read_doubles(power, 1, "power");
-    require(ud.size == vd.size && vd.size == pd.size, "u/v/power sizes must match");
-    return optics::native::accumulate_power(static_cast<double*>(g_info.ptr), ud.data, vd.data,
-                                            pd.data, ud.size, u_min, u_max, v_min, v_max, ru, rv,
+    const DetectorBuffers buf = read_detector_buffers(grid, u, v, power, ru, rv);
+    return optics::native::accumulate_power(buf.grid, buf.u.data, buf.v.data, buf.power.data,
+                                            buf.u.size, u_min, u_max, v_min, v_max, ru, rv,
                                             interval_u, interval_v);
 }
 
@@ -46,21 +37,13 @@ double py_reconstruct(const py::array_t<double>& grid, const py::array_t<double>
                       const py::array_t<double>& v, const py::array_t<double>& power, double u_min,
                       double u_max, double v_min, double v_max, int ru, int rv, double interval_u,
                       double interval_v, std::int64_t neighbors, double bandwidth_scale) {
-    const py::buffer_info g_info = grid.request();
-    require(g_info.ndim == 2 && !g_info.readonly && static_cast<int>(g_info.shape[1]) == ru &&
-                static_cast<int>(g_info.shape[0]) == rv,
-            "grid: expected writeable shape (rv, ru)");
-    require(is_contiguous(g_info), "grid: array must be contiguous");
-    const ConstDoubles ud = read_doubles(u, 1, "u");
-    const ConstDoubles vd = read_doubles(v, 1, "v");
-    const ConstDoubles pd = read_doubles(power, 1, "power");
-    require(ud.size == vd.size && vd.size == pd.size, "u/v/power sizes must match");
+    const DetectorBuffers buf = read_detector_buffers(grid, u, v, power, ru, rv);
     require(neighbors >= 1, "neighbors: must be at least 1");
     require(std::isfinite(bandwidth_scale) && bandwidth_scale >= 0.0,
             "bandwidth_scale: must be finite and non-negative");
     const py::gil_scoped_release release;
     return optics::native::reconstruct_irradiance(
-        static_cast<double*>(g_info.ptr), ud.data, vd.data, pd.data, ud.size, u_min, u_max, v_min,
+        buf.grid, buf.u.data, buf.v.data, buf.power.data, buf.u.size, u_min, u_max, v_min,
         v_max, ru, rv, interval_u, interval_v, static_cast<std::size_t>(neighbors),
         bandwidth_scale);
 }
@@ -100,10 +83,7 @@ void py_measure_planes_multi(const TraceStack& stack, const py::array_t<double>&
     double* ud = write_matrix(us, p, n, "us");
     double* vd = write_matrix(vs, p, n, "vs");
     double* pd = write_matrix(pws, p, n, "pws");
-    const optics::native::PlaneBatchView plane_view{
-        planes.po,   planes.pn,    planes.u_min, planes.u_max, planes.v_min,
-        planes.v_max, planes.s_u,  planes.s_v,   planes.t_u,   planes.t_v,
-        p};
+    const optics::native::PlaneBatchView plane_view = plane_batch_view(planes);
     const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
     optics::native::measure_planes_multi(stack, rays, plane_view, eps, out);
@@ -131,10 +111,7 @@ void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<dou
     double* ud = write_matrix(us, p, n, "us");
     double* vd = write_matrix(vs, p, n, "vs");
     double* pd = write_matrix(pws, p, n, "pws");
-    const optics::native::PlaneBatchView plane_view{
-        planes.po,   planes.pn,    planes.u_min, planes.u_max, planes.v_min,
-        planes.v_max, planes.s_u,  planes.s_v,   planes.t_u,   planes.t_v,
-        p};
+    const optics::native::PlaneBatchView plane_view = plane_batch_view(planes);
     const optics::native::TraceOptions options{ray_length, eps};
     const optics::native::SegmentOutputView segs{buffers.starts, buffers.ends, buffers.kinds,
                                                  buffers.counts, buffers.cap};

@@ -125,6 +125,25 @@ inline optics::native::RayBatchView read_ray_batch(const py::array_t<double>& or
     return {od.data, dd.data, pw.data, n};
 }
 
+// Ray-fan ``(N, 3)`` origins/directions pair without powers (the tracer does
+// not consume them), read into raw pointers and the ray count.
+struct RayPairView {
+    const double* origins;
+    const double* dirs;
+    std::size_t n;
+};
+
+inline RayPairView read_ray_pair(const py::array_t<double>& origins,
+                                 const py::array_t<double>& dirs) {
+    const py::buffer_info o_info = origins.request();
+    const py::buffer_info d_info = dirs.request();
+    require(o_info.ndim == 2 && o_info.shape[1] == 3, "origins: expected shape (N, 3)");
+    require(d_info.ndim == 2 && d_info.shape[1] == 3 && d_info.size == o_info.size,
+            "dirs: expected shape (N, 3)");
+    return {static_cast<const double*>(o_info.ptr), static_cast<const double*>(d_info.ptr),
+            static_cast<std::size_t>(o_info.shape[0])};
+}
+
 // Shared plane-array validation: ``(P, 3)`` origins/normals, ``(P,)`` range
 // arrays and ``(P,)`` in-plane frame coefficient arrays read into raw
 // pointers, returning the plane count.
@@ -166,6 +185,39 @@ inline PlaneArrays read_planes(const py::array_t<double>& po, const py::array_t<
             su.data, sv.data, tu.data, tv.data};
 }
 
+// The kernel-side ``PlaneBatchView`` for a validated ``PlaneArrays``.
+inline optics::native::PlaneBatchView plane_batch_view(const PlaneArrays& planes) {
+    return {planes.po,   planes.pn,    planes.u_min, planes.u_max, planes.v_min,
+            planes.v_max, planes.s_u,  planes.s_v,   planes.t_u,   planes.t_v,
+            planes.p};
+}
+
+// Detector fill-input validation shared by accumulate and reconstruct: a
+// writeable ``(rv, ru)`` grid plus the equal-length ``(u, v, power)`` hit
+// buffers, read into raw views.
+struct DetectorBuffers {
+    double* grid;
+    ConstDoubles u;
+    ConstDoubles v;
+    ConstDoubles power;
+};
+
+inline DetectorBuffers read_detector_buffers(const py::array_t<double>& grid,
+                                             const py::array_t<double>& u,
+                                             const py::array_t<double>& v,
+                                             const py::array_t<double>& power, int ru, int rv) {
+    const py::buffer_info g_info = grid.request();
+    require(g_info.ndim == 2 && !g_info.readonly && static_cast<int>(g_info.shape[1]) == ru &&
+                static_cast<int>(g_info.shape[0]) == rv,
+            "grid: expected writeable shape (rv, ru)");
+    require(is_contiguous(g_info), "grid: array must be contiguous");
+    const ConstDoubles ud = read_doubles(u, 1, "u");
+    const ConstDoubles vd = read_doubles(v, 1, "v");
+    const ConstDoubles pd = read_doubles(power, 1, "power");
+    require(ud.size == vd.size && vd.size == pd.size, "u/v/power sizes must match");
+    return {static_cast<double*>(g_info.ptr), ud, vd, pd};
+}
+
 // Batched rendering segment output buffers: ``(N, cap, 3)`` starts/ends,
 // ``(N, cap)`` kinds and ``(N,)`` counts, validated against the ray count.
 struct SegmentBuffers {
@@ -199,6 +251,33 @@ inline SegmentBuffers read_segment_buffers(const py::array_t<double>& starts,
     return {static_cast<double*>(s_info.ptr), static_cast<double*>(e_info.ptr),
             static_cast<signed char*>(k_info.ptr), static_cast<std::int64_t*>(c_info.ptr),
             static_cast<std::size_t>(s_info.shape[1])};
+}
+
+// Single-ray rendering segment output buffers: ``(cap, 3)`` starts/ends and
+// ``(cap,)`` kinds, the one-ray counterpart of ``read_segment_buffers``.
+struct SingleSegmentBuffers {
+    double* starts;
+    double* ends;
+    signed char* kinds;
+    std::size_t cap;
+};
+
+inline SingleSegmentBuffers read_single_segment_buffers(const py::array_t<double>& starts,
+                                                        const py::array_t<double>& ends,
+                                                        const py::array_t<std::int8_t>& kinds) {
+    const py::buffer_info s_info = starts.request();
+    const py::buffer_info e_info = ends.request();
+    const py::buffer_info k_info = kinds.request();
+    require(s_info.ndim == 2 && s_info.shape[1] == 3, "starts: expected shape (cap, 3)");
+    require(e_info.ndim == 2 && e_info.shape[1] == 3 && e_info.size == s_info.size,
+            "ends: expected shape (cap, 3)");
+    require(k_info.ndim == 1 && static_cast<std::size_t>(k_info.size) ==
+                                    static_cast<std::size_t>(s_info.shape[0]),
+            "kinds: expected shape (cap,)");
+    require(!s_info.readonly && !e_info.readonly && !k_info.readonly,
+            "segment buffers must be writeable");
+    return {static_cast<double*>(s_info.ptr), static_cast<double*>(e_info.ptr),
+            static_cast<signed char*>(k_info.ptr), static_cast<std::size_t>(s_info.shape[0])};
 }
 
 }  // namespace optics::bindings

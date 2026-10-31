@@ -9,6 +9,9 @@ namespace optics::native {
 // Positive infinity, shared by the trace/intersection kernels.
 inline constexpr double kInf = std::numeric_limits<double>::infinity();
 
+// Full circle in radians.
+inline constexpr double kTwoPi = 6.28318530717958647692528676655900577;
+
 // --- Damped Newton iteration (solver) ---
 inline constexpr int MAX_NEWTON_ITER = 50;
 inline constexpr double STEP_REL_TOL = 1e-14;

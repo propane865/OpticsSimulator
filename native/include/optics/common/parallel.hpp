@@ -19,6 +19,13 @@
 
 namespace optics::native {
 
+// Hardware thread count clamped to >= 1: the one sizing source every worker
+// count derivation (pool, chunk fan-out, candidate stages) goes through.
+inline std::size_t hardware_threads() {
+    unsigned hc = std::thread::hardware_concurrency();
+    return hc == 0 ? 1 : static_cast<std::size_t>(hc);
+}
+
 namespace pool_detail {
 
 // When true on the calling thread, ``run_chunks`` executes its kernel inline
@@ -38,10 +45,7 @@ class WorkerPool {
         if (n == 0) {
             return;
         }
-        std::size_t n_threads = std::thread::hardware_concurrency();
-        if (n_threads == 0) {
-            n_threads = 1;
-        }
+        const std::size_t n_threads = hardware_threads();
         const std::size_t n_chunks = std::min<std::size_t>((n + chunk - 1) / chunk, n_threads);
         {
             std::unique_lock<std::mutex> lock(mutex_);
@@ -170,13 +174,41 @@ void run_chunks(std::size_t n, Fn&& fn) {
         fn(std::size_t{0}, n);
         return;
     }
-    unsigned hc = std::thread::hardware_concurrency();
-    if (hc == 0) {
-        hc = 1;
-    }
-    const std::size_t nt = std::max<std::size_t>(1, std::min<std::size_t>(hc, n));
+    const std::size_t nt = std::max<std::size_t>(1, std::min<std::size_t>(hardware_threads(), n));
     const std::size_t chunk = (n + nt - 1) / nt;
     pool_detail::WorkerPool::instance().execute(n, chunk, fn);
+}
+
+// One-shot fan-out that bypasses the shared pool and spawns fresh threads per
+// call: ``[0, n)`` split across ``n_threads`` contiguous ranges, ``work(t, lo, hi)``
+// run on each thread, all threads joined, and the first worker exception
+// rethrown on the caller. For stages where every worker needs private scratch
+// and the caller already sized the thread count (a busy pool would serialize
+// these behind unrelated dispatch).
+template <typename Work>
+void run_chunk_threads(std::size_t n, std::size_t n_threads, Work&& work) {
+    std::vector<std::exception_ptr> errors(n_threads);
+    std::vector<std::thread> threads;
+    threads.reserve(n_threads);
+    for (std::size_t t = 0; t < n_threads; ++t) {
+        const std::size_t lo = n * t / n_threads;
+        const std::size_t hi = n * (t + 1) / n_threads;
+        threads.emplace_back([&, t, lo, hi] {
+            try {
+                work(t, lo, hi);
+            } catch (...) {
+                errors[t] = std::current_exception();
+            }
+        });
+    }
+    for (std::thread& th : threads) {
+        th.join();
+    }
+    for (const std::exception_ptr& exc : errors) {
+        if (exc) {
+            std::rethrow_exception(exc);
+        }
+    }
 }
 
 }  // namespace optics::native

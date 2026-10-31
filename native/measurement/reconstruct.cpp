@@ -293,11 +293,7 @@ double reconstruct_irradiance(double* grid, const double* u, const double* v,
         }
     });
 
-    unsigned hc = std::thread::hardware_concurrency();
-    if (hc == 0) {
-        hc = 1;
-    }
-    std::size_t nt = std::max<std::size_t>(1, std::min<std::size_t>(hc, m));
+    std::size_t nt = std::max<std::size_t>(1, std::min<std::size_t>(hardware_threads(), m));
     if (m < kParallelMinRays || nt * cells > kParallelMaxScratchDoubles) {
         nt = 1;
     }
@@ -307,35 +303,13 @@ double reconstruct_irradiance(double* grid, const double* u, const double* v,
         return deposit(grid, pu, pv, pp, h, 0, m, ru, rv, u_min, v_min, du, dv, weights);
     }
 
-    const std::size_t chunk = (m + nt - 1) / nt;
     std::vector<std::vector<double>> partial(nt, std::vector<double>(cells, 0.0));
     std::vector<double> totals(nt, 0.0);
-    std::vector<std::exception_ptr> errors(nt);
-    std::vector<std::thread> threads;
-    for (std::size_t t = 0; t < nt; ++t) {
-        const std::size_t lo = t * chunk;
-        if (lo >= m) {
-            break;
-        }
-        const std::size_t hi = std::min(m, lo + chunk);
-        threads.emplace_back([&, t, lo, hi] {
-            try {
-                std::vector<double> weights;
-                totals[t] = deposit(partial[t].data(), pu, pv, pp, h, lo, hi, ru, rv, u_min,
-                                    v_min, du, dv, weights);
-            } catch (...) {
-                errors[t] = std::current_exception();
-            }
-        });
-    }
-    for (std::thread& th : threads) {
-        th.join();
-    }
-    for (const std::exception_ptr& exc : errors) {
-        if (exc) {
-            std::rethrow_exception(exc);
-        }
-    }
+    run_chunk_threads(m, nt, [&](std::size_t t, std::size_t lo, std::size_t hi) {
+        std::vector<double> weights;
+        totals[t] = deposit(partial[t].data(), pu, pv, pp, h, lo, hi, ru, rv, u_min, v_min, du, dv,
+                            weights);
+    });
 
     double total = 0.0;
     for (std::size_t t = 0; t < nt; ++t) {

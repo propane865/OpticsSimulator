@@ -27,6 +27,7 @@ namespace {
 constexpr double kBadCost = 1e9;
 constexpr double kDeF = 0.7;
 constexpr double kDeCr = 0.9;
+constexpr double kBlurRefFloor = 1e-12;  // guard so a zero blur_ref never divides
 constexpr std::size_t kNoSlot = std::numeric_limits<std::size_t>::max();
 
 inline double clamp_box(double v, double lo, double hi) {
@@ -484,7 +485,7 @@ class LayoutObjective {
                     blur_max = std::numeric_limits<double>::quiet_NaN();
                 }
             }
-            const double db = blur / std::max(spec_.blur_ref, 1e-12);
+            const double db = blur / std::max(spec_.blur_ref, kBlurRefFloor);
             const double frac =
                 n > 0 ? static_cast<double>(fit.n_used) / static_cast<double>(n) : 0.0;
             const double vig = std::max(0.0, spec_.min_fraction - frac);
@@ -507,7 +508,7 @@ class LayoutObjective {
                 spot_radius(dst_.data(), floor_mask,
                             spec_.groups != nullptr ? dst_group_.data() : nullptr,
                             dst_power_.data(), shared, spec_.n_groups, blur_scratch_);
-            double cost = blur / std::max(spec_.blur_ref, 1e-12);
+            double cost = blur / std::max(spec_.blur_ref, kBlurRefFloor);
             if (!std::isfinite(cost)) {
                 cost = kBadCost + geo;
             }
@@ -617,10 +618,7 @@ class PhaseTimer {
 // Number of worker threads a candidate stage of ``n`` items should use, honouring
 // ``total_threads`` (0: every hardware thread) and clamping to the work size.
 std::size_t effective_threads(int requested, std::size_t n) {
-    std::size_t hw = std::thread::hardware_concurrency();
-    if (hw == 0) {
-        hw = 1;
-    }
+    const std::size_t hw = hardware_threads();
     const std::size_t want = requested > 0 ? static_cast<std::size_t>(requested) : hw;
     return std::max<std::size_t>(1, std::min({want, hw, std::max<std::size_t>(n, 1)}));
 }
@@ -647,33 +645,14 @@ std::int64_t parallel_candidates(std::size_t n, int requested, const OptimizerSp
         return obj.evals();
     }
     std::vector<std::int64_t> evals(threads, 0);
-    std::vector<std::exception_ptr> errors(threads);
-    std::vector<std::thread> workers;
-    workers.reserve(threads);
-    for (std::size_t t = 0; t < threads; ++t) {
-        const std::size_t lo = n * t / threads;
-        const std::size_t hi = n * (t + 1) / threads;
-        workers.emplace_back([&, t, lo, hi] {
-            try {
-                ScopedSerialTrace serial;
-                LayoutObjective obj(spec);
-                for (std::size_t i = lo; i < hi; ++i) {
-                    body(obj, i);
-                }
-                evals[t] = obj.evals();
-            } catch (...) {
-                errors[t] = std::current_exception();
-            }
-        });
-    }
-    for (std::thread& th : workers) {
-        th.join();
-    }
-    for (const std::exception_ptr& exc : errors) {
-        if (exc) {
-            std::rethrow_exception(exc);
+    run_chunk_threads(n, threads, [&](std::size_t t, std::size_t lo, std::size_t hi) {
+        ScopedSerialTrace serial;
+        LayoutObjective obj(spec);
+        for (std::size_t i = lo; i < hi; ++i) {
+            body(obj, i);
         }
-    }
+        evals[t] = obj.evals();
+    });
     std::int64_t total = 0;
     for (const std::int64_t e : evals) {
         total += e;
@@ -688,7 +667,7 @@ bool focus_accepted(const OptimizerSpec& spec, const LayoutObjective::Stats& s) 
     if (!(s.cost < kBadCost) || s.gap > 0.0) {
         return false;
     }
-    const double ref = std::max(spec.blur_ref, 1e-12);
+    const double ref = std::max(spec.blur_ref, kBlurRefFloor);
     const double tol = spec.max_norm_blur * ref;
     if (!(s.blur <= tol) || !(s.blur_all <= tol * spec.blur_all_factor) ||
         !(s.blur_max <= tol * spec.worst_field_factor)) {
@@ -737,7 +716,7 @@ const char* failure_reason_name(OptimizationFailureReason r) {
 // so callers can report *why* rather than returning a least-bad layout.
 OptimizationFailureReason classify_failure(const OptimizerSpec& spec,
                                            const LayoutObjective::Stats& s) {
-    const double ref = std::max(spec.blur_ref, 1e-12);
+    const double ref = std::max(spec.blur_ref, kBlurRefFloor);
     const double tol = spec.max_norm_blur * ref;
     const double min_shared = spec.min_fraction * static_cast<double>(std::max<std::size_t>(spec.rays.count, 1));
     if (s.n_shared < min_shared) {
@@ -889,6 +868,137 @@ void nelder_mead(LayoutObjective& obj, const OptimizerSpec& spec, std::vector<do
     }
 }
 
+// --- DE operators shared by both drivers ------------------------------------
+// The random quantizer, start clamping, Latin-hypercube seeding, mutation/
+// crossover operator, stall rule, polish gate and archive-diversity distance
+// live here once; both drivers consume the seeded RNG in the same order, so
+// runs stay bit-reproducible.
+
+// A uniform [0, 1) value from the top 53 bits of the run's engine.
+struct U01 {
+    std::mt19937_64* rng;
+    double operator()() const {
+        return static_cast<double>((*rng)() >> 11) * 0x1.0p-53;  // [0, 1)
+    }
+};
+
+// The requested layout clamped into the search box, as a full parameter vector.
+std::vector<double> clamped_start(const OptimizerSpec& spec) {
+    std::vector<double> best(spec.lo.size());
+    for (std::size_t i = 0; i < spec.lo.size(); ++i) {
+        best[i] = clamp_box(spec.x_init[i], spec.lo[i], spec.hi[i]);
+    }
+    return best;
+}
+
+// Latin-hypercube seeding (row 0 keeps the current layout): every swept
+// parameter dimension is stratified into ``pop - 1`` equal strata with exactly
+// one sample per stratum, so the same evaluation budget covers the search box
+// far more evenly than independent uniform draws. The permutations come from
+// the run's seeded RNG, keeping results bit-reproducible.
+void lhs_seed_population(std::vector<double>& px, std::size_t d, int pop,
+                         const OptimizerSpec& spec, std::mt19937_64& rng) {
+    if (pop <= 1) {
+        return;
+    }
+    U01 u01{&rng};
+    std::vector<int> perm(static_cast<std::size_t>(pop - 1));
+    std::iota(perm.begin(), perm.end(), 0);
+    const double inv_strata = 1.0 / static_cast<double>(pop - 1);
+    for (std::size_t k = 0; k < d; ++k) {
+        std::shuffle(perm.begin(), perm.end(), rng);
+        for (int p = 1; p < pop; ++p) {
+            const double stratum = static_cast<double>(perm[static_cast<std::size_t>(p - 1)]);
+            px[static_cast<std::size_t>(p) * d + k] =
+                spec.lo[k] + (stratum + u01()) * inv_strata * (spec.hi[k] - spec.lo[k]);
+        }
+    }
+}
+
+// One DE/rand/1/bin trial vector against population slot ``p``: three distinct
+// non-self sources, binomial crossover at ``kDeCr`` with one forced dimension,
+// differential mutation at ``kDeF`` and box clipping. Returns false when four
+// draws failed to produce distinct sources (the slot keeps its incumbent).
+bool de_trial_vector(std::vector<double>& trial, const std::vector<double>& px, std::size_t d,
+                     int p, int evaluated, const OptimizerSpec& spec, U01 u01) {
+    int a = 0, b = 0, c = 0;
+    for (int t = 0; t < 4; ++t) {
+        a = static_cast<int>(u01() * static_cast<double>(evaluated));
+        b = static_cast<int>(u01() * static_cast<double>(evaluated));
+        c = static_cast<int>(u01() * static_cast<double>(evaluated));
+        if (a != p && b != p && c != p && a != b && a != c && b != c) {
+            break;
+        }
+    }
+    if (a == p || b == p || c == p || a == b || a == c || b == c) {
+        return false;
+    }
+    const double* xa = &px[static_cast<std::size_t>(a) * d];
+    const double* xb = &px[static_cast<std::size_t>(b) * d];
+    const double* xc = &px[static_cast<std::size_t>(c) * d];
+    const double* xp = &px[static_cast<std::size_t>(p) * d];
+    const int jrand = static_cast<int>(u01() * static_cast<double>(d)) % static_cast<int>(d);
+    for (std::size_t k = 0; k < d; ++k) {
+        if (u01() < kDeCr || static_cast<int>(k) == jrand) {
+            trial[k] = clamp_box(xa[k] + kDeF * (xb[k] - xc[k]), spec.lo[k], spec.hi[k]);
+        } else {
+            trial[k] = xp[k];
+        }
+    }
+    return true;
+}
+
+// Write a winner into the full-length ``best`` vector: the swept parameters
+// from ``xs``, and the trailing plane z from the nested focus scan.
+void record_winner(std::vector<double>& best, std::size_t d, const LayoutObjective::Stats& s,
+                   const double* xs) {
+    std::copy_n(xs, d, best.begin());
+    best[best.size() - 1] = s.plane_z;
+}
+
+// Generation progress: an improvement must clear a relative 1e-12 (with an
+// absolute floor so a zero best cost never counts as progress).
+bool cost_progress(double cost, double last_best) {
+    return cost < last_best * (1.0 - 1e-12) - 1e-300;
+}
+
+// The gated local-polish rule: an accepted layout always polishes, and so does
+// a promising near-focus best -- polishing a remote unfocused minimum spends
+// hundreds of traces for nothing, so those evaluations stay in global search.
+bool polish_promising(const OptimizerSpec& spec, const LayoutObjective::Stats& s, bool accepted) {
+    if (accepted) {
+        return true;
+    }
+    const double norm_blur = s.blur / std::max(spec.blur_ref, kBlurRefFloor);
+    return std::isfinite(norm_blur) && s.cost < kBadCost &&
+           norm_blur <= spec.polish_gate * spec.max_norm_blur;
+}
+
+// Distance in box-normalized parameter space, shared by every diversity gate.
+double norm_dist(const double* a, const double* b, std::size_t d, const OptimizerSpec& spec) {
+    double acc = 0.0;
+    for (std::size_t k = 0; k < d; ++k) {
+        const double span = std::max(spec.hi[k] - spec.lo[k], kBlurRefFloor);
+        const double t = (a[k] - b[k]) / span;
+        acc += t * t;
+    }
+    return std::sqrt(acc);
+}
+
+// Whether ``xs`` lies at least ``archive_min_dist`` from every entry of
+// ``seen`` (``get_x`` extracts an entry's parameter vector): the one distinct-
+// candidate filter used by the archive, promotion, finalists and queue.
+template <typename T, typename GetX>
+bool distinct_from_all(const std::vector<T>& seen, const double* xs, std::size_t d,
+                       const OptimizerSpec& spec, GetX&& get_x) {
+    for (const T& e : seen) {
+        if (norm_dist(xs, get_x(e).data(), d, spec) < spec.archive_min_dist) {
+            return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 // Legacy driver: full-fidelity differential evolution plus a gated Nelder-Mead
@@ -906,22 +1016,16 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     }
 
     std::mt19937_64 rng(spec.seed);
-    auto u01 = [&rng]() {
-        return static_cast<double>(rng() >> 11) * 0x1.0p-53;  // [0, 1)
-    };
+    U01 u01{&rng};
 
     // Recorded winners are always full parameter vectors: under autofocus the
     // trailing plane z is whatever the nested focus scan chose for the swept
     // element values.
-    std::vector<double> best(d_full);
-    for (std::size_t i = 0; i < d_full; ++i) {
-        best[i] = clamp_box(spec.x_init[i], spec.lo[i], spec.hi[i]);
-    }
+    std::vector<double> best = clamped_start(spec);
     LayoutObjective::Stats best_stats = obj.evaluate(best.data());
     auto record = [&](const LayoutObjective::Stats& s, const double* xs) {
         best_stats = s;
-        std::copy_n(xs, d, best.begin());
-        best[d_full - 1] = s.plane_z;
+        record_winner(best, d, s, xs);
     };
     record(best_stats, best.data());
     out.history.push_back(best_stats.cost);
@@ -946,21 +1050,7 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
         px.assign(static_cast<std::size_t>(pop) * d, 0.0);
         pf.assign(static_cast<std::size_t>(pop), LayoutObjective::Stats());
         std::copy_n(best.begin(), d, px.begin());
-        if (pop > 1) {
-            std::vector<int> perm(static_cast<std::size_t>(pop - 1));
-            std::iota(perm.begin(), perm.end(), 0);
-            const double inv_strata = 1.0 / static_cast<double>(pop - 1);
-            for (std::size_t k = 0; k < d; ++k) {
-                std::shuffle(perm.begin(), perm.end(), rng);
-                for (int p = 1; p < pop; ++p) {
-                    const double stratum =
-                        static_cast<double>(perm[static_cast<std::size_t>(p - 1)]);
-                    px[static_cast<std::size_t>(p) * d + k] =
-                        spec.lo[k] +
-                        (stratum + u01()) * inv_strata * (spec.hi[k] - spec.lo[k]);
-                }
-            }
-        }
+        lhs_seed_population(px, d, pop, spec, rng);
         evaluated = 0;
         for (int p = 0; p < pop; ++p) {
             if (obj.evals() >= spec.max_evals) {
@@ -986,30 +1076,10 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             if (obj.evals() >= spec.max_evals) {
                 break;
             }
-            int a = 0, b = 0, c = 0;
-            for (int t = 0; t < 4; ++t) {
-                a = static_cast<int>(u01() * static_cast<double>(evaluated));
-                b = static_cast<int>(u01() * static_cast<double>(evaluated));
-                c = static_cast<int>(u01() * static_cast<double>(evaluated));
-                if (a != p && b != p && c != p && a != b && a != c && b != c) {
-                    break;
-                }
-            }
-            if (a == p || b == p || c == p || a == b || a == c || b == c) {
+            if (!de_trial_vector(trial, px, d, p, evaluated, spec, u01)) {
                 continue;
             }
-            const double* xa = &px[static_cast<std::size_t>(a) * d];
-            const double* xb = &px[static_cast<std::size_t>(b) * d];
-            const double* xc = &px[static_cast<std::size_t>(c) * d];
             double* xp = &px[static_cast<std::size_t>(p) * d];
-            const int jrand = static_cast<int>(u01() * static_cast<double>(d)) % static_cast<int>(d);
-            for (std::size_t k = 0; k < d; ++k) {
-                if (u01() < kDeCr || static_cast<int>(k) == jrand) {
-                    trial[k] = clamp_box(xa[k] + kDeF * (xb[k] - xc[k]), spec.lo[k], spec.hi[k]);
-                } else {
-                    trial[k] = xp[k];
-                }
-            }
             LayoutObjective::Stats ft = obj.evaluate(trial.data());
             if (better_stats(spec, ft, pf[static_cast<std::size_t>(p)])) {
                 std::copy(trial.begin(), trial.end(), xp);
@@ -1020,7 +1090,7 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             }
         }
         out.history.push_back(best_stats.cost);
-        if (best_stats.cost < last_best * (1.0 - 1e-12) - 1e-300) {
+        if (cost_progress(best_stats.cost, last_best)) {
             last_best = best_stats.cost;
             stalled = 0;
         } else {
@@ -1038,16 +1108,10 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     }
 
     // --- Local polish: box-constrained Nelder-Mead ---------------------------
-    // Gated on the best point being at least focus-like: polishing a remote
-    // unfocused minimum spends hundreds of traces for nothing, so those
-    // evaluations stay in the global search instead. An accepted point always
-    // polishes.
-    const double best_norm = best_stats.blur / std::max(spec.blur_ref, 1e-12);
+    // Gated on the best point being at least focus-like (shared rule); an
+    // accepted point always polishes.
     const bool accepted = focus_accepted(spec, best_stats);
-    const bool promising =
-        accepted || (std::isfinite(best_norm) && best_stats.cost < kBadCost &&
-                     best_norm <= spec.polish_gate * spec.max_norm_blur);
-    if (promising) {
+    if (polish_promising(spec, best_stats, accepted)) {
         std::vector<double> best_short(best.begin(), best.begin() + d);
         nelder_mead(obj, spec, best_short, best_stats);
         std::copy_n(best_short.begin(), d, best.begin());
@@ -1111,23 +1175,9 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
 
     std::mt19937_64 rng(spec.seed);
-    auto u01 = [&rng]() {
-        return static_cast<double>(rng() >> 11) * 0x1.0p-53;
-    };
-    auto norm_dist = [&](const double* a, const double* b) {
-        double acc = 0.0;
-        for (std::size_t k = 0; k < d; ++k) {
-            const double span = std::max(spec.hi[k] - spec.lo[k], 1e-12);
-            const double t = (a[k] - b[k]) / span;
-            acc += t * t;
-        }
-        return std::sqrt(acc);
-    };
+    U01 u01{&rng};
 
-    std::vector<double> best(d_full);
-    for (std::size_t i = 0; i < d_full; ++i) {
-        best[i] = clamp_box(spec.x_init[i], spec.lo[i], spec.hi[i]);
-    }
+    std::vector<double> best = clamped_start(spec);
     std::vector<double> best_swept(d);
     LayoutObjective::Stats best_stats = [&] {
         PhaseTimer timer(out.diagnostics.ns_coarse);
@@ -1137,8 +1187,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     out.diagnostics.rays_traced += static_cast<std::int64_t>(best_stats.n_traced);
     auto record = [&](const LayoutObjective::Stats& s, const double* xs) {
         best_stats = s;
-        std::copy_n(xs, d, best.begin());
-        best[d_full - 1] = s.plane_z;
+        record_winner(best, d, s, xs);
         best_swept.assign(best.begin(), best.begin() + d);
     };
     record(best_stats, best.data());
@@ -1149,13 +1198,12 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
         std::vector<double> x;
         LayoutObjective::Stats s;
     };
+    auto entry_x = [](const Entry& e) -> const std::vector<double>& { return e.x; };
     std::vector<Entry> archive;
     const int size = spec.archive_size > 0 ? spec.archive_size : 16;
     auto archive_insert = [&](const double* xs, const LayoutObjective::Stats& s) {
-        for (const Entry& e : archive) {
-            if (norm_dist(xs, e.x.data()) < spec.archive_min_dist) {
-                return;
-            }
+        if (!distinct_from_all(archive, xs, d, spec, entry_x)) {
+            return;
         }
         if (static_cast<int>(archive.size()) < size) {
             archive.push_back(Entry{std::vector<double>(xs, xs + d), s});
@@ -1185,19 +1233,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     px.assign(static_cast<std::size_t>(pop) * d, 0.0);
     pf.assign(static_cast<std::size_t>(pop), LayoutObjective::Stats());
     std::copy_n(best.begin(), d, px.begin());
-    {
-        std::vector<int> perm(static_cast<std::size_t>(pop - 1));
-        std::iota(perm.begin(), perm.end(), 0);
-        const double inv_strata = 1.0 / static_cast<double>(pop - 1);
-        for (std::size_t k = 0; k < d; ++k) {
-            std::shuffle(perm.begin(), perm.end(), rng);
-            for (int p = 1; p < pop; ++p) {
-                const double stratum = static_cast<double>(perm[static_cast<std::size_t>(p - 1)]);
-                px[static_cast<std::size_t>(p) * d + k] =
-                    spec.lo[k] + (stratum + u01()) * inv_strata * (spec.hi[k] - spec.lo[k]);
-            }
-        }
-    }
+    lhs_seed_population(px, d, pop, spec, rng);
     {
         PhaseTimer timer(out.diagnostics.ns_coarse);
         for (int p = 0; p < pop; ++p) {
@@ -1284,29 +1320,8 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             if (obj.evals() >= coarse_budget) {
                 break;
             }
-            int a = 0, b = 0, c = 0;
-            for (int t = 0; t < 4; ++t) {
-                a = static_cast<int>(u01() * static_cast<double>(evaluated));
-                b = static_cast<int>(u01() * static_cast<double>(evaluated));
-                c = static_cast<int>(u01() * static_cast<double>(evaluated));
-                if (a != p && b != p && c != p && a != b && a != c && b != c) {
-                    break;
-                }
-            }
-            if (a == p || b == p || c == p || a == b || a == c || b == c) {
+            if (!de_trial_vector(trial, px, d, p, evaluated, spec, u01)) {
                 continue;
-            }
-            const double* xa = &px[static_cast<std::size_t>(a) * d];
-            const double* xb = &px[static_cast<std::size_t>(b) * d];
-            const double* xc = &px[static_cast<std::size_t>(c) * d];
-            double* xp = &px[static_cast<std::size_t>(p) * d];
-            const int jrand = static_cast<int>(u01() * static_cast<double>(d)) % static_cast<int>(d);
-            for (std::size_t k = 0; k < d; ++k) {
-                if (u01() < kDeCr || static_cast<int>(k) == jrand) {
-                    trial[k] = clamp_box(xa[k] + kDeF * (xb[k] - xc[k]), spec.lo[k], spec.hi[k]);
-                } else {
-                    trial[k] = xp[k];
-                }
             }
             if (!trial_survives(trial.data())) {
                 continue;
@@ -1320,7 +1335,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             out.diagnostics.coarse_evals++;
             out.diagnostics.rays_traced += static_cast<std::int64_t>(ft.n_traced);
             if (better_stats(spec, ft, pf[static_cast<std::size_t>(p)])) {
-                std::copy(trial.begin(), trial.end(), xp);
+                std::copy(trial.begin(), trial.end(), &px[static_cast<std::size_t>(p) * d]);
                 pf[static_cast<std::size_t>(p)] = ft;
                 archive_insert(trial.data(), ft);
                 if (better_stats(spec, ft, best_stats)) {
@@ -1350,7 +1365,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
                 break;
             }
         }
-        if (best_stats.cost < last_best * (1.0 - 1e-12) - 1e-300) {
+        if (cost_progress(best_stats.cost, last_best)) {
             last_best = best_stats.cost;
             stalled = 0;
         } else {
@@ -1373,14 +1388,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     const double promote_limit = best_stats.cost * std::max(spec.promotion_factor, 1.0);
     std::vector<Entry> promoted;
     for (const Entry& e : archive) {
-        bool distinct = true;
-        for (const Entry& p : promoted) {
-            if (norm_dist(e.x.data(), p.x.data()) < spec.archive_min_dist) {
-                distinct = false;
-                break;
-            }
-        }
-        if (!distinct) {
+        if (!distinct_from_all(promoted, e.x.data(), d, spec, entry_x)) {
             continue;
         }
         if (static_cast<int>(promoted.size()) < need || e.s.cost <= promote_limit) {
@@ -1461,14 +1469,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     // --- Finalist selection: distinct best medium candidates -----------------
     std::vector<Entry> finalists;
     for (const auto& r : ranked) {
-        bool distinct = true;
-        for (const Entry& f : finalists) {
-            if (norm_dist(r.first.data(), f.x.data()) < spec.archive_min_dist) {
-                distinct = false;
-                break;
-            }
-        }
-        if (distinct) {
+        if (distinct_from_all(finalists, r.first.data(), d, spec, entry_x)) {
             finalists.push_back(Entry{r.first, r.second});
         }
         if (static_cast<int>(finalists.size()) >= need) {
@@ -1487,14 +1488,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     // failing because the coarse ranking put the only focusable layout fifth.
     std::vector<Entry> queue = finalists;
     for (const Entry& e : archive) {
-        bool distinct = true;
-        for (const Entry& q : queue) {
-            if (norm_dist(e.x.data(), q.x.data()) < spec.archive_min_dist) {
-                distinct = false;
-                break;
-            }
-        }
-        if (distinct) {
+        if (distinct_from_all(queue, e.x.data(), d, spec, entry_x)) {
             queue.push_back(e);
         }
     }
@@ -1571,15 +1565,12 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     }
     }  // end if (!won): promoted / medium / full-fidelity validation path
 
-    // Local polish, exactly as the legacy driver gates it: an accepted winner
-    // always polishes, and so does a promising near-focus best -- the polish is
-    // what drags a layout that the global search only got *close* to focus over
-    // the acceptance line, so skipping it on a failure path is what made runs
-    // need repeating.
-    const double win_norm = win.blur / std::max(spec.blur_ref, 1e-12);
-    const bool promising =
-        won || (std::isfinite(win_norm) && win.cost < kBadCost &&
-                win_norm <= spec.polish_gate * spec.max_norm_blur);
+    // Local polish, exactly as the legacy driver gates it (shared rule): an
+    // accepted winner always polishes, and so does a promising near-focus
+    // best -- the polish is what drags a layout that the global search only
+    // got *close* to focus over the acceptance line, so skipping it on a
+    // failure path is what made runs need repeating.
+    const bool promising = polish_promising(spec, win, won);
     if (promising && !win_x.empty() && obj.evals() < spec.max_evals) {
         nelder_mead(obj, spec, win_x, win);
         won = focus_accepted(spec, win);

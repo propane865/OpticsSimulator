@@ -7,14 +7,13 @@
 #include <vector>
 
 #include "optics/common/constants.hpp"
+#include "optics/intersection/rim.hpp"
 #include "optics/intersection/solver.hpp"
 
 #include "newton_detail.hpp"
 
 namespace optics::native {
 namespace {
-
-constexpr double kTwoPi = 6.28318530717958647692528676655900577;
 
 struct InvertScratch {
     std::vector<double> d2;
@@ -142,18 +141,10 @@ std::optional<std::pair<double, double>> parameters_at(const SurfaceDesc& desc, 
 std::vector<double> build_rim(const SurfaceDesc& desc, const SeedGrid& grid, double radius,
                               double cx, double cy, int n) {
     std::vector<double> out;
-    if (n <= 0) {
-        return out;
-    }
-    out.reserve(3 * static_cast<std::size_t>(n));
     bool has_last = false;
     double lu = 0.0;
     double lv = 0.0;
-    const double step = kTwoPi / static_cast<double>(n);
-    for (int i = 0; i < n; ++i) {
-        const double theta = step * static_cast<double>(i);
-        const double x = cx + radius * std::cos(theta);
-        const double y = cy + radius * std::sin(theta);
+    sample_rim(radius, cx, cy, n, [&](double x, double y) {
         std::optional<std::pair<double, double>> uv;
         if (has_last) {
             uv = solve_xy(desc, x, y, lu, lv);
@@ -164,20 +155,13 @@ std::vector<double> build_rim(const SurfaceDesc& desc, const SeedGrid& grid, dou
             uv = parameters_at_xy(desc, grid, x, y);
         }
         if (!uv.has_value()) {
-            throw std::invalid_argument(
-                "Aperture boundary point does not lie on the surface");
+            rim_off_surface();
         }
-        const Vec3 point = desc_eval(desc, uv->first, uv->second);
-        if (!finite3(point)) {
-            throw std::invalid_argument("Non-finite point on aperture boundary");
-        }
-        out.push_back(point[0]);
-        out.push_back(point[1]);
-        out.push_back(point[2]);
         lu = uv->first;
         lv = uv->second;
         has_last = true;
-    }
+        return desc_eval(desc, uv->first, uv->second);
+    }, out);
     return out;
 }
 

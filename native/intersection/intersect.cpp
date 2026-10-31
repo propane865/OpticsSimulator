@@ -7,6 +7,7 @@
 
 #include "optics/common/constants.hpp"
 #include "optics/common/numeric.hpp"
+#include "optics/common/slab.hpp"
 #include "optics/geometry/surface.hpp"
 #include "optics/intersection/solver.hpp"
 
@@ -29,30 +30,14 @@ thread_local IntersectionScratch scratch;
 // Conservative forward overlap of the ray with a tile AABB dilated by
 // ``margin`` on every side.
 bool tile_forward(const SeedTile& tile, const Vec3& o, const Vec3& d, double margin) {
+    Vec3 lo, hi;
+    for (int i = 0; i < 3; ++i) {
+        lo[i] = tile.lo[i] - margin;
+        hi[i] = tile.hi[i] + margin;
+    }
     double t_enter = -kInf;
     double t_exit = kInf;
-    for (int i = 0; i < 3; ++i) {
-        const double lo = tile.lo[i] - margin;
-        const double hi = tile.hi[i] + margin;
-        if (d[i] == 0.0) {
-            if (o[i] < lo || o[i] > hi) {
-                return false;
-            }
-            continue;
-        }
-        double t0 = (lo - o[i]) / d[i];
-        double t1 = (hi - o[i]) / d[i];
-        if (t0 > t1) {
-            std::swap(t0, t1);
-        }
-        if (t0 > t_enter) {
-            t_enter = t0;
-        }
-        if (t1 < t_exit) {
-            t_exit = t1;
-        }
-    }
-    return t_exit > 0.0 && t_enter <= t_exit;
+    return ray_box_interval(lo, hi, o, d, 0.0, t_enter, t_exit);
 }
 
 std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const Vec3& o, const Vec3& d,

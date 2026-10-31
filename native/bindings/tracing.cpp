@@ -27,15 +27,11 @@ void py_trace_segments_batch(const TraceStack& stack, const py::array_t<double>&
                              const py::array_t<double>& starts, const py::array_t<double>& ends,
                              const py::array_t<std::int8_t>& kinds,
                              const py::array_t<std::int64_t>& counts) {
-    const py::buffer_info o_info = origins.request();
-    const py::buffer_info d_info = dirs.request();
-    require(o_info.ndim == 2 && o_info.shape[1] == 3, "origins: expected shape (N, 3)");
-    require(d_info.ndim == 2 && d_info.shape[1] == 3 && d_info.size == o_info.size,
-            "dirs: expected shape (N, 3)");
-    const std::size_t n = static_cast<std::size_t>(o_info.shape[0]);
+    const RayPairView fan = read_ray_pair(origins, dirs);
+    const std::size_t n = fan.n;
     const SegmentBuffers seg = read_segment_buffers(starts, ends, kinds, counts, n);
-    const double* od = static_cast<const double*>(o_info.ptr);
-    const double* dd = static_cast<const double*>(d_info.ptr);
+    const double* od = fan.origins;
+    const double* dd = fan.dirs;
     const TraceOptions options{ray_length, PLANE_EPS};
     const py::gil_scoped_release release;
     optics::native::run_chunks(n, [&](std::size_t lo, std::size_t hi) {
@@ -60,17 +56,7 @@ void register_tracing(py::module_& m) {
         [](const TraceStack& stack, const py::array_t<double>& o, const py::array_t<double>& d,
            double ray_length, const py::array_t<double>& starts, const py::array_t<double>& ends,
            const py::array_t<std::int8_t>& kinds) {
-            const py::buffer_info s_info = starts.request();
-            const py::buffer_info e_info = ends.request();
-            const py::buffer_info k_info = kinds.request();
-            require(s_info.ndim == 2 && s_info.shape[1] == 3, "starts: expected shape (cap, 3)");
-            require(e_info.ndim == 2 && e_info.shape[1] == 3 && e_info.size == s_info.size,
-                    "ends: expected shape (cap, 3)");
-            require(k_info.ndim == 1 && static_cast<std::size_t>(k_info.size) ==
-                                            static_cast<std::size_t>(s_info.shape[0]),
-                    "kinds: expected shape (cap,)");
-            require(!s_info.readonly && !e_info.readonly && !k_info.readonly,
-                    "segment buffers must be writeable");
+            const SingleSegmentBuffers seg = read_single_segment_buffers(starts, ends, kinds);
             const Vec3 ov = to_vec3(o, "origin");
             const Vec3 dv = to_vec3(d, "direction");
             const TraceOptions options{ray_length, PLANE_EPS};
@@ -78,9 +64,7 @@ void register_tracing(py::module_& m) {
             {
                 const py::gil_scoped_release release;
                 res = trace_stack_segments(
-                    stack, ov, dv, options, static_cast<double*>(s_info.ptr),
-                    static_cast<double*>(e_info.ptr), static_cast<signed char*>(k_info.ptr),
-                    static_cast<std::size_t>(s_info.shape[0]));
+                    stack, ov, dv, options, seg.starts, seg.ends, seg.kinds, seg.cap);
             }
             return py::make_tuple(res.count, res.exited, np3(res.final_o), np3(res.final_d));
         },
