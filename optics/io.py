@@ -9,6 +9,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .project import require_project_document
+
 __all__ = ["load_project"]
 
 
@@ -24,6 +26,4 @@ def load_project(path: str | Path) -> dict[str, Any]:
         raise ValueError(f"Unsupported project file extension: {path.suffix!r}")
     with open(path) as handle:
         document = json.load(handle)
-    if not isinstance(document, dict):
-        raise ValueError("Optical stack must be a JSON object")
-    return document
+    return require_project_document(document)

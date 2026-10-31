@@ -54,10 +54,10 @@ from . import _native
 from . import constants as _c
 from ._util import coerce_ray_arrays
 from .config import stack_from_config
-from .measurement_plane import MeasurementPlane
+from .measurement_plane import MeasurementPlane, arrays_to_rays
 from .plane_transform import PlaneTransform, plane_transform
-from .primitive import Ray
-from .system import OpticalSystem
+from .project import plane_from_config, plane_to_config
+from .system import OpticalSystem, plane_columns
 
 __all__ = ["LensOptimization", "OptimizationError", "OptimizationResult", "optimize_layout"]
 
@@ -367,16 +367,9 @@ def optimize_layout(
     gaps = np.full(max(d - 1, 0), gap, dtype=float)
 
     system = OpticalSystem(stack_from_config(cast("dict[str, dict[str, Any]]", elements_schema)))
-    po = np.ascontiguousarray([source_plane.o, image_plane.o], dtype=float)
-    pn = np.ascontiguousarray([source_plane.n, image_plane.n], dtype=float)
-    u_min = np.ascontiguousarray([source_plane.u_min, image_plane.u_min], dtype=float)
-    u_max = np.ascontiguousarray([source_plane.u_max, image_plane.u_max], dtype=float)
-    v_min = np.ascontiguousarray([source_plane.v_min, image_plane.v_min], dtype=float)
-    v_max = np.ascontiguousarray([source_plane.v_max, image_plane.v_max], dtype=float)
-    s_u = np.ascontiguousarray([source_plane.frame_coeffs[0], image_plane.frame_coeffs[0]])
-    s_v = np.ascontiguousarray([source_plane.frame_coeffs[1], image_plane.frame_coeffs[1]])
-    t_u = np.ascontiguousarray([source_plane.frame_coeffs[2], image_plane.frame_coeffs[2]])
-    t_v = np.ascontiguousarray([source_plane.frame_coeffs[3], image_plane.frame_coeffs[3]])
+    po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns(
+        [source_plane, image_plane]
+    )
 
     # Base-layout check + the focus normalization length: the source-plane hit
     # footprint radius. Also confirms the ray fan produces correspondences.
@@ -501,26 +494,13 @@ def optimize_layout(
         position = [float(v) for v in entry.get("position", [0.0, 0.0, 0.0])]
         position[2] = float(best[param])
         entry["position"] = position
-    plane_config: dict[str, Any] = {
-        "origin": [float(v) for v in image_plane.o],
-        "normal": [float(v) for v in image_plane.n],
-        "u_range": [image_plane.u_min, image_plane.u_max],
-        "v_range": [image_plane.v_min, image_plane.v_max],
-        "resolution": [image_plane.ru, image_plane.rv],
-    }
+    plane_config = plane_to_config("image plane", image_plane)
+    plane_config.pop("name")  # result configs carry no display name
     plane_config["origin"][2] = float(best[-1])
 
     new_system = OpticalSystem(stack_from_config(updated))
-    new_plane = MeasurementPlane(
-        origin=plane_config["origin"],
-        normal=plane_config["normal"],
-        u_range=plane_config["u_range"],
-        v_range=plane_config["v_range"],
-        resolution=plane_config["resolution"],
-    )
-    rays = [
-        Ray(origins[i], dirs[i], float(powers[i])) for i in range(n_rays)
-    ]
+    new_plane = plane_from_config(plane_config)
+    rays = arrays_to_rays(origins, dirs, powers)
     try:
         transform = plane_transform(rays, [source_plane, new_plane], new_system)
     except ValueError:

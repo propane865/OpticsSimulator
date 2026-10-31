@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 
+from .config import _require
 from .measurement_plane import MeasurementPlane
 from .source import (
     DEFAULT_PIXEL_PITCH,
@@ -41,11 +42,12 @@ DEFAULT_MEASUREMENT_CONFIG: dict[str, Any] = {
 def source_from_config(config: object) -> PointSource:
     if not isinstance(config, dict):
         raise ValueError("Source config must be an object")
-    source_type = str(config.get("source_type", SINGLE_POINT))
-    position = np.asarray(config.get("position", [0.0, 0.0, 30.0]), dtype=float)
-    power = float(config.get("power", 1.0))
-    num_rays = int(config.get("num_rays", 16))
-    cone_angle = float(config.get("cone_angle", 60.0))
+    default = DEFAULT_SOURCE_CONFIG
+    source_type = str(config.get("source_type", default["source_type"]))
+    position = np.asarray(config.get("position", default["position"]), dtype=float)
+    power = float(config.get("power", default["power"]))
+    num_rays = int(config.get("num_rays", default["num_rays"]))
+    cone_angle = float(config.get("cone_angle", default["cone_angle"]))
     if source_type == POINT_ARRAY:
         image = config.get("image")
         if not image:
@@ -97,8 +99,7 @@ def plane_from_config(config: object) -> MeasurementPlane:
     if not isinstance(config, dict):
         raise ValueError("Measurement plane config must be an object")
     for key in ("origin", "normal", "u_range", "v_range", "resolution"):
-        if key not in config:
-            raise ValueError(f"Missing required key {key!r} in measurement plane config")
+        _require(config, key, "measurement plane config")
     return MeasurementPlane(
         origin=np.asarray(config["origin"], dtype=float),
         normal=np.asarray(config["normal"], dtype=float),
@@ -119,6 +120,13 @@ def plane_to_config(name: str, plane: MeasurementPlane) -> dict[str, Any]:
     }
 
 
+def require_project_document(document: object) -> dict[str, Any]:
+    """Shared validation for parsed project documents (used by :mod:`optics.io`)."""
+    if not isinstance(document, dict):
+        raise ValueError("Optical stack must be a JSON object")
+    return document
+
+
 def parse_project(
     document: object,
 ) -> "tuple[dict[str, Any], PointSource | None, list[tuple[str, MeasurementPlane]] | None]":
@@ -127,8 +135,7 @@ def parse_project(
     Files without an ``"elements"`` key are treated as legacy element-only
     maps; ``source``/``planes`` are then ``None`` meaning "keep current".
     """
-    if not isinstance(document, dict):
-        raise ValueError("Optical stack must be a JSON object")
+    document = require_project_document(document)
     if "elements" in document:
         elements_config = document["elements"]
         source_config = document.get("source")

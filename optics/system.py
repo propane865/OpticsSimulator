@@ -36,9 +36,13 @@ def _segments_capacity(n_elements: int) -> int:
     return _MAX_SEGS_PER_ELEMENT * n_elements + 2
 
 
-def _plane_columns(planes: "Sequence[MeasurementPlane]") -> "tuple[np.ndarray, ...]":
+def plane_columns(planes: "Sequence[MeasurementPlane]") -> "tuple[np.ndarray, ...]":
     """Stack per-plane geometry into ``(P, 3)`` origins/normals, ``(P,)`` ranges
-    and ``(P,)`` in-plane frame coefficient arrays."""
+    and ``(P,)`` in-plane frame coefficient arrays.
+
+    This is the one marshalling convention every native call taking per-plane
+    columns (tracing, measurement, optimization) goes through.
+    """
     if not planes:
         empty3 = np.zeros((0, 3), dtype=float)
         empty1 = np.zeros((0,), dtype=float)
@@ -157,7 +161,7 @@ class OpticalSystem:
         directly against each plane.
         """
         origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
-        po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = _plane_columns(planes)
+        po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns(planes)
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.measure_planes_multi(
             self._stack, origins, dirs, powers, po, pn, u_min, u_max, v_min, v_max,
@@ -181,7 +185,7 @@ class OpticalSystem:
         an empty stack yields straight incident segments and direct plane hits.
         """
         origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
-        po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = _plane_columns(planes)
+        po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns(planes)
         starts, ends, kinds, counts = self._segment_buffers(origins.shape[0])
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.trace_segments_and_planes(

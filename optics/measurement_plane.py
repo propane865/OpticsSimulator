@@ -30,6 +30,13 @@ def rays_to_arrays(
     return origins, dirs, powers
 
 
+def arrays_to_rays(
+    origins: np.ndarray, dirs: np.ndarray, powers: np.ndarray
+) -> list[Ray]:
+    """Rays from the contiguous arrays produced by :func:`rays_to_arrays`."""
+    return [Ray(origins[i], dirs[i], float(powers[i])) for i in range(origins.shape[0])]
+
+
 def _direct_hits(
     plane: "MeasurementPlane",
     origins: np.ndarray,

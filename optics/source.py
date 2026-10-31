@@ -3,6 +3,8 @@ from collections.abc import Callable, Sequence
 import numpy as np
 
 from . import _native
+from ._util import coerce_ray_arrays
+from .measurement_plane import arrays_to_rays
 from .primitive import Ray
 
 SINGLE_POINT = "single_point"
@@ -189,11 +191,7 @@ class PointSource:
         else:
             per_ray = (self.power / weights.sum()) / self.num_rays
             powers = np.repeat(weights * per_ray, self.num_rays)
-        return (
-            np.ascontiguousarray(origins, dtype=float),
-            np.ascontiguousarray(all_dirs, dtype=float),
-            np.ascontiguousarray(powers, dtype=float),
-        )
+        return coerce_ray_arrays(origins, all_dirs, powers)
 
     def emit_arrays(self) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
         """Emit the ray fan as contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers.
@@ -210,12 +208,7 @@ class PointSource:
         origins, dirs, powers = _native.emit_cone(
             self.position, self.power, self.num_rays, self.cone_angle
         )
-        return (
-            np.ascontiguousarray(origins, dtype=float),
-            np.ascontiguousarray(dirs, dtype=float),
-            np.ascontiguousarray(powers, dtype=float),
-        )
+        return coerce_ray_arrays(origins, dirs, powers)
 
     def emit_rays(self) -> list[Ray]:
-        origins, dirs, powers = self.emit_arrays()
-        return [Ray(origins[i], dirs[i], float(powers[i])) for i in range(origins.shape[0])]
+        return arrays_to_rays(*self.emit_arrays())

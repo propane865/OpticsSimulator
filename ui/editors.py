@@ -577,13 +577,7 @@ class PlaneEditor(_SelectorEditor):
     def _build_new(self) -> MeasurementPlane:
         config = copy.deepcopy(DEFAULT_MEASUREMENT_CONFIG)
         config["origin"][2] -= float(len(self._state.planes))
-        return MeasurementPlane(
-            origin=np.asarray(config["origin"], dtype=float),
-            normal=np.asarray(config["normal"], dtype=float),
-            u_range=config["u_range"],
-            v_range=config["v_range"],
-            resolution=config["resolution"],
-        )
+        return plane_from_config(config)
 
     def _register_new(self, built: MeasurementPlane) -> str:
         name = self._state.new_plane_name()

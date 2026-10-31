@@ -7,7 +7,11 @@ from vispy.geometry import MeshData
 from vispy.scene import visuals
 
 from optics.element import RefractiveElement
-from optics.measurement_plane import MeasurementPlane, MeasurementResult
+from optics.measurement_plane import (
+    MeasurementPlane,
+    MeasurementResult,
+    rays_to_arrays,
+)
 from optics.primitive import LensSidewall, Ray, Surface
 from optics.source import POINT_ARRAY
 from optics.system import OpticalSystem
@@ -366,8 +370,7 @@ def build_ray_nodes(
     """
     if not rays:
         return []
-    origins = np.asarray([r.origin for r in rays], dtype=float)
-    dirs = np.asarray([r.direction for r in rays], dtype=float)
+    origins, dirs, _powers = rays_to_arrays(rays)
     finite = np.isfinite(origins).all(axis=1) & np.isfinite(dirs).all(axis=1)
     if not finite.any():
         return []

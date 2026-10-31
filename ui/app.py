@@ -21,7 +21,11 @@ from optics.importers.zmx import load_zmx_elements
 from optics.io import load_project
 from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.primitive import Ray
-from optics.project import DEFAULT_MEASUREMENT_CONFIG, DEFAULT_SOURCE_CONFIG
+from optics.project import (
+    DEFAULT_MEASUREMENT_CONFIG,
+    DEFAULT_SOURCE_CONFIG,
+    plane_from_config,
+)
 from optics.source import PointSource
 
 from . import imagecodec
@@ -327,7 +331,7 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
         origins, dirs, powers = PointSource(**DEFAULT_SOURCE_CONFIG).emit_arrays()
         system = OpticalSystem(list(elements))
         system.trace_segments(origins, dirs, ray_length=RAY_LENGTH)
-        plane = MeasurementPlane(**DEFAULT_MEASUREMENT_CONFIG)
+        plane = plane_from_config(DEFAULT_MEASUREMENT_CONFIG)
         MeasurementPlane.measure_batch_arrays([plane], origins, dirs, powers, system)
     except Exception:
         logging.getLogger(__name__).debug("warm-up trace skipped", exc_info=True)

@@ -365,14 +365,21 @@ def _read_text(path: str | Path) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _warn_dedup(messages: list[str]) -> "Callable[[str], None]":
+    """A ``warn`` sink appending each message to ``messages`` at most once."""
+
+    def warn(message: str) -> None:
+        if message not in messages:
+            messages.append(message)
+
+    return warn
+
+
 def parse_zmx(path: str | Path) -> ZmxPrescription:
     """Parse a ZMX text file (UTF-16 or UTF-8) into a :class:`ZmxPrescription`."""
     text = _read_text(path)
     prescription = ZmxPrescription(surfaces=[])
-
-    def warn(message: str) -> None:
-        if message not in prescription.warnings:
-            prescription.warnings.append(message)
+    warn = _warn_dedup(prescription.warnings)
 
     current: ZmxSurface | None = None
     for raw in text.splitlines():
@@ -491,13 +498,18 @@ def _surface_config(surface: ZmxSurface, vertex_offset: float) -> dict[str, Any]
     }
 
 
+def _plausible_index(value: float) -> bool:
+    """Whether a refractive index is physically plausible as a glass index."""
+    return 1.0 < value < 10.0
+
+
 def _resolve_index(
     name: str,
     glasses: dict[str, tuple[float, float]],
     warn: Callable[[str], None],
     refractive_index: float | None = None,
 ) -> float:
-    if refractive_index is not None and 1.0 < refractive_index < 10.0:
+    if refractive_index is not None and _plausible_index(refractive_index):
         warn(
             f"{name or _GLASS_BLANK} imported using n={refractive_index:.6g}. "
             "Wavelength-dependent glass dispersion is not currently supported."
@@ -505,7 +517,7 @@ def _resolve_index(
         return refractive_index
     key = name.strip().upper()
     entry = glasses.get(key)
-    if entry is not None and 1.0 < entry[0] < 10.0:
+    if entry is not None and _plausible_index(entry[0]):
         value = entry[0]
     elif key in _COMMON_GLASS_INDICES:
         value = _COMMON_GLASS_INDICES[key]
@@ -531,10 +543,7 @@ def zmx_to_elements(
     :class:`UnsupportedZmxError` before any partial result is returned.
     """
     messages = prescription.warnings
-
-    def warn(message: str) -> None:
-        if message not in messages:
-            messages.append(message)
+    warn = _warn_dedup(messages)
 
     for surface in prescription.surfaces:
         if surface.glass.strip().upper() == _MIRROR:
