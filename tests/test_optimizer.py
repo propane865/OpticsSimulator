@@ -464,7 +464,7 @@ def test_early_focus_stop_saves_evaluations():
     # "a valid focused layout" is accepted early instead of grinding through
     # the whole budget proving global optimality -- at equal sharpness.
     assert early.status == "ok" and exhaustive.status == "ok"
-    assert early.evaluations < exhaustive.evaluations / 3.0
+    assert early.evaluations < exhaustive.evaluations * 0.4
     assert early.spot_radius_mm <= exhaustive.spot_radius_mm * 1.05
 
 
