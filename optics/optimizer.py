@@ -44,7 +44,7 @@ layout to return.
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -142,7 +142,7 @@ class LensOptimization:
     seed: int = 0
     population: int = 0  # 0: native default scaled by dimension
     generations: int = 200
-    max_evals: int = 5000
+    max_evals: int = 10000
     nm_iterations: int = 1000
     # Nelder-Mead convergence: relative simplex spread (fraction of box span)
     # and cost tolerance.
@@ -283,6 +283,7 @@ def optimize_layout(
     element_bounds: Mapping[str, tuple[float, float]] | None = None,
     image_bounds: tuple[float, float] | None = None,
     optimization: LensOptimization | None = None,
+    progress_callback: Callable[[int, float, float, int], None] | None = None,
 ) -> OptimizationResult:
     """Optimize free element z's (and the image-plane z) for best focus.
 
@@ -313,6 +314,16 @@ def optimize_layout(
     bound the answer lies outside the searched range, and the offending bounds
     are listed in the error message and in
     :attr:`OptimizationResult.window_limited`.
+
+    ``progress_callback``, when given, is called as ``(generation, cost, blur,
+    evals)`` from the global DE loop roughly every 100 objective evaluations
+    (and once at the start), reporting the search's running best: the generation
+    index it was found in, its cost, the clipped spot radius at that best layout
+    (image-plane units), and total evaluations spent so far. The cadence is
+    evaluation-driven, so it holds regardless of population size or per-candidate
+    focus-scan cost, and the generation value can repeat across ticks. It fires
+    only while the search runs -- never after it ends -- and (under the pipeline)
+    on reduced-fidelity values.
     """
     layout = optimization if optimization is not None else LensOptimization()
     if source_plane is image_plane:
@@ -383,17 +394,20 @@ def optimize_layout(
     gaps = np.full(max(d - 1, 0), gap, dtype=float)
 
     system = OpticalSystem(stack_from_config(cast("dict[str, dict[str, Any]]", elements_schema)))
-    po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns(
-        [source_plane, image_plane]
-    )
+    po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns([source_plane, image_plane])
 
     # Base-layout check + the focus normalization length: the source-plane hit
     # footprint radius. Also confirms the ray fan produces correspondences
     # (the native hit-validity predicate).
     us, vs, pws = system.measure_planes(origins, dirs, powers, [source_plane, image_plane])
     valid_a = _native.valid_hits_mask(
-        np.ascontiguousarray(us[0]), np.ascontiguousarray(vs[0]), np.ascontiguousarray(pws[0]),
-        source_plane.u_min, source_plane.u_max, source_plane.v_min, source_plane.v_max,
+        np.ascontiguousarray(us[0]),
+        np.ascontiguousarray(vs[0]),
+        np.ascontiguousarray(pws[0]),
+        source_plane.u_min,
+        source_plane.u_max,
+        source_plane.v_min,
+        source_plane.v_max,
     )
     if int(np.count_nonzero(valid_a)) < 4:
         raise ValueError("source plane sees fewer than 4 valid hits")
@@ -479,7 +493,7 @@ def optimize_layout(
     settings.finalist_count = int(layout.finalist_count)
     settings.enable_candidate_concurrency = bool(layout.enable_candidate_concurrency)
     settings.total_threads = int(layout.candidate_threads)
-    outcome = _native.optimize_layout(problem, settings)
+    outcome = _native.optimize_layout(problem, settings, progress_callback)
 
     status = str(outcome["status"])
     best = np.asarray(outcome["best"], dtype=float)

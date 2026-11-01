@@ -272,6 +272,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             out.diagnostics.rays_traced +=
                 static_cast<std::int64_t>(pf[static_cast<std::size_t>(p)].n_traced);
             ++evaluated;
+            obj.maybe_tick_progress(0, best_stats);
         }
     }
     for (int p = 0; p < evaluated; ++p) {
@@ -368,6 +369,9 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
                     record(ft, trial.data());
                 }
             }
+            // Evaluation-driven progress: report the running coarse best once
+            // every ``kProgressEvalInterval`` evaluations (see LayoutObjective).
+            obj.maybe_tick_progress(gen, best_stats);
         }
         out.history.push_back(best_stats.cost);
         out.diagnostics.gen_best.push_back(best_stats.cost);

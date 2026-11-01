@@ -27,6 +27,7 @@ class _OptimizeSignals(QtCore.QObject):
 
     finished = QtCore.Signal(object)
     failed = QtCore.Signal(str)
+    progress = QtCore.Signal(int, float, float, int)
 
 
 class LayoutOptimizer(QtCore.QObject):
@@ -34,8 +35,10 @@ class LayoutOptimizer(QtCore.QObject):
 
     :attr:`finished` carries the ``OptimizationResult``, :attr:`failed` the
     exception text verbatim; both are emitted from the worker thread and
-    delivered on the thread that owns this object. One solve at a time --
-    :meth:`start` raises while a run is in flight until :meth:`finish`.
+    delivered on the thread that owns this object. :attr:`progress` carries
+    ``(generation, cost, blur, evals)`` for every DE tick the native solver
+    reports while the search runs. One solve at a time -- :meth:`start` raises
+    while a run is in flight until :meth:`finish`.
     """
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
@@ -43,6 +46,7 @@ class LayoutOptimizer(QtCore.QObject):
         self._signals = _OptimizeSignals()
         self.finished = self._signals.finished
         self.failed = self._signals.failed
+        self.progress = self._signals.progress
         self._running = False
 
     @property
@@ -78,6 +82,11 @@ class LayoutOptimizer(QtCore.QObject):
                     free_element_names=free_element_names,
                     image_bounds=image_bounds,
                     optimization=optimization,
+                    # Emit on the in-flight signals object; PySide queues the
+                    # delivery onto the thread that owns the LayoutOptimizer.
+                    progress_callback=lambda gen, cost, blur, evals: self._signals.progress.emit(
+                        gen, cost, blur, evals
+                    ),
                 )
             except Exception as exc:  # surfaced verbatim on the UI thread
                 self._signals.failed.emit(str(exc))

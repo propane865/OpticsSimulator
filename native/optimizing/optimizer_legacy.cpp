@@ -72,6 +72,7 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             pf[static_cast<std::size_t>(p)] =
                 obj.evaluate(&px[static_cast<std::size_t>(p) * d]);
             ++evaluated;
+            obj.maybe_tick_progress(0, best_stats);
         }
         for (int p = 0; p < evaluated; ++p) {
             if (better_stats(spec, pf[static_cast<std::size_t>(p)], best_stats)) {
@@ -101,6 +102,9 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
                     record(ft, trial.data());
                 }
             }
+            // Evaluation-driven progress: report the running best once every
+            // ``kProgressEvalInterval`` evaluations (see LayoutObjective).
+            obj.maybe_tick_progress(gen, best_stats);
         }
         out.history.push_back(best_stats.cost);
         if (cost_progress(best_stats.cost, last_best)) {

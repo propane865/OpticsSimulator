@@ -296,9 +296,7 @@ def test_analysis_optimize_suboptimal_checkbox_reaches_optimizer(window, qt_app,
 
 def test_analysis_optimize_suboptimal_commits_with_warning(window, qt_app, monkeypatch):
     _add_element_and_two_planes(window)
-    monkeypatch.setattr(
-        "ui.optimize.optimize_layout", _stub_optimize(1.0, 5.0, status="no-focus-found")
-    )
+    monkeypatch.setattr("ui.optimize.optimize_layout", _stub_optimize(1.0, 5.0, status="no-focus-found"))
     check = window.findChild(QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck")
     check.setChecked(True)
     button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
@@ -332,9 +330,7 @@ def _lock_rows(table):
 def _set_lock(table, name, locked):
     for row in range(table.rowCount()):
         if table.item(row, 0).text() == name:
-            table.item(row, 1).setCheckState(
-                QtCore.Qt.CheckState.Checked if locked else QtCore.Qt.CheckState.Unchecked
-            )
+            table.item(row, 1).setCheckState(QtCore.Qt.CheckState.Checked if locked else QtCore.Qt.CheckState.Unchecked)
             return
     raise AssertionError(f"{name} missing from the lock table")
 
@@ -350,9 +346,7 @@ def _optimize_free_names(window, monkeypatch, qt_app):
 
     monkeypatch.setattr("ui.optimize.optimize_layout", spy)
     window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()
-    _wait_until(
-        lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(), qt_app
-    )
+    _wait_until(lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(), qt_app)
     return captured[0]
 
 
@@ -444,7 +438,81 @@ def test_analysis_lock_table_locked_while_optimizing(window, qt_app, monkeypatch
 
     _wait_until(lambda: not table.isEnabled(), qt_app)
     release.set()
-    _wait_until(
-        lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(), qt_app
-    )
+    _wait_until(lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(), qt_app)
     assert table.isEnabled()
+
+
+# -- Optimization log (the analysis results text browser) ---------------------
+
+
+def _log_browser(window):
+    return window.findChild(QtWidgets.QTextBrowser, "analysisOptimizeLogBrowser")
+
+
+def test_analysis_optimize_streams_progress_and_summary(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    stub = _stub_optimize(1.0, 5.0)
+
+    def streaming(*args, **kwargs):
+        cb = kwargs.get("progress_callback")
+        if cb is not None:
+            for gen in (0, 10, 20):
+                cb(gen, 0.5, 0.05, 100 + 50 * gen)
+        return stub(*args, **kwargs)
+
+    monkeypatch.setattr("ui.optimize.optimize_layout", streaming)
+    window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()
+    _wait_until(lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(), qt_app)
+
+    log = _log_browser(window).toPlainText()
+    assert "Layout optimization started" in log
+    assert "Free elements:" in log
+    assert log.count("generation") == 3  # one line per streamed DE tick
+    assert "Optimized in 123 evaluations" in log  # end-of-run summary
+    assert "magnification =" in log
+
+
+def test_analysis_optimize_log_cleared_between_runs(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    run1 = _stub_optimize(1.0, 5.0)
+
+    def streaming(*args, **kwargs):
+        cb = kwargs.get("progress_callback")
+        if cb is not None:
+            for gen in (0, 10):
+                cb(gen, 0.5, 0.05, 100)
+        return run1(*args, **kwargs)
+
+    monkeypatch.setattr("ui.optimize.optimize_layout", streaming)
+    window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()
+    _wait_until(lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(), qt_app)
+    first = _log_browser(window).toPlainText()
+    assert first.count("generation") == 2
+    assert first.count("Layout optimization started") == 1
+
+    # A second run clears the previous log. The suboptimal-status stub gives a
+    # distinct completion message to wait on and streams no progress, so a stale
+    # "generation" line from run one would prove the browser was not reset.
+    monkeypatch.setattr("ui.optimize.optimize_layout", _stub_optimize(1.0, 5.0, status="no-focus-found"))
+    window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()
+    _wait_until(
+        lambda: "Finished without a focused layout" in _log_browser(window).toPlainText(),
+        qt_app,
+    )
+    second = _log_browser(window).toPlainText()
+    assert second.count("Layout optimization started") == 1
+    assert "generation" not in second
+
+
+def test_analysis_optimize_failure_logged(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+
+    def boom(*args, **kwargs):
+        raise ValueError("kaboom")
+
+    monkeypatch.setattr("ui.optimize.optimize_layout", boom)
+    window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()
+    _wait_until(lambda: "Optimization failed: kaboom" in window.statusBar().currentMessage(), qt_app)
+    log = _log_browser(window).toPlainText()
+    assert "Layout optimization started" in log  # header written before the run
+    assert "Optimization failed: kaboom" in log  # failure appended to the log

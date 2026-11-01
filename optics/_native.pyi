@@ -286,7 +286,11 @@ class OptimizerSettings:
     total_threads: int
 
     def __init__(self) -> None: ...
-def optimize_layout(problem: OptimizeProblem, settings: OptimizerSettings) -> dict[str, Any]: ...
+def optimize_layout(
+    problem: OptimizeProblem,
+    settings: OptimizerSettings,
+    progress: Any | None = ...,
+) -> dict[str, Any]: ...
 def trace_segments_and_planes(
     stack: TraceStack,
     origins: np.ndarray,

@@ -40,6 +40,10 @@ constexpr int kCoarseScanSamples = 5;
 constexpr int kCoarseScanRefines = 8;
 constexpr int kFineScanSamples = 7;
 constexpr int kFineScanRefines = 16;
+// Evaluation cadence for the live progress sink: one status tick per this many
+// objective evaluations (rather than once per DE generation), so the UI updates
+// smoothly regardless of population size or per-candidate focus-scan cost.
+constexpr std::int64_t kProgressEvalInterval = 100;
 
 inline double clamp_box(double v, double lo, double hi) {
     return v < lo ? lo : (v > hi ? hi : v);
@@ -121,6 +125,22 @@ class LayoutObjective {
     // objective's budget so downstream budget checks and reporting are identical
     // to a serial run of the same candidates.
     void add_evals(std::int64_t n) { evals_ += n; }
+    // Emit a live progress tick once at least ``kProgressEvalInterval``
+    // evaluations have accumulated since the previous one, reporting the current
+    // running best and the generation it was found in. Call this right after
+    // crediting each evaluation (trace or fan-back) so the cadence is driven by
+    // evaluations, not generations. The empty-sink guard matters: a bare
+    // ``std::function`` throws ``bad_function_call`` if invoked.
+    void maybe_tick_progress(int generation, const Stats& best) {
+        if (!spec_.progress) {
+            return;
+        }
+        if (evals_ - last_tick_evals_ < kProgressEvalInterval) {
+            return;
+        }
+        last_tick_evals_ = evals_;
+        spec_.progress({generation, best.cost, best.blur, evals_});
+    }
     // Swept dimension: under autofocus the plane z drops out of the global
     // search (it is recovered by the nested 1-D focus scan).
     std::size_t dim() const { return spec_.autofocus_plane && d_ > 1 ? d_ - 1 : d_; }
@@ -509,6 +529,9 @@ class LayoutObjective {
     std::vector<double> group_rms_;
     std::vector<double> x_full_;
     std::int64_t evals_ = 0;
+    // Eval count at the last progress tick; seeded a full interval below zero so
+    // the first credited evaluation emits the opening baseline tick.
+    std::int64_t last_tick_evals_ = -kProgressEvalInterval;
     std::size_t trace_max_shared_ = 0;
 };
 

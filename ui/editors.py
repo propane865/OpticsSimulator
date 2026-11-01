@@ -238,8 +238,16 @@ class ElementEditor(_SelectorEditor):
         on_elements_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
-            window, state, scene, set_status, "lensSelector", "removeElementButton", "lensButtonBox",
-            "elementPos", "elementNormal", on_populated=on_elements_changed,
+            window,
+            state,
+            scene,
+            set_status,
+            "lensSelector",
+            "removeElementButton",
+            "lensButtonBox",
+            "elementPos",
+            "elementNormal",
+            on_populated=on_elements_changed,
         )
         self._refresh_trace = refresh_trace
 
@@ -505,8 +513,16 @@ class PlaneEditor(_SelectorEditor):
         on_populated: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
-            window, state, scene, set_status, "planeSelectorCombo", "removePlaneButton", "planeButtonBox",
-            "planePos", "planeNormal", on_populated=on_populated,
+            window,
+            state,
+            scene,
+            set_status,
+            "planeSelectorCombo",
+            "removePlaneButton",
+            "planeButtonBox",
+            "planePos",
+            "planeNormal",
+            on_populated=on_populated,
         )
         self._update_view = update_view
 
@@ -518,9 +534,7 @@ class PlaneEditor(_SelectorEditor):
             find_child(window, QtWidgets.QDoubleSpinBox, "planeSizeXSpin"),
             find_child(window, QtWidgets.QDoubleSpinBox, "planeSizeYSpin"),
         )
-        self._lock_source_check = find_child(
-            window, QtWidgets.QCheckBox, "planeLockSourceCheck"
-        )
+        self._lock_source_check = find_child(window, QtWidgets.QCheckBox, "planeLockSourceCheck")
         # A locked plane is pinned 0.001 mm downstream of the source, so the
         # position spins need three decimals to show (and commit) that spot.
         for spin in self._pos_spins:
@@ -583,9 +597,7 @@ class PlaneEditor(_SelectorEditor):
             return
         pinned = self._state.set_plane_locked(index, checked)
         if pinned is not None:
-            self._scene.replace_plane_nodes(
-                index, pinned, self._state.plane_results[index]
-            )
+            self._scene.replace_plane_nodes(index, pinned, self._state.plane_results[index])
             for spin, value in zip(self._pos_spins, pinned.o):
                 spin.setValue(float(value))
             self._update_view()
@@ -696,18 +708,13 @@ class AnalysisEditor:
         self._source_combo = find_child(window, QtWidgets.QComboBox, "analysisSourcePlaneCombo")
         self._image_combo = find_child(window, QtWidgets.QComboBox, "analysisImagePlaneCombo")
         self._run_button = find_child(window, QtWidgets.QPushButton, "analysisRunButton")
-        self._optimize_button = find_child(
-            window, QtWidgets.QPushButton, "analysisOptimizeButton"
-        )
+        self._optimize_button = find_child(window, QtWidgets.QPushButton, "analysisOptimizeButton")
         self._lock_image_check = find_child(window, QtWidgets.QCheckBox, "analysisLockImageCheck")
-        self._allow_suboptimal_check = find_child(
-            window, QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck"
-        )
+        self._allow_suboptimal_check = find_child(window, QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck")
         self._lock_table = find_child(window, QtWidgets.QTableWidget, "analysisLockedElementsTable")
         self._progress = find_child(window, QtWidgets.QProgressBar, "analysisOptimizeProgress")
-        self._labels = {
-            key: find_child(window, QtWidgets.QLabel, name) for key, name in self._LABEL_NAMES
-        }
+        self._results_browser = find_child(window, QtWidgets.QTextBrowser, "analysisOptimizeLogBrowser")
+        self._labels = {key: find_child(window, QtWidgets.QLabel, name) for key, name in self._LABEL_NAMES}
         # Both columns share the viewport width evenly and the last one is not
         # given the leftover slack, so no empty strip is left beside the table.
         # The row-number header is hidden for the same reason (QUiLoader ignores
@@ -719,9 +726,11 @@ class AnalysisEditor:
 
         self._optimizing = False
         self._locked: set[str] = set()
+        self._last_free: list[str] = []
         self._optimizer = LayoutOptimizer()
         self._optimizer.finished.connect(self._on_optimized)
         self._optimizer.failed.connect(self._on_optimize_failed)
+        self._optimizer.progress.connect(self._on_optimize_progress)
 
         self._run_button.clicked.connect(self.run)
         self._optimize_button.clicked.connect(self._on_optimize)
@@ -784,9 +793,7 @@ class AnalysisEditor:
             lock = QtWidgets.QTableWidgetItem("")
             lock.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
             lock.setToolTip("Hold this element's z fixed while the layout is optimized")
-            lock.setCheckState(
-                QtCore.Qt.CheckState.Checked if name in self._locked else QtCore.Qt.CheckState.Unchecked
-            )
+            lock.setCheckState(QtCore.Qt.CheckState.Checked if name in self._locked else QtCore.Qt.CheckState.Unchecked)
             self._lock_table.setItem(row, 1, lock)
         self._lock_table.blockSignals(False)
 
@@ -815,9 +822,7 @@ class AnalysisEditor:
         source = self._source_combo.currentIndex()
         image = self._image_combo.currentIndex()
         try:
-            transform = plane_transform(
-                self._state.rays, [planes[source], planes[image]], self._state.system
-            )
+            transform = plane_transform(self._state.rays, [planes[source], planes[image]], self._state.system)
         except ValueError as exc:
             self._clear_results()
             self._set_status(f"Image analysis unavailable: {exc}")
@@ -847,9 +852,7 @@ class AnalysisEditor:
         self._run_button.setEnabled(selection and not self._optimizing)
         schema = self._state.schema
         has_free = bool(self._free_element_names())
-        self._optimize_button.setEnabled(
-            selection and schema is not None and has_free and not self._optimizing
-        )
+        self._optimize_button.setEnabled(selection and schema is not None and has_free and not self._optimizing)
         if schema and not has_free:
             self._optimize_button.setToolTip("Unlock at least one element to optimize")
         else:
@@ -880,10 +883,19 @@ class AnalysisEditor:
         schema_snapshot = copy.deepcopy(schema)
         origins, dirs, powers = self._state.rays_arrays()
         spec = LensOptimization(allow_suboptimal=self._allow_suboptimal_check.isChecked())
+        image_locked = self._lock_image_check.isChecked()
         image_bounds: tuple[float, float] | None = None
-        if self._lock_image_check.isChecked():
+        if image_locked:
             z_image = float(image_plane.o[2])
             image_bounds = (z_image, z_image)
+        # Fresh log for this run: clear any previous run, then a header so the
+        # streaming generation lines below have context.
+        self._last_free = free
+        self._results_browser.clear()
+        self._results_browser.append("Layout optimization started")
+        self._results_browser.append(f"Free elements: {', '.join(free)}")
+        self._results_browser.append(f"Image plane: {'locked' if image_locked else 'free'}")
+        self._results_browser.append("")
         self._set_optimizing(True)
         self._set_status("Optimizing layout (this can take a minute)...")
         self._optimizer.start(
@@ -910,6 +922,17 @@ class AnalysisEditor:
             self._optimize_button.setEnabled(False)
         else:
             self._update_run_enabled()
+
+    # -- optimization log (the analysis results text browser) --------------------
+    def _append_log(self, text: str) -> None:
+        """Append one line to the optimization log and keep it scrolled to the end."""
+        self._results_browser.append(text)
+        bar = self._results_browser.verticalScrollBar()
+        bar.setValue(bar.maximum())
+
+    def _on_optimize_progress(self, generation: int, cost: float, blur: float, evals: int) -> None:
+        """Append one DE-generation tick; delivered on the UI thread via the signal."""
+        self._append_log(f"generation {generation + 1:>4d}   best spot {blur:.4g} mm   cost {cost:.4g}   {evals} evals")
 
     def _on_optimized(self, result: OptimizationResult) -> None:
         """Commit the winning layout through the normal replace paths."""
@@ -939,8 +962,7 @@ class AnalysisEditor:
             )
         else:
             bound_note = (
-                f" -- pinned to {', '.join(result.window_limited)}; the focus "
-                "likely lies outside the searched range"
+                f" -- pinned to {', '.join(result.window_limited)}; the focus likely lies outside the searched range"
                 if result.window_limited
                 else ""
             )
@@ -950,8 +972,27 @@ class AnalysisEditor:
                 f"worst field={result.worst_field_mm:.3g} mm, M={fit.scale:.4g}"
                 f"{bound_note}"
             )
+        self._append_log("")
+        if result.status == "ok":
+            self._append_log(f"Optimized in {result.evaluations} evaluations:")
+        else:
+            self._append_log(
+                f"Finished without a focused layout (status {result.status}) in {result.evaluations} evaluations:"
+            )
+        self._append_log(f"  best RMS spot radius = {result.spot_radius_mm:.4g} mm")
+        self._append_log(f"  unclipped spot radius = {result.blur_all_mm:.4g} mm")
+        self._append_log(f"  worst-field spot radius = {result.worst_field_mm:.4g} mm")
+        self._append_log(f"  magnification = {fit.scale:.4g}")
+        for name, z in zip(self._last_free, result.best_z, strict=False):
+            self._append_log(f"  {name} z = {z:.4g} mm")
+        if result.best_z:
+            self._append_log(f"  image plane z = {result.best_z[-1]:.4g} mm")
+        if result.window_limited:
+            self._append_log("  pinned to search bound: " + ", ".join(result.window_limited))
 
     def _on_optimize_failed(self, message: str) -> None:
         self._optimizer.finish()
         self._set_optimizing(False)
+        self._append_log("")
+        self._append_log(f"Optimization failed: {message}")
         self._set_status(f"Optimization failed: {message}")

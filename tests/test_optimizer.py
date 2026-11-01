@@ -80,9 +80,7 @@ def _problem(point_array: bool = False):
             pixel_pitch=3.0,
         )
     else:
-        source = PointSource(
-            position=[0.0, 0.0, _SOURCE_Z], power=1.0, num_rays=128, cone_angle=6.0
-        )
+        source = PointSource(position=[0.0, 0.0, _SOURCE_Z], power=1.0, num_rays=128, cone_angle=6.0)
     p1, p2 = planes[0][1], planes[1][1]
     return schema, source, p1, p2
 
@@ -101,8 +99,9 @@ def _spot_radius(system, image_plane, origins, dirs, powers, source_plane):
         sel = ok & (group == g)
         w = w2[sel]
         pooled += float(
-            np.sum(w * ((u2[sel] - np.average(u2[sel], weights=w)) ** 2
-                        + (v2[sel] - np.average(v2[sel], weights=w)) ** 2))
+            np.sum(
+                w * ((u2[sel] - np.average(u2[sel], weights=w)) ** 2 + (v2[sel] - np.average(v2[sel], weights=w)) ** 2)
+            )
         )
     return float(np.sqrt(pooled / total))
 
@@ -110,10 +109,7 @@ def _spot_radius(system, image_plane, origins, dirs, powers, source_plane):
 def _sweep_best_z(system, source_plane, image_plane, origins, dirs, powers):
     """Brute-force best image-plane z (elements fixed) over the search window."""
     zs = np.linspace(_IMAGE_BOUNDS[0], _IMAGE_BOUNDS[1], 41)
-    radii = [
-        _spot_radius(system, _plane_at(image_plane, z), origins, dirs, powers, source_plane)
-        for z in zs
-    ]
+    radii = [_spot_radius(system, _plane_at(image_plane, z), origins, dirs, powers, source_plane) for z in zs]
     best = int(np.argmin(radii))
     return float(zs[best]), float(radii[best])
 
@@ -262,9 +258,7 @@ def test_unordered_free_names_rejected():
     schema, source, p1, p2 = _problem()
     origins, dirs, powers = source.emit_arrays()
     with pytest.raises(ValueError, match="stack order"):
-        optimize_layout(
-            schema, p1, p2, origins, dirs, powers, free_element_names=["lens2", "lens1"]
-        )
+        optimize_layout(schema, p1, p2, origins, dirs, powers, free_element_names=["lens2", "lens1"])
 
 
 def test_tiny_ray_fan_rejected():
@@ -436,7 +430,10 @@ def test_early_focus_stop_saves_evaluations():
     schema, source, p1, p2 = _problem()
     origins, dirs, powers = source.emit_arrays()
     full = LensOptimization(
-        seed=7, generations=300, max_evals=6000, nm_iterations=1500,
+        seed=7,
+        generations=300,
+        max_evals=6000,
+        nm_iterations=1500,
         max_normalized_blur=0.03,
     )
     early = optimize_layout(
@@ -535,11 +532,12 @@ def test_pipeline_candidate_concurrency_matches_serial():
     # with the same configuration the result must be identical to serial.
     schema, source, p1, p2 = _problem()
     base = replace(_PIPELINE, finalist_count=6, archive_min_dist=0.0)
-    serial = _optimize_pipeline(
-        schema, source, p1, p2, replace(base, enable_candidate_concurrency=False)
-    )
+    serial = _optimize_pipeline(schema, source, p1, p2, replace(base, enable_candidate_concurrency=False))
     conc = _optimize_pipeline(
-        schema, source, p1, p2,
+        schema,
+        source,
+        p1,
+        p2,
         replace(base, enable_candidate_concurrency=True, candidate_threads=0),
     )
     assert serial.status == "ok" and conc.status == "ok"
@@ -607,13 +605,25 @@ def test_pipeline_converges_on_a_grouped_fan_in_one_run():
     origins, dirs, powers = source.emit_arrays()
     assert origins.shape[0] == 1024  # 64 object points of 16 rays each
     result = optimize_layout(
-        schema, p1, p2, origins, dirs, powers,
-        element_bounds=_WIDE_BOUNDS, image_bounds=_WIDE_IMAGE_BOUNDS,
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_WIDE_BOUNDS,
+        image_bounds=_WIDE_IMAGE_BOUNDS,
         optimization=_GROUPED,
     )
     legacy = optimize_layout(
-        schema, p1, p2, origins, dirs, powers,
-        element_bounds=_WIDE_BOUNDS, image_bounds=_WIDE_IMAGE_BOUNDS,
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_WIDE_BOUNDS,
+        image_bounds=_WIDE_IMAGE_BOUNDS,
         optimization=replace(_GROUPED, enable_pipeline=False, allow_suboptimal=True),
     )
     # The coarse level gets 48 rays for 64 object points. Spread one ray per
@@ -637,8 +647,11 @@ def _far_focus_problem():
 
     def face(z: str) -> dict[str, object]:
         return {
-            "x": "u", "y": "v", "z": z,
-            "u_range": [-20.0, 20.0], "v_range": [-20.0, 20.0],
+            "x": "u",
+            "y": "v",
+            "z": z,
+            "u_range": [-20.0, 20.0],
+            "v_range": [-20.0, 20.0],
             "aperture": {"radius": 20.0},
         }
 
@@ -652,16 +665,27 @@ def _far_focus_problem():
         }
     }
     source = MeasurementPlane(
-        origin=[0.0, 0.0, 29.99], normal=[0.0, 0.0, 1.0],
-        u_range=[-20.0, 20.0], v_range=[-20.0, 20.0], resolution=[64, 64],
+        origin=[0.0, 0.0, 29.99],
+        normal=[0.0, 0.0, 1.0],
+        u_range=[-20.0, 20.0],
+        v_range=[-20.0, 20.0],
+        resolution=[64, 64],
     )
     image = MeasurementPlane(
-        origin=[0.0, 0.0, -50.0], normal=[0.0, 0.0, 1.0],
-        u_range=[-20.0, 20.0], v_range=[-20.0, 20.0], resolution=[64, 64],
+        origin=[0.0, 0.0, -50.0],
+        normal=[0.0, 0.0, 1.0],
+        u_range=[-20.0, 20.0],
+        v_range=[-20.0, 20.0],
+        resolution=[64, 64],
     )
     source_points = PointSource(
-        position=[0.0, 0.0, 30.0], power=1.0, num_rays=8, source_type="point_array",
-        cone_angle=15.0, weights=[[1.0] * 7] * 7, pixel_pitch=1.0,
+        position=[0.0, 0.0, 30.0],
+        power=1.0,
+        num_rays=8,
+        source_type="point_array",
+        cone_angle=15.0,
+        weights=[[1.0] * 7] * 7,
+        pixel_pitch=1.0,
     )
     origins, dirs, powers = source_points.emit_arrays()
     return schema, source, image, origins, dirs, powers
@@ -698,16 +722,68 @@ def test_window_limited_reports_the_bound_the_winner_hit():
     # the winner presses on the bound, and the result has to say so -- more
     # iterations inside the same window cannot converge, only widening it can.
     result = optimize_layout(
-        schema, source, image, origins, dirs, powers,
-        image_bounds=(-65.0, -35.0), optimization=_FAR_FOCUS,
+        schema,
+        source,
+        image,
+        origins,
+        dirs,
+        powers,
+        image_bounds=(-65.0, -35.0),
+        optimization=_FAR_FOCUS,
     )
     assert result.status == "no-focus-found"
     assert len(result.window_limited) == 1
     assert "image plane" in result.window_limited[0]
     with pytest.raises(OptimizationError, match="outside the searched range"):
         optimize_layout(
-            schema, source, image, origins, dirs, powers,
+            schema,
+            source,
+            image,
+            origins,
+            dirs,
+            powers,
             image_bounds=(-65.0, -35.0),
             optimization=replace(_FAR_FOCUS, allow_suboptimal=False),
         )
 
+
+def test_optimize_layout_progress_callback_ticks_per_evaluation_interval():
+    # The live progress sink fires from the DE loop roughly every 100 objective
+    # evaluations -- evaluation-driven, not per generation -- carrying the running
+    # best and the generation it was found in. Consecutive ticks are at least 100
+    # evaluations apart and generations may repeat. Autofocus is off; the legacy
+    # (non-pipeline) path traces the whole fan, keeping this a couple of seconds.
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    ticks: list[tuple[int, float, float, int]] = []
+    opt = LensOptimization(
+        seed=7,
+        generations=25,
+        max_evals=100000,
+        nm_iterations=200,
+        stop_on_focus=False,
+        stall_generations=1000,
+        autofocus_image_plane=False,
+        enable_pipeline=False,
+    )
+    optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_BOUNDS,
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=opt,
+        progress_callback=lambda gen, cost, blur, evals: ticks.append((gen, cost, blur, evals)),
+    )
+    evals_seq = [t[3] for t in ticks]
+    gens = [t[0] for t in ticks]
+    assert len(ticks) >= 2  # multiple evaluation intervals were crossed
+    assert evals_seq == sorted(evals_seq)  # monotonic non-decreasing
+    # One status per evaluation interval: each tick advances >= 100 evaluations.
+    assert all(b - a >= 100 for a, b in zip(evals_seq, evals_seq[1:]))
+    assert gens[0] == 0  # opens at the baseline before the DE loop
+    for _, cost, blur, _ in ticks:
+        assert np.isfinite(cost) and np.isfinite(blur)

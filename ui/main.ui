@@ -57,7 +57,7 @@
      <item>
       <widget class="QTabWidget" name="tabWidget">
        <property name="currentIndex">
-        <number>2</number>
+        <number>3</number>
        </property>
        <widget class="QWidget" name="tab">
         <attribute name="title">
@@ -506,16 +506,16 @@
               </property>
              </widget>
             </item>
-             <item>
-              <widget class="QCheckBox" name="planeLockSourceCheck">
-               <property name="toolTip">
-                <string>Pin this plane just downstream of the source (z = source z - 0.001); its position follows the source and cannot be edited while locked</string>
-               </property>
-               <property name="text">
-                <string>Lock Position to Source</string>
-               </property>
-              </widget>
-             </item>
+            <item>
+             <widget class="QCheckBox" name="planeLockSourceCheck">
+              <property name="toolTip">
+               <string>Pin this plane just downstream of the source (z = source z - 0.001); its position follows the source and cannot be edited while locked</string>
+              </property>
+              <property name="text">
+               <string>Lock Position to Source</string>
+              </property>
+             </widget>
+            </item>
             <item>
              <widget class="QWidget" name="widget_4" native="true">
               <layout class="QFormLayout" name="formLayout_3">
@@ -1006,6 +1006,16 @@
                </property>
               </column>
              </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label_34">
+              <property name="text">
+               <string>Optimization Results:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+              <widget class="QTextBrowser" name="analysisOptimizeLogBrowser"/>
             </item>
             <item>
              <widget class="QPushButton" name="analysisOptimizeButton">

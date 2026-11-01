@@ -210,7 +210,8 @@ struct OptimizerSettings {
     }
 };
 
-py::dict py_optimize_layout(const OptimizeProblem& problem, const OptimizerSettings& s) {
+py::dict py_optimize_layout(const OptimizeProblem& problem, const OptimizerSettings& s,
+                            py::object progress) {
     require(std::isfinite(s.archive_min_dist) && s.archive_min_dist >= 0.0,
             "archive_min_dist: expected a finite non-negative distance");
     require(std::isfinite(s.promotion_factor) && s.promotion_factor >= 1.0,
@@ -270,6 +271,18 @@ py::dict py_optimize_layout(const OptimizeProblem& problem, const OptimizerSetti
     spec.finalist_count = static_cast<int>(s.finalist_count);
     spec.enable_candidate_concurrency = s.enable_candidate_concurrency;
     spec.total_threads = static_cast<int>(s.total_threads);
+
+    // Live progress: the DE loop runs with the GIL released (below), so the
+    // sink re-acquires it to hand the tick to the Python callable. The captured
+    // ``progress`` object is only ever touched under the GIL (here and in the
+    // callback body); the spec (and so the lambda) is destroyed once the GIL is
+    // held again on return.
+    if (!progress.is_none()) {
+        spec.progress = [progress](const optics::native::OptimizerProgress& p) {
+            const py::gil_scoped_acquire acquire;
+            progress(p.generation, p.cost, p.blur, p.evals);
+        };
+    }
 
     const optics::native::OptimizerOutcome outcome = [&] {
         const py::gil_scoped_release release;
@@ -433,7 +446,8 @@ void register_optimizer(py::module_& m) {
         .def_readwrite("enable_candidate_concurrency",
                        &OptimizerSettings::enable_candidate_concurrency)
         .def_readwrite("total_threads", &OptimizerSettings::total_threads);
-    m.def("optimize_layout", &py_optimize_layout, py::arg("problem"), py::arg("settings"));
+    m.def("optimize_layout", &py_optimize_layout, py::arg("problem"), py::arg("settings"),
+          py::arg("progress") = py::none());
     m.def("fit_clipped_similarity", &py_fit_clipped_similarity, py::arg("src"), py::arg("dst"),
           py::arg("iters") = 3, py::arg("sigma") = 3.0);
 }

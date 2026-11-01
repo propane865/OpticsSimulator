@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,17 @@
 #include "optics/tracing/context.hpp"
 
 namespace optics::native {
+
+// Per-generation progress snapshot handed to ``OptimizerSpec::progress`` while
+// the global DE search runs: the generation index, the best cost so far, the
+// clipped spot radius (destination-plane units) at that best layout, and the
+// evaluations spent. Delivered live from the loop, never after the run ends.
+struct OptimizerProgress {
+    int generation = 0;
+    double cost = 0.0;
+    double blur = 0.0;
+    std::int64_t evals = 0;
+};
 
 struct OptimizerSpec {
     const TraceStack* stack = nullptr;
@@ -143,6 +155,12 @@ struct OptimizerSpec {
     // or the accounting. ``total_threads`` 0 means every hardware thread.
     bool enable_candidate_concurrency = false;
     int total_threads = 0;
+    // Optional live progress sink, invoked from the DE loop every few
+    // generations (never after the search completes). Empty by default, so the
+    // loops' ``if (spec.progress ...)`` guard makes an unused spec free. The
+    // binding wraps a Python callable that re-acquires the GIL to deliver the
+    // tick; the loop runs with the GIL released.
+    std::function<void(const OptimizerProgress&)> progress;
 };
 
 // Structured reason for a failed optimization, so callers (and the GUI) can
