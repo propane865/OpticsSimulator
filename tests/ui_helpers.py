@@ -106,6 +106,7 @@ def _plane_editor(window):
             window.findChild(QtWidgets.QDoubleSpinBox, "planeSizeXSpin"),
             window.findChild(QtWidgets.QDoubleSpinBox, "planeSizeYSpin"),
         ],
+        "lock": window.findChild(QtWidgets.QCheckBox, "planeLockSourceCheck"),
         "buttons": window.findChild(QtWidgets.QDialogButtonBox, "planeButtonBox"),
     }
 

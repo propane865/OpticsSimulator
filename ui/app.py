@@ -69,7 +69,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             on_elements_changed=lambda: self._analysis_editor.populate(),
         )
         self._source_editor = SourceEditor(
-            self, self._state, self._scene, self._set_status, self._refresh_trace
+            self, self._state, self._scene, self._set_status, self._refresh_after_source
         )
         self._plane_editor = PlaneEditor(
             self,
@@ -151,6 +151,12 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._scene.retrace(system, rays)
         self._scene.rebuild_planes(planes, results)
         self._update_plane_view()
+
+    def _refresh_after_source(self) -> None:
+        """Refresh trace and scene, then re-sync the plane form: source-locked
+        planes were pinned to the new source position by ``set_source``."""
+        self._refresh_trace()
+        self._plane_editor.populate_fields()
 
     def _on_display_mode_changed(self, index: int) -> None:
         """Re-derive every plane image in the selected display mode (no re-trace)."""

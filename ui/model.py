@@ -43,6 +43,10 @@ __all__ = [
 
 PlaneRow = tuple[np.ndarray, np.ndarray, np.ndarray]
 
+# World-Z offset (mm) where a plane locked to the source is pinned, just
+# downstream of the source point; xy always track the source exactly.
+_LOCK_SOURCE_OFFSET_Z = -0.001
+
 DEFAULT_ELEMENT_CONFIG: dict[str, Any] = {
     "surface1": {
         "x": "u",
@@ -158,6 +162,7 @@ class ProjectState:
         self._plane_names: list[str] = []
         self._plane_results: list[MeasurementResult] = []
         self._plane_hit_rows: list[PlaneRow] = []
+        self._plane_locked: list[bool] = []
         self._plane_reconstruct: bool = False
         self._system: OpticalSystem | None = None
 
@@ -339,6 +344,9 @@ class ProjectState:
         self._source = source
         self._rays = rays
         self._rays_arrays = None
+        for index, locked in enumerate(self._plane_locked):
+            if locked:
+                self._planes[index] = self._pinned_plane(self._planes[index])
 
     # -- measurement plane operations ---------------------------------------
     @staticmethod
@@ -380,9 +388,12 @@ class ProjectState:
         self._plane_names.append(name)
         self._plane_results.append(result)
         self._plane_hit_rows.append(row)
+        self._plane_locked.append(False)
         return result
 
     def replace_plane(self, index: int, plane: MeasurementPlane) -> None:
+        if self._plane_locked[index]:
+            plane = self._pinned_plane(plane)
         row = self._measure_rows([plane])[0]
         self._planes[index] = plane
         self._plane_hit_rows[index] = row
@@ -393,6 +404,41 @@ class ProjectState:
         self._plane_names.pop(index)
         self._plane_results.pop(index)
         self._plane_hit_rows.pop(index)
+        self._plane_locked.pop(index)
+
+    # -- source-locked planes ----------------------------------------------
+    def is_plane_locked(self, index: int) -> bool:
+        """Whether plane ``index`` is pinned just downstream of the source."""
+        return 0 <= index < len(self._plane_locked) and self._plane_locked[index]
+
+    def set_plane_locked(self, index: int, locked: bool) -> MeasurementPlane | None:
+        """Pin/unlock plane ``index`` to the source; return the pinned plane.
+
+        Locking rebuilds the plane at the pinned offset (normal, size and
+        resolution unchanged) through :meth:`replace_plane` so its cached hits
+        and image follow the snap; unlocking only clears the flag. Returns the
+        new plane when one was built, else ``None``.
+        """
+        if index < 0 or index >= len(self._planes):
+            return None
+        if not locked:
+            self._plane_locked[index] = False
+            return None
+        pinned = self._pinned_plane(self._planes[index])
+        self._plane_locked[index] = True
+        self.replace_plane(index, pinned)
+        return self._planes[index]
+
+    def _pinned_plane(self, plane: MeasurementPlane) -> MeasurementPlane:
+        """``plane`` rebuilt at the pinned source offset (shape unchanged)."""
+        position = self._source.position
+        return MeasurementPlane(
+            origin=(position[0], position[1], position[2] + _LOCK_SOURCE_OFFSET_Z),
+            normal=plane.n,
+            u_range=(plane.u_min, plane.u_max),
+            v_range=(plane.v_min, plane.v_max),
+            resolution=(plane.ru, plane.rv),
+        )
 
     def set_plane_hits(self, us: np.ndarray, vs: np.ndarray, pws: np.ndarray) -> list[MeasurementResult]:
         """Cache one trace's ``(P, N)`` plane hits and derive the images.
@@ -470,6 +516,7 @@ class ProjectState:
         self._plane_names = new_names
         self._plane_results = new_results
         self._plane_hit_rows = new_rows
+        self._plane_locked = [False] * len(new_planes) if replaced else self._plane_locked
         return elements, replaced
 
     def to_document(self) -> dict[str, Any]:

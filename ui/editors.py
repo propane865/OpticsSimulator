@@ -518,14 +518,22 @@ class PlaneEditor(_SelectorEditor):
             find_child(window, QtWidgets.QDoubleSpinBox, "planeSizeXSpin"),
             find_child(window, QtWidgets.QDoubleSpinBox, "planeSizeYSpin"),
         )
+        self._lock_source_check = find_child(
+            window, QtWidgets.QCheckBox, "planeLockSourceCheck"
+        )
+        # A locked plane is pinned 0.001 mm downstream of the source, so the
+        # position spins need three decimals to show (and commit) that spot.
+        for spin in self._pos_spins:
+            spin.setDecimals(3)
         for res_spin in self._resolution_spins:
             configure_spin(res_spin, 1, 512)
         for size_spin in self._size_spins:
             configure_spin(size_spin, 0.01, 1000.0, 1.0, decimals=2)
+        self._lock_source_check.toggled.connect(self._on_lock_source_toggled)
         self.set_enabled(False)
 
     def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
-        return (*self._resolution_spins, *self._size_spins)
+        return (*self._resolution_spins, *self._size_spins, self._lock_source_check)
 
     def _selector_names(self) -> list[str]:
         return list(self._state.plane_names)
@@ -540,6 +548,7 @@ class PlaneEditor(_SelectorEditor):
         index = self._selector.currentIndex()
         planes = self._state.planes
         if index < 0 or index >= len(planes):
+            self._show_lock_state(False)
             self._update_view()
             return
         plane = planes[index]
@@ -551,7 +560,40 @@ class PlaneEditor(_SelectorEditor):
             res_spin.setValue(int(value))
         for size_spin, value in zip(self._size_spins, plane.in_plane_size):
             size_spin.setValue(float(value))
+        self._show_lock_state(self._state.is_plane_locked(index))
         self._update_view()
+
+    # -- source lock -----------------------------------------------------------
+    def _show_lock_state(self, locked: bool) -> None:
+        """Show ``locked`` on the lock checkbox (without re-triggering it) and
+        grey out the position spins: a locked plane's position is the source's.
+
+        The spins stay disabled along with the rest of an empty (no-selection)
+        form, matching :meth:`set_enabled`'s rule.
+        """
+        self._lock_source_check.blockSignals(True)
+        self._lock_source_check.setChecked(locked)
+        self._lock_source_check.blockSignals(False)
+        enable_widgets(self._pos_spins, self._selector.count() > 0 and not locked)
+
+    def _on_lock_source_toggled(self, checked: bool) -> None:
+        """Pin the selected plane just downstream of the source, or release it."""
+        index = self._selector.currentIndex()
+        if index < 0 or index >= len(self._state.planes):
+            return
+        pinned = self._state.set_plane_locked(index, checked)
+        if pinned is not None:
+            self._scene.replace_plane_nodes(
+                index, pinned, self._state.plane_results[index]
+            )
+            for spin, value in zip(self._pos_spins, pinned.o):
+                spin.setValue(float(value))
+            self._update_view()
+        enable_widgets(self._pos_spins, not checked)
+        if checked:
+            self._set_status(f"Locked {self._state.plane_names[index]} to source")
+        else:
+            self._set_status(f"Unlocked {self._state.plane_names[index]} from source")
 
     def _build_current(self) -> tuple[int, MeasurementPlane] | None:
         index = self._selector.currentIndex()

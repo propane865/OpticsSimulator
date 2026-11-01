@@ -649,6 +649,94 @@ def test_remove_selected_plane_keeps_others(window):
     assert window.planes[0].o[2] == pytest.approx(-31.0)
 
 
+def test_lock_to_source_snaps_plane_and_disables_position(window):
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["lock"].setChecked(True)
+
+    source_pos = window.source.position
+    assert window.planes[0].o[0] == pytest.approx(source_pos[0])
+    assert window.planes[0].o[1] == pytest.approx(source_pos[1])
+    assert window.planes[0].o[2] == pytest.approx(source_pos[2] - 0.001)
+    assert editor["pos"][2].value() == pytest.approx(source_pos[2] - 0.001)
+    assert not editor["pos"][0].isEnabled()
+    assert editor["size"][0].isEnabled()
+    assert "Locked plane1 to source" in window.statusBar().currentMessage()
+
+
+def test_unlock_reenables_position_and_keeps_plane(window):
+    _trigger_measurement_plane(window)
+    editor = _plane_editor(window)
+    editor["lock"].setChecked(True)
+    pinned = np.array(window.planes[0].o)
+
+    editor["lock"].setChecked(False)
+
+    assert np.allclose(window.planes[0].o, pinned)
+    assert editor["pos"][0].isEnabled()
+    assert "Unlocked plane1 from source" in window.statusBar().currentMessage()
+
+
+def test_locked_plane_follows_source(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _trigger_measurement_plane(window)
+    _trigger_measurement_plane(window)
+    editor = _plane_editor(window)
+    editor["selector"].setCurrentText("plane1")
+    editor["lock"].setChecked(True)
+
+    source = _source_editor(window)
+    source["x"].setValue(3.0)
+    source["z"].setValue(12.0)
+    _click_source(window, OK)
+
+    assert window.source.position[2] == pytest.approx(12.0)
+    assert window.planes[0].o[0] == pytest.approx(3.0)
+    assert window.planes[0].o[1] == pytest.approx(window.source.position[1])
+    assert window.planes[0].o[2] == pytest.approx(11.999)
+    # The unlocked plane keeps its own position.
+    assert window.planes[1].o[0] == pytest.approx(0.0)
+    assert window.planes[1].o[2] == pytest.approx(-31.0)
+    # The plane form re-syncs its locked-out spins to the pinned position.
+    assert _plane_editor(window)["pos"][2].value() == pytest.approx(11.999)
+    assert not _plane_editor(window)["pos"][2].isEnabled()
+
+
+def test_lock_checkbox_syncs_on_plane_switch(window):
+    _trigger_measurement_plane(window)
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    assert editor["selector"].currentText() == "plane2"
+    editor["lock"].setChecked(True)
+
+    editor["selector"].setCurrentText("plane1")
+    assert not editor["lock"].isChecked()
+    assert editor["pos"][0].isEnabled()
+    assert window.planes[0].o[2] == pytest.approx(-30.0)
+
+    editor["selector"].setCurrentText("plane2")
+    assert editor["lock"].isChecked()
+    assert not editor["pos"][0].isEnabled()
+    assert window.planes[1].o[2] == pytest.approx(window.source.position[2] - 0.001)
+
+
+def test_locked_plane_commits_other_fields_with_pinned_position(window):
+    _trigger_measurement_plane(window)
+    editor = _plane_editor(window)
+    editor["lock"].setChecked(True)
+    pinned_z = window.planes[0].o[2]
+
+    # Position is locked out, but the other fields commit and the replace
+    # path re-pins the plane at the source offset.
+    editor["size"][0].setValue(4.0)
+    _click_plane(window, OK)
+
+    assert window.planes[0].o[2] == pytest.approx(pinned_z)
+    assert window.planes[0].u_max - window.planes[0].u_min == pytest.approx(4.0)
+
+
 def _plane_image_label(window):
     label = window.findChild(QtWidgets.QLabel, "planeImageLabel")
     assert label is not None

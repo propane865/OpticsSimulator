@@ -57,7 +57,7 @@
      <item>
       <widget class="QTabWidget" name="tabWidget">
        <property name="currentIndex">
-        <number>3</number>
+        <number>2</number>
        </property>
        <widget class="QWidget" name="tab">
         <attribute name="title">
@@ -96,6 +96,12 @@
             </item>
             <item>
              <widget class="QWidget" name="widget_7" native="true">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
               <layout class="QFormLayout" name="formLayout">
                <item row="1" column="0">
                 <widget class="QLabel" name="label_6">
@@ -282,14 +288,14 @@
             <item>
              <widget class="QWidget" name="widget_2" native="true">
               <layout class="QFormLayout" name="formLayout_2">
-               <item row="0" column="0">
+               <item row="1" column="0">
                 <widget class="QLabel" name="label_8">
                  <property name="text">
                   <string>Source Type</string>
                  </property>
                 </widget>
                </item>
-               <item row="0" column="1">
+               <item row="1" column="1">
                 <widget class="QComboBox" name="sourceTypeCombo">
                  <item>
                   <property name="text">
@@ -303,44 +309,44 @@
                  </item>
                 </widget>
                </item>
-               <item row="1" column="0">
+               <item row="2" column="0">
                 <widget class="QLabel" name="label_12">
                  <property name="text">
                   <string>Light Cone Angle</string>
                  </property>
                 </widget>
                </item>
-                <item row="1" column="1">
-                 <widget class="QDoubleSpinBox" name="coneAngleSpin"/>
-                </item>
-               <item row="2" column="0">
+               <item row="2" column="1">
+                <widget class="QDoubleSpinBox" name="coneAngleSpin"/>
+               </item>
+               <item row="3" column="0">
                 <widget class="QLabel" name="label_9">
                  <property name="text">
                   <string>Source Power</string>
                  </property>
                 </widget>
                </item>
-               <item row="2" column="1">
+               <item row="3" column="1">
                 <widget class="QDoubleSpinBox" name="sourcePowerSpin"/>
                </item>
-               <item row="3" column="0">
+               <item row="4" column="0">
                 <widget class="QLabel" name="label_10">
                  <property name="text">
                   <string>Rays per Point</string>
                  </property>
                 </widget>
                </item>
-               <item row="3" column="1">
+               <item row="4" column="1">
                 <widget class="QSpinBox" name="numRaysSpin"/>
                </item>
-               <item row="4" column="0">
+               <item row="5" column="0">
                 <widget class="QLabel" name="label_11">
                  <property name="text">
                   <string>Position (xyz)</string>
                  </property>
                 </widget>
                </item>
-               <item row="4" column="1">
+               <item row="5" column="1">
                 <widget class="QWidget" name="widget_3" native="true">
                  <layout class="QHBoxLayout" name="horizontalLayout">
                   <property name="leftMargin">
@@ -367,7 +373,7 @@
                  </layout>
                 </widget>
                </item>
-               <item row="5" column="0" colspan="2">
+               <item row="6" column="0" colspan="2">
                 <widget class="QWidget" name="widget_15" native="true">
                  <layout class="QFormLayout" name="formLayout_5">
                   <item row="2" column="0">
@@ -395,9 +401,9 @@
                     </property>
                    </widget>
                   </item>
-                   <item row="5" column="1">
-                    <widget class="QDoubleSpinBox" name="pixelPitchSpin"/>
-                   </item>
+                  <item row="5" column="1">
+                   <widget class="QDoubleSpinBox" name="pixelPitchSpin"/>
+                  </item>
                   <item row="6" column="0">
                    <widget class="QLabel" name="label_23">
                     <property name="text">
@@ -405,9 +411,9 @@
                     </property>
                    </widget>
                   </item>
-                   <item row="6" column="1">
-                    <widget class="QSpinBox" name="maxGridSpin"/>
-                   </item>
+                  <item row="6" column="1">
+                   <widget class="QSpinBox" name="maxGridSpin"/>
+                  </item>
                   <item row="4" column="0">
                    <widget class="QLabel" name="label_24">
                     <property name="text">
@@ -500,6 +506,16 @@
               </property>
              </widget>
             </item>
+             <item>
+              <widget class="QCheckBox" name="planeLockSourceCheck">
+               <property name="toolTip">
+                <string>Pin this plane just downstream of the source (z = source z - 0.001); its position follows the source and cannot be edited while locked</string>
+               </property>
+               <property name="text">
+                <string>Lock Position to Source</string>
+               </property>
+              </widget>
+             </item>
             <item>
              <widget class="QWidget" name="widget_4" native="true">
               <layout class="QFormLayout" name="formLayout_3">
@@ -937,16 +953,16 @@
                    </property>
                   </widget>
                  </item>
-                  <item row="0" column="1">
-                   <widget class="QCheckBox" name="analysisAllowSuboptimalCheck">
-                    <property name="toolTip">
-                     <string>Commit the best layout found even if it fails the focus acceptance checks</string>
-                    </property>
-                    <property name="text">
-                     <string>Allow Suboptimal Convergence</string>
-                    </property>
-                   </widget>
-                  </item>
+                 <item row="0" column="1">
+                  <widget class="QCheckBox" name="analysisAllowSuboptimalCheck">
+                   <property name="toolTip">
+                    <string>Commit the best layout found even if it fails the focus acceptance checks</string>
+                   </property>
+                   <property name="text">
+                    <string>Allow Suboptimal Convergence</string>
+                   </property>
+                  </widget>
+                 </item>
                 </layout>
                </widget>
               </item>
