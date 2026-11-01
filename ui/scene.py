@@ -65,6 +65,14 @@ class SceneController:
         ray_length: float = RAY_LENGTH,
     ) -> None:
         visualize.clear_scene(self._view)
+        # ``clear_scene`` detaches the source marker and plane visuals too, but
+        # only elements/rays are rebuilt here: drop their stale bookkeeping so a
+        # later ``refresh_source``/``rebuild_planes`` re-attaches instead of
+        # re-tinting a detached mesh (whose geometry key still matches).
+        self._source_nodes = []
+        self._plane_nodes = []
+        self._plane_keys = []
+        self._plane_templates = []
         _, self._element_nodes, self._ray_nodes = visualize.build_scene(
             self._view, elements, rays, ray_length=ray_length
         )

@@ -352,6 +352,22 @@ def test_import_zemax_merges_into_existing(window, repo_root, monkeypatch):
     assert "Imported 1 element" in window.statusBar().currentMessage()
 
 
+def test_import_zemax_keeps_source_and_plane_visible(window, repo_root, monkeypatch):
+    # Full-rebuild on import detaches the whole view; source and plane visuals
+    # must be re-attached (not left dangling off a stale geometry-key match).
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _trigger_measurement_plane(window)
+    _patch_open_dialog(monkeypatch, repo_root / "tests" / "zmx" / "biconvex.zmx")
+
+    _trigger(window, "menuFile", "actionImport_Zemax")
+
+    attached = {id(node) for node in window.canvas.view.scene.children}
+    tracked = list(window._scene._source_nodes)
+    tracked += [node for plane in window._scene._plane_nodes for node in plane]
+    assert tracked, "expected source and plane nodes to be tracked after import"
+    assert all(id(node) in attached for node in tracked)
+
+
 def test_import_zemax_cancelling_changes_nothing(window, repo_root, monkeypatch):
     window.load_stack(repo_root / "tests" / "test_stack.json")
     elements_before = len(window.elements)

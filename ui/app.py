@@ -223,6 +223,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         added = self._state.import_elements(elements_config, radius=geometry.radius)
 
         self._scene.full_rebuild(self._state.elements, self._state.rays)
+        self._scene.refresh_source(self._state.source)
         self._element_editor.populate_selector()
         self._refresh_trace()
         self.frame_to_scene()
