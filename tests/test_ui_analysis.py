@@ -420,7 +420,7 @@ def test_analysis_optimize_disabled_when_all_elements_locked(window):
 
     _set_lock(table, "lens1", False)
     assert button.isEnabled()
-    assert button.toolTip() == ""
+    assert button.toolTip() == AnalysisEditor.OPTIMIZE_TOOLTIP
 
 
 def test_analysis_lock_table_locked_while_optimizing(window, qt_app, monkeypatch):

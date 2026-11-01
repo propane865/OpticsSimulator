@@ -8,6 +8,7 @@ from typing import Any, TypeVar
 from PySide6 import QtCore, QtWidgets
 
 __all__ = [
+    "configure_button_box",
     "configure_spin",
     "enable_widgets",
     "find_child",
@@ -44,6 +45,21 @@ def configure_spin(
         spin.setRange(int(minimum), int(maximum))
         if step is not None:
             spin.setSingleStep(int(step))
+
+
+def configure_button_box(
+    button_box: QtWidgets.QDialogButtonBox,
+    accept_tip: str,
+    reject_tip: str,
+) -> None:
+    """Attach tooltips to the box's standard Ok/Cancel buttons."""
+    for role, tip in (
+        (QtWidgets.QDialogButtonBox.StandardButton.Ok, accept_tip),
+        (QtWidgets.QDialogButtonBox.StandardButton.Cancel, reject_tip),
+    ):
+        button = button_box.button(role)
+        if button is not None:
+            button.setToolTip(tip)
 
 
 def enable_widgets(widgets: Iterable[QtWidgets.QWidget], enabled: bool) -> None:

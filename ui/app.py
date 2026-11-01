@@ -43,6 +43,15 @@ __all__ = [
 
 UI_PATH = Path(__file__).resolve().parent / "main.ui"
 
+# Tab-hover summaries; the dock's tab order matches main.ui (lenses, source,
+# planes, analysis). QTabBar tab tooltips cannot be expressed in the .ui file.
+_TAB_TOOLTIPS = (
+    "View and edit a single lens in the stack",
+    "Position, ray fan and source image settings for the emitter",
+    "Edit a measurement plane and view its detected image",
+    "Compare two plane images and optimize the layout for focus",
+)
+
 
 class OpticsMainWindow(QtWidgets.QMainWindow):
     """Main window: owns the project state, scene and the three editors."""
@@ -96,6 +105,10 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         dock = loaded.findChild(QtWidgets.QDockWidget, "dockWidget")
         if dock is not None:
             self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
+            tab_widget = dock.findChild(QtWidgets.QTabWidget, "tabWidget")
+            if tab_widget is not None:
+                for index, tip in enumerate(_TAB_TOOLTIPS):
+                    tab_widget.tabBar().setTabToolTip(index, tip)
 
     def _embed_canvas(self, canvas: Any) -> None:
         container = find_child(self, QtWidgets.QWidget, "openGLWidget", UI_PATH.name)

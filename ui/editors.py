@@ -49,7 +49,7 @@ from . import imagecodec
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState, classify_element_edit
 from .optimize import LayoutOptimizer
 from .scene import SceneController
-from .widgets import configure_spin, enable_widgets, find_child, run_validated
+from .widgets import configure_button_box, configure_spin, enable_widgets, find_child, run_validated
 
 __all__ = [
     "AnalysisEditor",
@@ -65,6 +65,7 @@ SOURCE_TYPE_BY_LABEL = {
 LABEL_BY_SOURCE_TYPE = {value: key for key, value in SOURCE_TYPE_BY_LABEL.items()}
 
 _DEFAULT_APERTURE_RADIUS = float(DEFAULT_ELEMENT_CONFIG["surface1"]["aperture"]["radius"])
+_REVERT_TIP = "Reload the current values, discarding any edits"
 
 
 class _SelectorEditor:
@@ -84,6 +85,7 @@ class _SelectorEditor:
     ADD_MESSAGE: str
     APPLY_TITLE: str
     APPLY_MESSAGE: str
+    APPLY_TIP: str
 
     def __init__(
         self,
@@ -121,6 +123,7 @@ class _SelectorEditor:
         self._remove_button.clicked.connect(self.remove_current)
         self._button_box.accepted.connect(self.apply)
         self._button_box.rejected.connect(self.populate_fields)
+        configure_button_box(self._button_box, self.APPLY_TIP, _REVERT_TIP)
 
     # -- shared controller plumbing -------------------------------------------
     def set_enabled(self, enabled: bool) -> None:
@@ -227,6 +230,7 @@ class ElementEditor(_SelectorEditor):
     ADD_MESSAGE = "Could not add optical element"
     APPLY_TITLE = "Invalid Lens Properties"
     APPLY_MESSAGE = "Could not apply lens properties"
+    APPLY_TIP = "Apply the edited properties and retrace"
 
     def __init__(
         self,
@@ -389,6 +393,11 @@ class SourceEditor:
         self._pitch_spin = find_child(window, QtWidgets.QDoubleSpinBox, "pixelPitchSpin")
         self._max_grid_spin = find_child(window, QtWidgets.QSpinBox, "maxGridSpin")
 
+        configure_button_box(
+            self._button_box,
+            "Apply the source settings and retrace",
+            _REVERT_TIP,
+        )
         configure_spin(self._power_spin, 0.0, 1000.0, 0.1)
         configure_spin(self._cone_spin, 0.0, 360.0, 1.0)
         configure_spin(self._num_rays_spin, 1, MAX_ARRAY_RAYS)
@@ -502,6 +511,7 @@ class PlaneEditor(_SelectorEditor):
     ADD_MESSAGE = "Could not add measurement plane"
     APPLY_TITLE = "Invalid Measurement Plane Properties"
     APPLY_MESSAGE = "Could not apply measurement plane properties"
+    APPLY_TIP = "Apply the plane properties and update the view"
 
     def __init__(
         self,
@@ -683,7 +693,8 @@ class AnalysisEditor:
     status bar labels it suboptimal.
     """
 
-    PLACEHOLDER = "\u2014"
+    PLACEHOLDER = "—"
+    OPTIMIZE_TOOLTIP = "Sweep the z of every unlocked element (and the image plane unless locked) for sharpest focus"
 
     _LABEL_NAMES: tuple[tuple[str, str], ...] = (
         ("magnification", "analysisMagnificationLabel"),
@@ -709,6 +720,7 @@ class AnalysisEditor:
         self._image_combo = find_child(window, QtWidgets.QComboBox, "analysisImagePlaneCombo")
         self._run_button = find_child(window, QtWidgets.QPushButton, "analysisRunButton")
         self._optimize_button = find_child(window, QtWidgets.QPushButton, "analysisOptimizeButton")
+        self._optimize_button.setToolTip(self.OPTIMIZE_TOOLTIP)
         self._lock_image_check = find_child(window, QtWidgets.QCheckBox, "analysisLockImageCheck")
         self._allow_suboptimal_check = find_child(window, QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck")
         self._lock_table = find_child(window, QtWidgets.QTableWidget, "analysisLockedElementsTable")
@@ -856,7 +868,7 @@ class AnalysisEditor:
         if schema and not has_free:
             self._optimize_button.setToolTip("Unlock at least one element to optimize")
         else:
-            self._optimize_button.setToolTip("")
+            self._optimize_button.setToolTip(self.OPTIMIZE_TOOLTIP)
 
     def _clear_results(self) -> None:
         for label in self._labels.values():
