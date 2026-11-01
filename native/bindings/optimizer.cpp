@@ -272,11 +272,12 @@ py::dict py_optimize_layout(const OptimizeProblem& problem, const OptimizerSetti
     spec.enable_candidate_concurrency = s.enable_candidate_concurrency;
     spec.total_threads = static_cast<int>(s.total_threads);
 
-    // Live progress: the DE loop runs with the GIL released (below), so the
-    // sink re-acquires it to hand the tick to the Python callable. The captured
-    // ``progress`` object is only ever touched under the GIL (here and in the
-    // callback body); the spec (and so the lambda) is destroyed once the GIL is
-    // held again on return.
+    // Live progress: the search runs with the GIL released (below), so the
+    // sink re-acquires it to hand the tick to the Python callable. Ticks come
+    // from the driver thread only (never from candidate-concurrency workers).
+    // The captured ``progress`` object is only ever touched under the GIL (here
+    // and in the callback body); the spec (and so the lambda) is destroyed once
+    // the GIL is held again on return.
     if (!progress.is_none()) {
         spec.progress = [progress](const optics::native::OptimizerProgress& p) {
             const py::gil_scoped_acquire acquire;

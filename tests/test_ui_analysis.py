@@ -456,8 +456,8 @@ def test_analysis_optimize_streams_progress_and_summary(window, qt_app, monkeypa
     def streaming(*args, **kwargs):
         cb = kwargs.get("progress_callback")
         if cb is not None:
-            for gen in (0, 10, 20):
-                cb(gen, 0.5, 0.05, 100 + 50 * gen)
+            for gen, evals in ((0, 100), (10, 600), (20, 1100), (-1, 1600)):
+                cb(gen, 0.5, 0.05, evals)
         return stub(*args, **kwargs)
 
     monkeypatch.setattr("ui.optimize.optimize_layout", streaming)
@@ -468,6 +468,7 @@ def test_analysis_optimize_streams_progress_and_summary(window, qt_app, monkeypa
     assert "Layout optimization started" in log
     assert "Free elements:" in log
     assert log.count("generation") == 3  # one line per streamed DE tick
+    assert "refinement" in log  # the post-DE tick (generation -1) renders as refinement
     assert "Optimized in 123 evaluations" in log  # end-of-run summary
     assert "magnification =" in log
 

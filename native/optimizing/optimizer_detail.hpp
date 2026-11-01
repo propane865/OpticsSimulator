@@ -43,6 +43,8 @@ constexpr int kFineScanRefines = 16;
 // Evaluation cadence for the live progress sink: one status tick per this many
 // objective evaluations (rather than once per DE generation), so the UI updates
 // smoothly regardless of population size or per-candidate focus-scan cost.
+// Every phase that bills evaluations routes through ``maybe_tick_progress``,
+// so the interval gate -- not the call site -- is the single cadence source.
 constexpr std::int64_t kProgressEvalInterval = 100;
 
 inline double clamp_box(double v, double lo, double hi) {
@@ -127,10 +129,12 @@ class LayoutObjective {
     void add_evals(std::int64_t n) { evals_ += n; }
     // Emit a live progress tick once at least ``kProgressEvalInterval``
     // evaluations have accumulated since the previous one, reporting the current
-    // running best and the generation it was found in. Call this right after
-    // crediting each evaluation (trace or fan-back) so the cadence is driven by
-    // evaluations, not generations. The empty-sink guard matters: a bare
-    // ``std::function`` throws ``bad_function_call`` if invoked.
+    // running best and the generation label the caller passes (the DE
+    // generation during the global search, ``kRefinementGeneration`` for the
+    // post-DE phases). Call this right after crediting each evaluation (trace
+    // or fan-back) so the cadence is driven by evaluations, not generations,
+    // and no evaluation-charging phase can go silent. The empty-sink guard
+    // matters: a bare ``std::function`` throws ``bad_function_call`` if invoked.
     void maybe_tick_progress(int generation, const Stats& best) {
         if (!spec_.progress) {
             return;

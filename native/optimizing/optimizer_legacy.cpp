@@ -36,6 +36,7 @@ void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     // element values.
     std::vector<double> best = clamped_start(spec);
     LayoutObjective::Stats best_stats = obj.evaluate(best.data());
+    obj.maybe_tick_progress(0, best_stats);
     auto record = [&](const LayoutObjective::Stats& s, const double* xs) {
         best_stats = s;
         record_winner(best, d, s, xs);

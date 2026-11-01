@@ -3,7 +3,8 @@
 // measure (pooled and per-group), the transform-only surface/element variants
 // (trace equivalence against from-scratch rebuilds), and the layout driver's
 // focus-acceptance contract (statuses, LHS determinism, polish gating, early
-// focus stop).
+// focus stop) together with its live progress sink (every search phase ticks,
+// refinement after the global search, no silent tail).
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -28,8 +29,10 @@ namespace {
 using optics::native::ClippedSimilarity;
 using optics::native::fit_clipped_similarity;
 using optics::native::fidelity_ray_order;
+using optics::native::kRefinementGeneration;
 using optics::native::make_vec3;
 using optics::native::OptimizerOutcome;
+using optics::native::OptimizerProgress;
 using optics::native::OptimizerSpec;
 using optics::native::SimilarityCore;
 using optics::native::rotation_from_z;
@@ -535,6 +538,67 @@ void test_candidate_concurrency_parity() {
     }
 }
 
+// The live progress sink must fire from every evaluation-charging phase --
+// DE loops, probes, medium re-rank, validation and the Nelder-Mead polish --
+// so a long tail phase can never leave the caller's log silent while the
+// search still bills evaluations.
+void test_optimize_layout_progress_ticks() {
+    DriverProblem problem;
+
+    // Legacy: open at the baseline, keep the evaluation-driven cadence through
+    // the DE loop, tick the polish with the refinement sentinel, and leave no
+    // silent tail (at most one interval plus one simplex iteration).
+    OptimizerSpec legacy = problem.spec;
+    legacy.blur_ref = 1e9;
+    legacy.generations = 6;
+    legacy.stall_generations = 6;
+    legacy.stop_on_focus = false;
+    std::vector<OptimizerProgress> ticks;
+    legacy.progress = [&](const OptimizerProgress& p) { ticks.push_back(p); };
+    const OptimizerOutcome run = optics::native::optimize_layout(legacy);
+    CHECK(run.status == "ok");
+    CHECK(ticks.size() >= 2);
+    CHECK(ticks.front().generation == 0);
+    bool monotone = true;
+    bool cadence = true;
+    bool polished = false;
+    for (std::size_t i = 0; i < ticks.size(); ++i) {
+        if (i > 0) {
+            monotone = monotone && ticks[i].evals >= ticks[i - 1].evals;
+            cadence = cadence && ticks[i].evals - ticks[i - 1].evals >= 100;
+        }
+        polished = polished || ticks[i].generation == kRefinementGeneration;
+    }
+    CHECK(monotone);
+    CHECK(cadence);
+    CHECK(polished);  // the gated Nelder-Mead polish ticks after the DE loop
+    CHECK(run.evals - ticks.back().evals < 110);
+
+    // Pipeline: the post-DE refinement phases (probe/medium/validation/polish)
+    // tick with the same sentinel, and the whole-fan focus scan per candidate
+    // (<= 25 traces) still leaves the final tick within an interval plus one
+    // iteration of the total.
+    OptimizerSpec pipe = problem.spec;
+    pipe.blur_ref = 1e9;
+    pipe.autofocus_plane = true;
+    pipe.enable_pipeline = true;
+    pipe.ray_pilot = 4;
+    pipe.ray_coarse = 8;
+    pipe.ray_medium = 12;
+    pipe.stop_on_focus = true;
+    std::vector<OptimizerProgress> pipe_ticks;
+    pipe.progress = [&](const OptimizerProgress& p) { pipe_ticks.push_back(p); };
+    const OptimizerOutcome pipe_run = optics::native::optimize_layout(pipe);
+    CHECK(pipe_run.status == "ok");
+    CHECK(pipe_ticks.size() >= 2);
+    bool pipe_polished = false;
+    for (const OptimizerProgress& p : pipe_ticks) {
+        pipe_polished = pipe_polished || p.generation == kRefinementGeneration;
+    }
+    CHECK(pipe_polished);
+    CHECK(pipe_run.evals - pipe_ticks.back().evals < 150);
+}
+
 }  // namespace
 
 void test_optimizer() {
@@ -545,6 +609,7 @@ void test_optimizer() {
     test_optimize_layout_status_and_determinism();
     test_optimize_layout_autofocus();
     test_optimize_layout_pipeline();
+    test_optimize_layout_progress_ticks();
     test_candidate_concurrency_parity();
     test_variant_trace_equivalence();
     test_surface_variant_with_rotation();

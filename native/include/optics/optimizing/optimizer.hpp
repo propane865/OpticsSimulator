@@ -29,16 +29,25 @@
 
 namespace optics::native {
 
-// Per-generation progress snapshot handed to ``OptimizerSpec::progress`` while
-// the global DE search runs: the generation index, the best cost so far, the
-// clipped spot radius (destination-plane units) at that best layout, and the
-// evaluations spent. Delivered live from the loop, never after the run ends.
+// Progress snapshot handed to ``OptimizerSpec::progress`` while any phase of
+// the search bills evaluations (global DE, full-fidelity probes, medium
+// re-rank, whole-fan validation, local polish): the generation index (or
+// ``kRefinementGeneration`` once the global search has ended), the best cost
+// so far, the clipped spot radius (destination-plane units) at that best
+// layout, and the evaluations spent. Delivered live from the search, never
+// after the run ends.
 struct OptimizerProgress {
     int generation = 0;
     double cost = 0.0;
     double blur = 0.0;
     std::int64_t evals = 0;
 };
+
+// Generation label for ticks emitted after the global DE search ends (medium
+// re-rank, full validation, Nelder-Mead polish): the post-DE phases refine the
+// winner rather than advance generations, so they report this sentinel and
+// callers render it as a refinement status.
+inline constexpr int kRefinementGeneration = -1;
 
 struct OptimizerSpec {
     const TraceStack* stack = nullptr;
@@ -155,11 +164,15 @@ struct OptimizerSpec {
     // or the accounting. ``total_threads`` 0 means every hardware thread.
     bool enable_candidate_concurrency = false;
     int total_threads = 0;
-    // Optional live progress sink, invoked from the DE loop every few
-    // generations (never after the search completes). Empty by default, so the
-    // loops' ``if (spec.progress ...)`` guard makes an unused spec free. The
-    // binding wraps a Python callable that re-acquires the GIL to deliver the
-    // tick; the loop runs with the GIL released.
+    // Optional live progress sink, invoked (on the driver thread only) once per
+    // ``kProgressEvalInterval`` billed evaluations across every search phase --
+    // DE loops, full-fidelity probes, medium re-rank, validation and polish
+    // (never after the search completes). Empty by default, so the tick
+    // helpers' empty-sink guard makes an unused spec free. The binding wraps a
+    // Python callable that re-acquires the GIL to deliver the tick; the search
+    // runs with the GIL released, and worker-thread objectives (candidate
+    // concurrency) never tick: only the driver credits and reports their
+    // evaluations.
     std::function<void(const OptimizerProgress&)> progress;
 };
 

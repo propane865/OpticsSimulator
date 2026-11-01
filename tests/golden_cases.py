@@ -99,6 +99,7 @@ def case_plane() -> dict:
     hit = surface.intersect(_ray([0.3, -0.2, 4.0], [0.0, 0.0, -1.0]))
     miss = surface.intersect(_ray([3.0, 0.0, 5.0], [0.0, 0.0, -1.0]))
     uv = surface.parameters_at_xy(0.3, -0.2)
+    assert uv is not None
     return {
         "values": {
             "evals": evals,
@@ -124,6 +125,7 @@ def case_sphere() -> dict:
     )
     evals = [_pt(surface.evaluate_local(u, v)) for u, v in [(0.3, -0.2), (-0.7, 0.4)]]
     uv = surface.parameters_at_xy(0.3, -0.2)
+    assert uv is not None
     hit = surface.intersect(_ray([0.45, 0.45, 5.0], [0.0, 0.0, -1.0]))
     point = hit.point if hit is not None else None
     normal_at = surface.normal_at(point) if point is not None else None
@@ -155,6 +157,7 @@ def case_arbitrary_expression() -> dict:
     )
     p = surface.evaluate_local(0.25, -0.35)
     uv = surface.parameters_at_xy(float(p[0]), float(p[1]))
+    assert uv is not None
     hit = surface.intersect(_ray([float(p[0]), float(p[1]), 6.0], [0.0, 0.0, -1.0]))
     return {
         "values": {
@@ -184,7 +187,7 @@ def case_transformed() -> dict:
         u_range=(-0.99, 0.99), v_range=(-0.99, 0.99),
     )
     axis = surface.transform.vector_to_world(np.array([0.0, 0.0, 1.0]))
-    ray = _ray(surface.transform.point_to_world([0.0, 0.0, 5.0]), -axis)
+    ray = _ray(surface.transform.point_to_world(np.array([0.0, 0.0, 5.0])), -axis)
     hit = surface.intersect(ray)
     return {
         "values": {
@@ -351,7 +354,7 @@ def case_measurement() -> dict:
     dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
     powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
     us, vs, pws = system.measure_planes(origins, dirs, powers, [plane, plane_b])
-    margins = []
+    margins: list[float | None] = []
     for q, det in enumerate([plane, plane_b]):
         finite = np.isfinite(us[q]) & np.isfinite(vs[q]) & (pws[q] > 0.0)
         if not np.any(finite):

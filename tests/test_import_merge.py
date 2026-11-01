@@ -47,6 +47,7 @@ def test_import_appends_and_deduplicates_names(make_element) -> None:
     added = state.import_elements(incoming, radius=1.0)
 
     assert added == ["lens2", "lens3"]
+    assert state.schema is not None
     assert list(state.schema) == ["lens1", "lens2", "lens3"]
     assert len(state.elements) == 3
 
@@ -58,6 +59,7 @@ def test_import_cascades_downstream_and_keeps_spacing(make_element) -> None:
 
     state.import_elements(incoming, radius=1.0)
 
+    assert state.schema is not None
     positions = {name: np.asarray(state.schema[name]["position"]) for name in ("lens2", "lens3")}
     gap = max(2.0 * 1.0, 1.0)
     # Front-most imported vertex sits one gap downstream of the existing rear.
@@ -75,6 +77,7 @@ def test_import_anchors_at_source_when_no_elements() -> None:
 
     assert added == ["lens1"]
     gap = max(2.0 * 1.0, 1.0)
+    assert state.schema is not None
     front_z = np.asarray(state.schema["lens1"]["position"])[2]
     assert front_z == pytest.approx(float(state.source.position[2]) - gap)
 
@@ -103,9 +106,10 @@ def test_import_keeps_source_and_planes(make_element) -> None:
 def test_import_failure_leaves_state_untouched(make_element) -> None:
     state = _state_with_one_lens(make_element)
     elements_before = list(state.elements)
+    assert state.schema is not None
     keys_before = list(state.schema)
 
-    bad = {"lens1": {"surface1": {}, "surface2": {}}}  # missing material
+    bad: dict[str, Any] = {"lens1": {"surface1": {}, "surface2": {}}}  # missing material
     with pytest.raises(ValueError):
         state.import_elements(bad, radius=1.0)
 
@@ -116,5 +120,6 @@ def test_import_failure_leaves_state_untouched(make_element) -> None:
 def test_import_empty_is_a_noop(make_element) -> None:
     state = _state_with_one_lens(make_element)
     assert state.import_elements({}, radius=1.0) == []
+    assert state.schema is not None
     assert list(state.schema) == ["lens1"]
     assert len(state.elements) == 1

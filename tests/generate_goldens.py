@@ -16,10 +16,11 @@ from tests.golden_cases import build_all  # noqa: E402
 
 
 def main() -> None:
-    payload = {"version": 1, "cases": build_all()}
+    cases = build_all()
+    payload = {"version": 1, "cases": cases}
     out = ROOT / "tests" / "data" / "goldens.json"
     out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"wrote {out} ({len(payload['cases'])} cases)")
+    print(f"wrote {out} ({len(cases)} cases)")
 
 
 if __name__ == "__main__":

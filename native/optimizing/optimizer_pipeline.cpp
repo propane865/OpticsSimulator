@@ -62,7 +62,7 @@ void archive_insert(std::vector<Candidate>& archive, const double* xs,
 std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> medium_rerank(
     LayoutObjective& obj, const OptimizerSpec& spec, const std::vector<Candidate>& promoted,
     std::size_t k_medium, std::int64_t medium_budget, OptimizerDiagnostics& dg,
-    int& cand_threads) {
+    int& cand_threads, const LayoutObjective::Stats& coarse_best) {
     std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> ranked;
     const std::int64_t med_head = static_cast<std::int64_t>(promoted.size()) * kMaxFocusScanTraces;
     const bool med_parallel = spec.enable_candidate_concurrency && promoted.size() > 1 &&
@@ -82,6 +82,9 @@ std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> medium_reran
                 });
         }();
         obj.add_evals(used);
+        // Worker objectives never tick (they would call Python off-thread); the
+        // driver reports the fanned-back evaluations here.
+        obj.maybe_tick_progress(kRefinementGeneration, coarse_best);
         dg.medium_evals += static_cast<std::int64_t>(promoted.size());
         for (auto& r : res) {
             dg.rays_traced += static_cast<std::int64_t>(r.second.n_traced);
@@ -102,6 +105,7 @@ std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> medium_reran
             dg.medium_evals++;
             dg.rays_traced += static_cast<std::int64_t>(ms.n_traced);
             ranked.emplace_back(e.x, ms);
+            obj.maybe_tick_progress(kRefinementGeneration, coarse_best);
         }
     }
     if (ranked.empty()) {
@@ -132,9 +136,16 @@ struct FullValidation {
 FullValidation validate_full_batch(LayoutObjective& obj, const OptimizerSpec& spec,
                                    const std::vector<Candidate>& queue, std::size_t batch,
                                    std::size_t k_full, OptimizerDiagnostics& dg,
-                                   int& cand_threads) {
+                                   int& cand_threads, const LayoutObjective::Stats& coarse_best) {
     FullValidation res;
     res.best_full.cost = kBadCost;
+    // Validation bills whole-fan traces per candidate, so it must tick too:
+    // report the best full-fidelity layout so far, falling back to the coarse
+    // best while nothing has traced yet.
+    const auto tick = [&] {
+        obj.maybe_tick_progress(
+            kRefinementGeneration, res.best_full.cost < kBadCost ? res.best_full : coarse_best);
+    };
     const std::int64_t full_head = static_cast<std::int64_t>(batch) * kMaxFocusScanTraces;
     const bool full_parallel = spec.enable_candidate_concurrency && batch > 1 &&
                                obj.evals() + full_head <= spec.max_evals;
@@ -173,11 +184,13 @@ FullValidation validate_full_batch(LayoutObjective& obj, const OptimizerSpec& sp
         for (std::size_t i = 0; i < batch; ++i) {
             tally(queue[i].x, fs[i]);
         }
+        tick();
         cand_threads = std::max(
             cand_threads, static_cast<int>(effective_threads(spec.total_threads, batch)));
     } else {
         for (std::size_t i = 0; i < batch; ++i) {
             tally(queue[i].x, validate(queue[i].x));
+            tick();
         }
     }
     // No finalist focused: keep validating down the archive while a whole
@@ -187,6 +200,7 @@ FullValidation validate_full_batch(LayoutObjective& obj, const OptimizerSpec& sp
             break;
         }
         tally(queue[i].x, validate(queue[i].x));
+        tick();
     }
     std::stable_sort(res.passers.begin(), res.passers.end(),
                      [&](const auto& a, const auto& b) { return better_stats(spec, a.second, b.second); });
@@ -241,6 +255,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     };
     record(best_stats, best.data());
     out.history.push_back(best_stats.cost);
+    obj.maybe_tick_progress(0, best_stats);
 
     // Diverse archive of distinct coarse winners (kept sorted focus-first/cost).
     std::vector<Candidate> archive;
@@ -332,6 +347,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
         }
         out.diagnostics.full_evals++;
         out.diagnostics.rays_traced += static_cast<std::int64_t>(probe.n_traced);
+        obj.maybe_tick_progress(0, best_stats);
         if (probe.cost < kBadCost && focus_accepted(spec, probe)) {
             out.diagnostics.full_passes++;
             win_x = best_swept;
@@ -351,6 +367,9 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
                 continue;
             }
             if (!trial_survives(trial.data())) {
+                // Rejected trials still bill pilot traces: keep the tick
+                // evaluation-driven even when the whole population is rejected.
+                obj.maybe_tick_progress(gen, best_stats);
                 continue;
             }
             out.diagnostics.generated++;
@@ -387,6 +406,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             }
             out.diagnostics.full_evals++;
             out.diagnostics.rays_traced += static_cast<std::int64_t>(probe.n_traced);
+            obj.maybe_tick_progress(gen, best_stats);
             if (probe.cost < kBadCost && focus_accepted(spec, probe)) {
                 out.diagnostics.full_passes++;
                 win_x = best_swept;
@@ -450,7 +470,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
         medium_budget = std::max(coarse_budget, medium_budget);
         const std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> ranked =
             medium_rerank(obj, spec, promoted, k_medium, medium_budget, out.diagnostics,
-                          cand_threads);
+                          cand_threads, best_stats);
 
         // --- Finalist selection: distinct best medium candidates -------------
         std::vector<Candidate> finalists;
@@ -475,7 +495,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
         }
         const std::size_t batch = std::min(queue.size(), finalists.size());
         const FullValidation validation = validate_full_batch(
-            obj, spec, queue, batch, k_full, out.diagnostics, cand_threads);
+            obj, spec, queue, batch, k_full, out.diagnostics, cand_threads, best_stats);
 
         // Full-validation winner: the whole-fan passers decide, else the best
         // full (unfocused) candidate is reported so a failure still has a

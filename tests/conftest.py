@@ -97,7 +97,7 @@ def make_element():
         )
 
         def _surface(z_eq: str) -> dict:
-            entry = {
+            entry: dict[str, object] = {
                 "x": "u",
                 "y": "v",
                 "z": _parametric_equation(z_eq),

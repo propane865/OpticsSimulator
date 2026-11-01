@@ -36,6 +36,7 @@ void nelder_mead(LayoutObjective& obj, const OptimizerSpec& spec, std::vector<do
             x = simplex[i];
         }
     }
+    obj.maybe_tick_progress(kRefinementGeneration, best_stats);
     std::vector<std::size_t> order(d + 1);
     std::vector<double> centroid(d, 0.0);
     auto better = [&](std::size_t a, std::size_t b) { return better_stats(spec, fs[a], fs[b]); };
@@ -142,6 +143,10 @@ void nelder_mead(LayoutObjective& obj, const OptimizerSpec& spec, std::vector<do
             best_stats = fs[best_i];
             x = simplex[best_i];
         }
+        // The polish can bill hundreds of evaluations after the global search
+        // ended: tick once per iteration so the live log never goes silent
+        // during refinement (the interval gate sets the actual cadence).
+        obj.maybe_tick_progress(kRefinementGeneration, best_stats);
     }
 }
 

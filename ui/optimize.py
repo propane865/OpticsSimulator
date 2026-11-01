@@ -36,9 +36,10 @@ class LayoutOptimizer(QtCore.QObject):
     :attr:`finished` carries the ``OptimizationResult``, :attr:`failed` the
     exception text verbatim; both are emitted from the worker thread and
     delivered on the thread that owns this object. :attr:`progress` carries
-    ``(generation, cost, blur, evals)`` for every DE tick the native solver
-    reports while the search runs. One solve at a time -- :meth:`start` raises
-    while a run is in flight until :meth:`finish`.
+    ``(generation, cost, blur, evals)`` for every live tick the native solver
+    reports while the search runs -- the DE loop and the post-DE refinement
+    phases, which report ``generation`` -1. One solve at a time --
+    :meth:`start` raises while a run is in flight until :meth:`finish`.
     """
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:

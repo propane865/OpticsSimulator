@@ -931,8 +931,14 @@ class AnalysisEditor:
         bar.setValue(bar.maximum())
 
     def _on_optimize_progress(self, generation: int, cost: float, blur: float, evals: int) -> None:
-        """Append one DE-generation tick; delivered on the UI thread via the signal."""
-        self._append_log(f"generation {generation + 1:>4d}   best spot {blur:.4g} mm   cost {cost:.4g}   {evals} evals")
+        """Append one solver tick; delivered on the UI thread via the signal.
+
+        A negative generation marks the post-DE refinement phases (medium
+        re-rank, full validation, Nelder-Mead polish), which keep the search's
+        running best while no longer advancing generations.
+        """
+        phase = "refinement" if generation < 0 else f"generation {generation + 1:>4d}"
+        self._append_log(f"{phase}   best spot {blur:.4g} mm   cost {cost:.4g}   {evals} evals")
 
     def _on_optimized(self, result: OptimizationResult) -> None:
         """Commit the winning layout through the normal replace paths."""

@@ -7,6 +7,7 @@ import pytest
 
 from optics import _native
 from optics.config import refractive_element_from_config
+from optics.element import RefractiveElement
 from optics.importers.zmx import conic_sag_expression
 from optics.primitive import CircularAperture, Ray, Surface
 from optics.system import OpticalSystem
@@ -23,7 +24,7 @@ def _analytic(enabled: bool):
 
 
 def _surface_config(z: str, aperture: float | None = 0.75) -> dict:
-    entry = {
+    entry: dict[str, object] = {
         "x": "u",
         "y": "v",
         "z": z,
@@ -40,7 +41,7 @@ def _surface(z: str, aperture: float | None = 0.75) -> Surface:
                    aperture=None if aperture is None else CircularAperture(aperture))
 
 
-def _element(front: str, rear: str, n: float = 1.5) -> object:
+def _element(front: str, rear: str, n: float = 1.5) -> RefractiveElement:
     return refractive_element_from_config(
         {
             "surface1": _surface_config(front),

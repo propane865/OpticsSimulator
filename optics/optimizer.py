@@ -316,14 +316,19 @@ def optimize_layout(
     :attr:`OptimizationResult.window_limited`.
 
     ``progress_callback``, when given, is called as ``(generation, cost, blur,
-    evals)`` from the global DE loop roughly every 100 objective evaluations
-    (and once at the start), reporting the search's running best: the generation
-    index it was found in, its cost, the clipped spot radius at that best layout
-    (image-plane units), and total evaluations spent so far. The cadence is
+    evals)`` roughly every 100 objective evaluations (and once at the start)
+    from every phase that bills evaluations -- the global DE loop, the
+    full-fidelity focus probes, the medium re-rank, whole-fan validation and
+    the Nelder-Mead polish -- reporting the search's running best: its cost,
+    the clipped spot radius at that best layout (image-plane units), and total
+    evaluations spent so far. ``generation`` is the DE generation the running
+    best was found in, or ``-1`` for ticks after the global search ended (the
+    medium/validation/polish refinement phases). The cadence is
     evaluation-driven, so it holds regardless of population size or per-candidate
-    focus-scan cost, and the generation value can repeat across ticks. It fires
-    only while the search runs -- never after it ends -- and (under the pipeline)
-    on reduced-fidelity values.
+    focus-scan cost, the generation value can repeat across ticks, and no phase
+    can run unticked. It fires only while the search runs -- never after it ends
+    -- and (under the pipeline) on reduced-fidelity values, except validation
+    ticks, which report the whole-fan best.
     """
     layout = optimization if optimization is not None else LensOptimization()
     if source_plane is image_plane:
