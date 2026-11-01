@@ -30,6 +30,16 @@ constexpr double kDeCr = 0.9;
 constexpr double kBlurRefFloor = 1e-12;  // guard so a zero blur_ref never divides
 constexpr std::size_t kNoSlot = std::numeric_limits<std::size_t>::max();
 
+// The nested focus scan's per-candidate trace budget, in bracket samples and
+// golden-section refinement steps (``focus_plane`` consumes exactly
+// ``samples + 2 + max_iter`` traced evaluations: the coarse bracket scan, the
+// two initial interior points and one per refinement step). The validation-
+// fidelity scan is the deeper one, so its numbers set ``kMaxFocusScanTraces``.
+constexpr int kCoarseScanSamples = 5;
+constexpr int kCoarseScanRefines = 8;
+constexpr int kFineScanSamples = 7;
+constexpr int kFineScanRefines = 16;
+
 inline double clamp_box(double v, double lo, double hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
@@ -284,8 +294,8 @@ class LayoutObjective {
             return;
         }
         const bool fine = rays == 0 || rays >= n_rays_;
-        const int samples = fine ? 7 : 5;
-        const int max_iter = fine ? 16 : 8;
+        const int samples = fine ? kFineScanSamples : kCoarseScanSamples;
+        const int max_iter = fine ? kFineScanRefines : kCoarseScanRefines;
         const double tol = fine ? 1e-4 : 1e-3;
         std::vector<Stats> scan(static_cast<std::size_t>(samples));
         std::vector<double> zs(static_cast<std::size_t>(samples));
@@ -591,11 +601,13 @@ class LayoutObjective {
     std::size_t trace_max_shared_ = 0;
 };
 
-// Upper bound on the traced evaluations one candidate's 1-D focus scan can issue
-// (coarse bracket samples + golden-section refinement). Used to prove a stage
-// has enough budget headroom that no per-evaluation ``max_evals`` early-out can
+// Upper bound on the traced evaluations one candidate's 1-D focus scan can
+// issue, derived from ``focus_plane``'s own scan constants (the fine scan is
+// the deeper of the two; the coarse scan is bounded by
+// ``kCoarseScanSamples + kCoarseScanRefines + 2``). Used to prove a stage has
+// enough budget headroom that no per-evaluation ``max_evals`` early-out can
 // fire mid-candidate -- which would make a concurrent run diverge from serial.
-constexpr std::int64_t kMaxFocusScanTraces = 25;
+constexpr std::int64_t kMaxFocusScanTraces = kFineScanSamples + kFineScanRefines + 2;
 
 // Accumulates the wall time of one diagnostic phase into its counter.
 class PhaseTimer {
