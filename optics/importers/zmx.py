@@ -170,11 +170,58 @@ def _is_glass(name: str) -> bool:
     return name.strip().upper() not in _AIR_GLASS
 
 
+def _read_surf_with_glass(
+    surface: ZmxSurface, rest: list[str], numeric: "list[float | None]", curvature: float, thickness: float
+) -> None:
+    """Fill a surface from the glass-column layout ``curv thick glass semi conic coeff...``.
+
+    ``numeric`` is the already-parsed tail after the surface type, so the
+    glass name is the column whose numeric slot (index 2) is not a number;
+    the name itself lives in ``rest`` at the same position.
+    """
+    surface.curvature = curvature
+    surface.thickness = thickness
+    surface.glass = _unquote(rest[3]).strip()
+    surface.semi_diameter = numeric[3] or 0.0
+    conic = numeric[4] if len(numeric) > 4 else None
+    surface.conic = conic if conic is not None else 0.0
+    for value in numeric[5:]:
+        if value:
+            surface.coefficients.append(value)
+
+
+def _read_surf_air_space(
+    surface: ZmxSurface, numeric: "list[float | None]", curvature: float, thickness: float,
+    semi_diameter: float, warn: Callable[[str], None],
+) -> None:
+    """Fill a surface from the no-glass-column layout ``curv thick semi conic coeff...``.
+
+    The third column is the semidiameter (``semi_diameter``), not a glass
+    name, so the space is imported as air (and the caller is told).
+    """
+    warn("Surface line without a glass column; the space was imported as air")
+    surface.curvature = curvature
+    surface.thickness = thickness
+    surface.semi_diameter = semi_diameter
+    conic = numeric[3] if len(numeric) > 3 else None
+    surface.conic = conic if conic is not None else 0.0
+    for value in numeric[4:]:
+        if value:
+            surface.coefficients.append(value)
+
+
 def _parse_surf(
     fields: list[str],
     prescription: ZmxPrescription,
     warn: Callable[[str], None],
 ) -> ZmxSurface:
+    """Parse one SURF line into a :class:`ZmxSurface`.
+
+    The line is ``SURF <number> [comment] <type>`` followed by either the
+    glass-column or the air-space numeric layout (see the two ``_read_surf_*``
+    helpers); the trailing layouts are what distinguish a glass from an air
+    gap.
+    """
     surface = ZmxSurface(index=len(prescription.surfaces))
     rest = fields[1:]
     if not rest:
@@ -200,25 +247,9 @@ def _parse_surf(
     if curvature is not None and thickness is not None:
         glass = numeric[2] if len(numeric) > 2 else None
         if glass is None and len(numeric) >= 4:
-            surface.curvature = curvature
-            surface.thickness = thickness
-            surface.glass = _unquote(rest[3]).strip()
-            surface.semi_diameter = numeric[3] or 0.0
-            conic = numeric[4] if len(numeric) > 4 else None
-            surface.conic = conic if conic is not None else 0.0
-            for value in numeric[5:]:
-                if value:
-                    surface.coefficients.append(value)
+            _read_surf_with_glass(surface, rest, numeric, curvature, thickness)
         elif glass is not None and len(numeric) >= 3:
-            warn("Surface line without a glass column; the space was imported as air")
-            surface.curvature = curvature
-            surface.thickness = thickness
-            surface.semi_diameter = glass
-            conic = numeric[3] if len(numeric) > 3 else None
-            surface.conic = conic if conic is not None else 0.0
-            for value in numeric[4:]:
-                if value:
-                    surface.coefficients.append(value)
+            _read_surf_air_space(surface, numeric, curvature, thickness, glass, warn)
     prescription.surfaces.append(surface)
     return surface
 
@@ -348,9 +379,8 @@ def _apply_keyword(
         warn(f"Unsupported ZMX keyword {tag!r} ignored")
 
 
-def _read_text(path: str | Path) -> str:
-    """Decode a ZMX file, honouring the UTF-16 (with BOM) that Zemax writes."""
-    data = Path(path).read_bytes()
+def _decode_zmx_bytes(data: bytes) -> str:
+    """Decode ZMX bytes, honouring the UTF-16 (with BOM) that Zemax writes."""
     if data[:2] == b"\xff\xfe":
         return data.decode("utf-16-le", errors="replace").lstrip("\ufeff")
     if data[:2] == b"\xfe\xff":
@@ -363,6 +393,11 @@ def _read_text(path: str | Path) -> str:
         except UnicodeDecodeError:
             pass
     return data.decode("utf-8", errors="replace")
+
+
+def _read_text(path: str | Path) -> str:
+    """Read a ZMX file and decode its text (see :func:`_decode_zmx_bytes`)."""
+    return _decode_zmx_bytes(Path(path).read_bytes())
 
 
 def _warn_dedup(messages: list[str]) -> "Callable[[str], None]":
