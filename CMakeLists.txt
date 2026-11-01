@@ -34,7 +34,10 @@ add_library(optics_core OBJECT
   native/measurement/measurement.cpp
   native/measurement/reconstruct.cpp
   native/optimizing/fit.cpp
-  native/optimizing/optimizer.cpp)
+  native/optimizing/optimizer_objective.cpp
+  native/optimizing/optimizer_de.cpp
+  native/optimizing/optimizer_legacy.cpp
+  native/optimizing/optimizer_pipeline.cpp)
 target_include_directories(optics_core PUBLIC native/include)
 target_compile_options(optics_core PUBLIC
   $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffp-contract=off>)
