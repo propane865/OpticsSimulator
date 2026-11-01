@@ -1,7 +1,10 @@
 import base64
 import io
+import os
 import re
 from pathlib import Path
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
@@ -113,3 +116,55 @@ def make_element():
         return refractive_element_from_config(config, orientation)
 
     return _make
+
+
+# --- Qt fixtures (consumed by the test_ui_* modules) --------------------------
+
+
+@pytest.fixture(scope="module")
+def qt_app():
+    """Shared QApplication with vispy's PySide6 backend selected."""
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from vispy import app as vispy_app
+
+    vispy_app.use_app("pyside6")
+    yield app
+
+
+@pytest.fixture
+def make_window(qt_app):
+    """Factory for main windows, all closed at teardown."""
+    from ui.app import OpticsMainWindow, make_display
+
+    created = []
+
+    def _make(canvas=None):
+        window = OpticsMainWindow(make_display([], []) if canvas is None else canvas)
+        created.append(window)
+        return window
+
+    yield _make
+    for window in created:
+        window.close()
+
+
+@pytest.fixture
+def window(make_window):
+    return make_window()
+
+
+@pytest.fixture
+def captured_warnings(monkeypatch):
+    """Records (and suppresses) QMessageBox.warning calls for a test."""
+    from PySide6 import QtWidgets
+
+    calls = []
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: calls.append(args)),
+    )
+    return calls

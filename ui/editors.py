@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import base64
 import copy
-import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -30,7 +29,7 @@ from optics.config import (
     refractive_element_from_config,
 )
 from optics.measurement_plane import MeasurementPlane
-from optics.optimizer import LensOptimization, OptimizationResult, optimize_layout
+from optics.optimizer import LensOptimization, OptimizationResult
 from optics.plane_transform import plane_transform
 from optics.project import (
     DEFAULT_MAX_GRID_DIM,
@@ -48,6 +47,7 @@ from optics.source import (
 
 from . import imagecodec
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState, classify_element_edit
+from .optimize import LayoutOptimizer
 from .scene import SceneController
 from .widgets import configure_spin, enable_widgets, find_child, run_validated
 
@@ -601,13 +601,6 @@ class PlaneEditor(_SelectorEditor):
         return name
 
 
-class _OptimizeSignals(QtCore.QObject):
-    """Worker-thread -> UI-thread marshalling for the layout optimizer."""
-
-    finished = QtCore.Signal(object)
-    failed = QtCore.Signal(str)
-
-
 class AnalysisEditor:
     """Controller for the Analysis tab's plane-to-plane image transform.
 
@@ -684,14 +677,15 @@ class AnalysisEditor:
 
         self._optimizing = False
         self._locked: set[str] = set()
-        self._signals = _OptimizeSignals()
-        self._signals.finished.connect(self._on_optimized)
-        self._signals.failed.connect(self._on_optimize_failed)
+        self._optimizer = LayoutOptimizer()
+        self._optimizer.finished.connect(self._on_optimized)
+        self._optimizer.failed.connect(self._on_optimize_failed)
 
         self._run_button.clicked.connect(self.run)
         self._optimize_button.clicked.connect(self._on_optimize)
         self._source_combo.currentIndexChanged.connect(self._update_run_enabled)
         self._image_combo.currentIndexChanged.connect(self._update_run_enabled)
+        self._lock_table.itemChanged.connect(self._on_lock_changed)
         self._lock_table.itemChanged.connect(self._update_run_enabled)
         self.populate()
 
@@ -732,12 +726,13 @@ class AnalysisEditor:
         """Refill the lock table from the element stack, keeping locks by name.
 
         One row per stack element in stack order, the element name in column 0
-        and a checkable "Locked?" cell in column 1. Checks survive refills
-        (matched by element name), so adding or removing a lens never relocks
+        and a checkable "Locked?" cell in column 1. The ``self._locked`` set is
+        the one source of truth (the table only mirrors it and feeds it through
+        :meth:`_on_lock_changed`), so adding or removing a lens never relocks
         the remaining ones; names that left the stack are dropped.
         """
         names = list((self._state.schema or {}).keys())
-        self._locked = set(self._locked_names()) & set(names)
+        self._locked &= set(names)
         self._lock_table.blockSignals(True)
         self._lock_table.setRowCount(len(names))
         for row, name in enumerate(names):
@@ -753,22 +748,21 @@ class AnalysisEditor:
             self._lock_table.setItem(row, 1, lock)
         self._lock_table.blockSignals(False)
 
-    def _locked_names(self) -> list[str]:
-        """Names of the checked rows, in table (stack) order."""
-        locked: list[str] = []
-        for row in range(self._lock_table.rowCount()):
-            name_item = self._lock_table.item(row, 0)
-            lock_item = self._lock_table.item(row, 1)
-            if name_item is None or lock_item is None:
-                continue
-            if lock_item.checkState() == QtCore.Qt.CheckState.Checked:
-                locked.append(name_item.text())
-        return locked
+    def _on_lock_changed(self, item: QtWidgets.QTableWidgetItem) -> None:
+        """Mirror a lock-table checkbox into the lock set (the table's source)."""
+        if item.column() != 1:
+            return
+        name_item = self._lock_table.item(item.row(), 0)
+        if name_item is None:
+            return
+        if item.checkState() == QtCore.Qt.CheckState.Checked:
+            self._locked.add(name_item.text())
+        else:
+            self._locked.discard(name_item.text())
 
     def _free_element_names(self) -> list[str]:
         """Unlocked stack elements, in stack order (the optimizer's free set)."""
-        locked = set(self._locked_names())
-        return [name for name in (self._state.schema or {}) if name not in locked]
+        return [name for name in (self._state.schema or {}) if name not in self._locked]
 
     def run(self) -> None:
         """Compute and display the source -> image plane transform."""
@@ -850,26 +844,17 @@ class AnalysisEditor:
             image_bounds = (z_image, z_image)
         self._set_optimizing(True)
         self._set_status("Optimizing layout (this can take a minute)...")
-
-        def worker() -> None:
-            try:
-                result = optimize_layout(
-                    schema_snapshot,
-                    source_plane,
-                    image_plane,
-                    origins,
-                    dirs,
-                    powers,
-                    free_element_names=free,
-                    image_bounds=image_bounds,
-                    optimization=spec,
-                )
-            except Exception as exc:  # surfaced verbatim on the UI thread
-                self._signals.failed.emit(str(exc))
-            else:
-                self._signals.finished.emit(result)
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._optimizer.start(
+            schema_snapshot,
+            source_plane,
+            image_plane,
+            origins,
+            dirs,
+            powers,
+            free_element_names=free,
+            image_bounds=image_bounds,
+            optimization=spec,
+        )
 
     def _set_optimizing(self, running: bool) -> None:
         self._optimizing = running
@@ -886,6 +871,7 @@ class AnalysisEditor:
 
     def _on_optimized(self, result: OptimizationResult) -> None:
         """Commit the winning layout through the normal replace paths."""
+        self._optimizer.finish()
         self._set_optimizing(False)
         schema = self._state.schema
         if schema is None:
@@ -924,5 +910,6 @@ class AnalysisEditor:
             )
 
     def _on_optimize_failed(self, message: str) -> None:
+        self._optimizer.finish()
         self._set_optimizing(False)
         self._set_status(f"Optimization failed: {message}")
