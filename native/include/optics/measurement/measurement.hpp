@@ -10,6 +10,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -90,6 +91,15 @@ double accumulate_power(double* grid, const double* u, const double* v, const do
 std::optional<std::array<double, 3>> plane_hit_local(const Vec3& ro, const Vec3& d, const Vec3& o,
                                                      const Vec3& n, const PlaneFrame& frame,
                                                      double eps);
+
+// Single-hit validity: finite ``(u, v)``, inside the plane extent and
+// positive power. The one shared predicate behind every correspondence
+// mask (``valid_hits_mask`` and the native objective's two-plane gather).
+inline bool hit_valid(double u, double v, double pw, double u_min, double u_max, double v_min,
+                      double v_max) {
+    return std::isfinite(u) && std::isfinite(v) && u >= u_min && u <= u_max && v >= v_min &&
+           v <= v_max && pw > 0.0;
+}
 
 // Hit-validity predicate over flat ``(u, v)`` detector coordinates and
 // powers: finite ``(u, v)``, inside the plane extent and positive power.

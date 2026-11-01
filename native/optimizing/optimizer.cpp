@@ -378,8 +378,10 @@ class LayoutObjective {
         const std::int32_t* group_ptr = lvl.natural ? spec_.groups : lvl.groups.data();
         measure_planes_multi(variant, fan, planes_view_, spec_.plane_eps, out);
 
-        // Shared valid correspondences (the ``valid_hits_mask`` predicate,
-        // also used by ``plane_transform`` and the Python optimizer checks).
+        // Shared valid correspondences (the ``hit_valid`` predicate behind
+        // ``valid_hits_mask``, also used by ``plane_transform`` and the
+        // Python optimizer checks): a pair only counts when both planes see
+        // the ray.
         const double* ua = us_.data();
         const double* ub = us_.data() + n;
         const double* va = vs_.data();
@@ -391,10 +393,8 @@ class LayoutObjective {
         dst_group_.clear();
         dst_power_.clear();
         for (std::size_t i = 0; i < n; ++i) {
-            if (!(std::isfinite(ua[i]) && std::isfinite(va[i]) && ua[i] >= umin_[0] &&
-                  ua[i] <= umax_[0] && va[i] >= vmin_[0] && va[i] <= vmax_[0] && pa[i] > 0.0 &&
-                  std::isfinite(ub[i]) && std::isfinite(vb[i]) && ub[i] >= umin_[1] &&
-                  ub[i] <= umax_[1] && vb[i] >= vmin_[1] && vb[i] <= vmax_[1] && pb[i] > 0.0)) {
+            if (!hit_valid(ua[i], va[i], pa[i], umin_[0], umax_[0], vmin_[0], vmax_[0]) ||
+                !hit_valid(ub[i], vb[i], pb[i], umin_[1], umax_[1], vmin_[1], vmax_[1])) {
                 continue;
             }
             src_.push_back(ua[i]);

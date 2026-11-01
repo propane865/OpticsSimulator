@@ -177,10 +177,7 @@ void valid_hits_mask(const double* us, const double* vs, const double* pws, std:
                      double u_min, double u_max, double v_min, double v_max,
                      unsigned char* out) {
     for (std::size_t i = 0; i < n; ++i) {
-        out[i] = std::isfinite(us[i]) && std::isfinite(vs[i]) && us[i] >= u_min &&
-                         us[i] <= u_max && vs[i] >= v_min && vs[i] <= v_max && pws[i] > 0.0
-                     ? 1
-                     : 0;
+        out[i] = hit_valid(us[i], vs[i], pws[i], u_min, u_max, v_min, v_max) ? 1 : 0;
     }
 }
 
