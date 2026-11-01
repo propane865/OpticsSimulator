@@ -3,7 +3,8 @@
 An interactive, parametric ray-tracing optics simulator. Define lenses as
 parametric surfaces, trace rays through refractive stacks (including total
 internal reflection and sidewalls), and visualize the result and measurement
-planes in a 3D viewport.
+planes in a 3D viewport. Import lenses from Zemax `.zmx` prescriptions and
+sweep the layout for best focus with the built-in optimizer.
 
 ## Installation
 
@@ -35,8 +36,12 @@ python -m ui.app
 ```
 
 The window loads the bundled `optics/examples/doublet.json` by default
-(`triplet.json` is bundled as well). Use **File -> Open** to load another
-stack and **File -> Save As** to write one back.
+(`triplet.json` is bundled as well). Use **File -> Open** to load a saved
+project document (legacy element-only stacks are accepted too), **File ->
+Save As** to write one back, and **File -> Import Zemax** to merge the
+lenses of a `.zmx` prescription into the open project. The analysis panel's
+**Optimize Layout** button sweeps the z of every unlocked element -- and
+optionally the image plane -- for best focus.
 
 To view the example stack without the full UI:
 
@@ -52,19 +57,29 @@ as `optics._native` (type stubs in `optics/_native.pyi`). NumPy is used for
 array buffers only.
 
 - `native/`: C++17 kernels (built as the `optics_core` object library and the
-  `_native` pybind11 module), layered `common ← expression ← geometry ←
-  intersection ← tracing ← measurement`, with headers under
-  `include/optics/<module>/` and sources in per-module directories:
+  `_native` pybind11 module, whose bindings live in `native/bindings/`),
+  layered `common ← expression ← geometry ← intersection ← tracing ←
+  measurement ← optimizing`, with headers under `include/optics/<module>/`
+  and sources in per-module directories:
   - `expression/`: parser/validator for the restricted surface-expression
     grammar plus an interpreter over the lowered expression tree
   - `geometry/`: surface models and descriptors — expression evaluation,
     finite-difference tangents, aperture membership and world-space normals
-  - `intersection/`: seed-grid accelerated damped-Newton ray/surface
-    intersection, parameter inversion and the plane/mesh primitives
-  - `tracing/`: element contexts, refraction/total internal reflection,
-    the element/stack walk and the shared single-trace hop recording
-  - `measurement/`: plane power accumulation, direct/stacked plane
-    measurement and the fused trace+planes batch pass
+  - `intersection/`: ray/surface intersection — seed-grid accelerated
+    damped-Newton for generic surfaces plus construction-time classified
+    closed-form (plane/conic) and guarded 1D (asphere) sag-graph solvers
+    with analytic normals — parameter inversion, rim mesh generation and
+    the plane/mesh primitives
+  - `tracing/`: persistent element and trace-stack state, refraction/total
+    internal reflection, the element/stack walk and the shared single-trace
+    hop recording
+  - `measurement/`: plane power accumulation, adaptive-kernel (Wendland C²)
+    irradiance reconstruction, direct/stacked plane measurement and the
+    fused trace+planes batch pass
+  - `optimizing/`: best-focus layout solver — Latin-hypercube-initialized
+    bounded differential evolution plus a gated Nelder–Mead polish over
+    transform-only stack variants, with the pooled per-object-point
+    spot-radius fit as the focus measure
   - `common/`: vector/matrix math and small-system linalg (`rotation_from_z`
     incl.), parallel dispatch (native threading), `constants.hpp`;
     `-ffp-contract=off` keeps floating-point evaluation order faithful to
@@ -86,27 +101,45 @@ array buffers only.
     immutable element stack owning one persistent native trace stack, with
     batched parallel tracing, measurement and the fused segments+planes pass
   - `measurement_plane.py`: planar detector accumulating ray power (native
-    accumulation, fused with tracing when a system is traced)
+    accumulation and adaptive-kernel reconstruction, fused with tracing when
+    a system is traced)
+  - `plane_transform.py`: best 2D similarity (magnification, rotation,
+    offset) fitted to the per-ray hit correspondence between two planes
   - `constants.py`: numerical tolerances and solver defaults
   - `source.py`: point sources and ray emission
   - `config.py`: JSON → element/stack loading
+  - `io.py`: JSON project-document loading (Zemax `.zmx` is import-only)
   - `project.py`: versioned project documents (elements + source + measurement planes)
+  - `optimizer.py`: `optimize_layout` best-focus optimization of the free
+    elements' z and the image plane (native DE + gated Nelder–Mead, with a
+    focus-acceptance contract on the returned layout)
+  - `importers/zmx.py`: Zemax `.zmx` prescription parser → element configs
+    and geometry, merged into an open project (never a project loader)
   - `examples/`: bundled example stacks (`doublet.json`, `triplet.json`)
 - `rendering/`: vispy meshing (`meshing.py`, with a geometry-signature cache
-  so editing a lens reuses identical local meshes), scene building
-  (`visualize.py`), and a standalone demo (`demo.py`)
+  so editing a lens reuses identical local meshes), the shared viridis
+  colormap LUT/normalization behind the detector meshes and the 2D plane
+  view (`colormaps.py`), scene building (`visualize.py`), and a standalone
+  demo (`demo.py`)
 - `ui/`: PySide6 desktop application (`main.ui` is the Qt Designer layout):
-  - `app.py`: composition root — `OpticsMainWindow`, project load/save and
-    menu dialogs, plus `make_display`/`main` entry points; a unified refresh
-    runs one combined native trace pass serving both the rendered rays and
-    every measurement plane
-  - `model.py`: Qt-free `ProjectState` (element/source/plane state, unified
-    naming, edit classification for the fast lens-edit path, and
-    versioned-document load/save via `optics.project`)
+  - `app.py`: composition root — `OpticsMainWindow`, project load/save,
+    Zemax import merge and menu dialogs, plus `make_display`/`main` entry
+    points; a unified refresh runs one combined native trace pass serving
+    both the rendered rays and every measurement plane
+  - `model.py`: Qt-free `ProjectState` (element/source/plane state incl.
+    planes locked to the source, unified naming, edit classification for
+    the fast lens-edit path, and versioned-document load/save via
+    `optics.project`)
   - `scene.py`: `SceneController` — vispy view + node bookkeeping for elements,
     rays, the source marker and measurement planes
   - `editors.py`: `ElementEditor`/`SourceEditor`/`PlaneEditor` controllers over
-    the dock widgets (populate/apply/add/remove)
+    the dock widgets (populate/apply/add/remove) and `AnalysisEditor`
+    driving the Optimize Layout panel (element z-lock table, image-plane
+    lock, progress and result log)
+  - `optimize.py`: `LayoutOptimizer` worker thread running
+    `optimize_layout` and marshalling results back onto the UI thread
+  - `plane_view.py`: 2D colormap view of a measurement plane's detector
+    image (letterboxed `QImage` raster, viridis like the 3D mesh)
   - `widgets.py`: shared PySide6 helpers (`find_child`, `configure_spin`,
     `enable_widgets`, `run_validated`)
 
@@ -250,14 +283,16 @@ does).
 
 ## Benchmarks
 
-Standalone perf scripts (no extra dependencies) used to judge architecture
-changes against real numbers; run them from the repo root:
+Standalone perf scripts (no extra dependencies, sharing the
+`bench_common.py` harness) used to judge architecture changes against real
+numbers; run them from the repo root:
 
 ```bash
-python benchmarks/benchmark_system.py        # refactor regression matrix: construction, 1/100/10k rays tracing + measurement
+python benchmarks/benchmark_system.py        # regression matrix: construction, 1/100/10k rays tracing + measurement
 python benchmarks/benchmark_intersection.py  # 1 surface x 10k rays, native kernel, setup stages broken out
-python benchmarks/benchmark_trace.py         # 1 element x 10k rays: native per-ray, prebuilt ctx, native batch
+python benchmarks/benchmark_trace.py         # 1 element x 10k rays: persistent-system per-ray, per-ray with rebuild, native batch
 python benchmarks/benchmark_stack.py         # 2 elem x 10k and 4 elem x 100k: batch tracing (native threads), cold vs warm
+python benchmarks/benchmark_scale.py         # scale: 10-element stack trace, fused pass with 1/4/16/64 planes, 1k-64k batch-size sweep
 python benchmarks/benchmark_codegen.py       # stage-level profile of surface compilation (C++ parse + first eval passes)
 python benchmarks/profile_lens_edit.py       # lens create/modify hot path: per-phase breakdown, scaling matrix, cProfile
 python benchmarks/profile_optimizer.py       # layout optimization: solve stages, DE/polish split, scaling matrix, cProfile
@@ -266,13 +301,15 @@ python benchmarks/profile_optimizer.py       # layout optimization: solve stages
 The three tracing benchmarks (`intersection`, `trace`, `stack`) print a
 per-scenario table with rays/sec and ns/ray; `profile_lens_edit.py` reports
 per-phase times plus a unified-apply scaling matrix over element/plane/ray
-counts. All of them share `--rays/--repeats/--warmup/--budget` (the repeat
-budget caps cumulative timed seconds per scenario), `--json out.json` for
-machine-readable output, and `--cold` to additionally re-run itself in a
-fresh subprocess interpreter; the native kernels carry no JIT cache, so cold
-runs are dominated by interpreter start-up and first-call setup.
-`benchmark_stack.py` adds `--two-rays`/`--four-rays` (both stack sizes share
-one native code path, so there is nothing to re-compile between sizes);
+counts. All scripts built on the `bench_common` arg parser share
+`--rays/--repeats/--warmup/--budget` (the repeat budget caps cumulative
+timed seconds per scenario), `--json out.json` for machine-readable output,
+and `--cold` to additionally re-run itself in a fresh subprocess
+interpreter; the native kernels carry no JIT cache, so cold runs are
+dominated by interpreter start-up and first-call setup.
+`benchmark_stack.py` adds `--two-rays`/`--four-rays` ray-count overrides for
+its 2- and 4-element scenarios; `benchmark_scale.py` adds
+`--stack-rays`/`--plane-rays`;
 `benchmark_intersection.py` adds `--surface-kind native|sphere|conic|evenasph|oddasph|generic|all`;
 `benchmark_trace.py` adds `--element-kind native|sphere|conic|evenasph|oddasph|mixed|all`; and
 `profile_lens_edit.py` adds `--elements/--planes/--mesh-n/--no-cprofile`.
@@ -291,22 +328,22 @@ budget; extra flags are `--generations`, `--nm`, `--evals`, `--population`,
 a couple of minutes -- shrink it with `--rays` and `--budget`.
 `benchmark_codegen.py` times compilation stages in isolated child processes
 and takes `--surfaces` (a scenario list), `--json` and `--quiet`. Setup costs
-(expression compilation, seed grids, context build) are timed separately from
-the ray loops; ray fans are deterministically seeded.
+(expression compilation, first eval passes, surface descriptor build) are
+timed separately from the ray loops; ray fans are deterministically seeded.
 
 ### Performance baseline
 
-`benchmarks/BASELINE.json` is the checked-in performance contract (rows from
-`benchmark_system.py` plus the other scripts, with capture metadata). During
-the architecture refactor every change is measured against it with a 10%
-threshold: nothing may regress, and the persistent-native-object phases are
-expected to *improve* the construction and per-call-context rows.
+`benchmarks/BASELINE.json` is the performance contract: rows from the
+benchmark scripts (the fast `system`/`trace`/`intersection` set plus the
+slow `stack`/`codegen`/`scale` set, with capture metadata), diffed with a
+10% threshold -- nothing may regress, and the persistent-native-object
+phases are expected to *improve* the construction and per-call-context
+rows. It is generated locally by `capture_baseline.py` and not checked into
+the repo; `check_baseline.py` points at it when missing.
 
 ```bash
 python benchmarks/check_baseline.py      # re-run the system matrix, diff vs BASELINE.json (fails on regression)
-python benchmarks/check_baseline.py --advisory   # same, but never fails (used by the advisory CI job)
-python benchmarks/capture_baseline.py    # rebaseline after an intended, reviewed change
+python benchmarks/check_baseline.py --advisory   # same, but never fails (for noisy shared runners)
+python benchmarks/check_baseline.py --script all --big   # diff every report, incl. the 100k-ray rows
+python benchmarks/capture_baseline.py    # rebaseline after an intended, reviewed change (--skip-slow for the fast set)
 ```
-
-The `Benchmarks vs baseline` CI job runs `check_baseline.py --advisory` and
-uploads the report; it never blocks a merge (shared-runner timing is noisy).

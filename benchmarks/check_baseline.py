@@ -1,10 +1,10 @@
-"""Compare a fresh run of the system matrix against the checked-in baseline.
+"""Compare a fresh run of the system matrix against the local baseline.
 
     python benchmarks/check_baseline.py [--threshold 0.10] [--big] [--advisory]
 
 Rows faster than ``baseline * (1 - threshold)`` are reported as improvements
-and slower than ``baseline * (1 + threshold)`` as regressions. The refactor
-rule: nothing regresses; persistent-native-object phases are expected to show
+and slower than ``baseline * (1 + threshold)`` as regressions. The rule:
+nothing regresses; persistent-native-object phases are expected to show
 improvements on the construction and per-call context rows. ``--advisory``
 downgrades regressions to a warning (exit code 0) for noisy shared runners.
 """

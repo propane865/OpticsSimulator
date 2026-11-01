@@ -2,7 +2,7 @@
 
     python benchmarks/capture_baseline.py [--skip-slow]
 
-``BASELINE.json`` is the checked-in performance contract the refactor is
+``BASELINE.json`` is the locally generated performance contract changes are
 measured against (10% threshold, see ``check_baseline.py``).
 """
 
