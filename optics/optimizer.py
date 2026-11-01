@@ -53,6 +53,7 @@ import numpy as np
 from . import _native
 from ._util import coerce_ray_arrays
 from .config import element_position, stack_from_config
+from .constants import PLANE_EPS
 from .measurement_plane import MeasurementPlane, arrays_to_rays
 from .plane_transform import PlaneTransform, plane_transform
 from .project import plane_from_config, plane_to_config
@@ -102,6 +103,9 @@ class LensOptimization:
 
     weight_focus: float = 1.0
     weight_vignette: float = 1.0
+    # Stacking-order penalty weight (smooth, not clipping; see the native
+    # ``w_order``).
+    weight_order: float = 1e3
     # Tiny pull toward the starting layout: jointly translating the whole
     # assembly (lenses + plane) leaves the focus metric invariant -- and moving
     # a lens is nearly free of focus cost once the image plane follows it -- so
@@ -109,6 +113,11 @@ class LensOptimization:
     anchor_weight: float = 1e-6
     min_correspondence_fraction: float = 0.5
     min_gap: float = _DEFAULT_MIN_GAP
+    # Destination-plane intersection epsilon (native plane-tracing tolerance).
+    plane_eps: float = PLANE_EPS
+    # Sigma-clipping of the clipped similarity fit behind the focus merit.
+    clip_iterations: int = 3
+    clip_sigma: float = 3.0
     # Focus acceptance tolerances (normalized by the source-plane footprint).
     max_normalized_blur: float = 0.10
     blur_all_factor: float = 2.0
@@ -135,6 +144,10 @@ class LensOptimization:
     generations: int = 200
     max_evals: int = 5000
     nm_iterations: int = 1000
+    # Nelder-Mead convergence: relative simplex spread (fraction of box span)
+    # and cost tolerance.
+    xatol: float = 1e-6
+    fatol: float = 1e-10
     # DE leaves the global search once no candidate improved for this many
     # generations.
     stall_generations: int = 60
@@ -156,9 +169,16 @@ class LensOptimization:
     ray_medium: int = 3072
     ray_full: int = 0
     min_rays_per_group: int = 8
+    # Pilot: reject a trial only when no plane position in its window yields
+    # this many valid correspondences (catastrophic rejection, deliberately
+    # loose).
+    pilot_min_shared: int = 4
     finalist_count: int = 4
     archive_size: int = 16
     archive_min_dist: float = 0.05
+    # Promote an archived candidate to the medium stage when its coarse
+    # objective is at most this multiple of the coarse best.
+    promotion_factor: float = 3.0
     # Opt-in candidate concurrency: fan the independent medium-re-rank and full
     # validation stages across worker threads (each traces its ray fan inline).
     # Off by default so results stay single-threaded; enabling it never changes
@@ -395,8 +415,11 @@ def optimize_layout(
     pipeline_on = bool(layout.enable_pipeline) and int(layout.ray_coarse) < n_rays
 
     # The optimizer walks the persistent native stack directly; the variant
-    # elements it sweeps share this system's compiled surfaces.
-    outcome = _native.optimize_layout(
+    # elements it sweeps share this system's compiled surfaces. The problem
+    # (geometry, box, ray fan) and the tuning knobs travel as one object each;
+    # every knob is passed explicitly, so the native defaults are a direct
+    # native-call convenience, never a silent influence on this wrapper.
+    problem = _native.OptimizeProblem(
         system._stack,
         indices,
         x_init,
@@ -418,35 +441,45 @@ def optimize_layout(
         t_v,
         groups,
         dest_plane=1,
-        w_focus=float(layout.weight_focus),
-        blur_ref=blur_ref,
-        min_fraction=float(layout.min_correspondence_fraction),
-        w_vignette=float(layout.weight_vignette),
-        w_anchor=float(layout.anchor_weight),
-        seed=int(layout.seed),
-        population=int(layout.population),
-        generations=int(layout.generations),
-        max_evals=int(layout.max_evals),
-        nm_iterations=int(layout.nm_iterations),
-        stall_generations=int(layout.stall_generations),
-        max_norm_blur=float(layout.max_normalized_blur),
-        blur_all_factor=float(layout.blur_all_factor),
-        worst_field_factor=float(layout.worst_field_factor),
-        polish_gate=float(layout.polish_gate),
-        stop_on_focus=bool(layout.stop_on_focus),
-        autofocus_plane=bool(layout.autofocus_image_plane),
-        enable_pipeline=pipeline_on,
-        ray_pilot=int(layout.ray_pilot),
-        ray_coarse=int(layout.ray_coarse),
-        ray_medium=int(layout.ray_medium),
-        ray_full=int(layout.ray_full),
-        min_rays_per_group=int(layout.min_rays_per_group),
-        finalist_count=int(layout.finalist_count),
-        archive_size=int(layout.archive_size),
-        archive_min_dist=float(layout.archive_min_dist),
-        enable_candidate_concurrency=bool(layout.enable_candidate_concurrency),
-        total_threads=int(layout.candidate_threads),
     )
+    settings = _native.OptimizerSettings()
+    settings.eps = float(layout.plane_eps)
+    settings.w_focus = float(layout.weight_focus)
+    settings.blur_ref = blur_ref
+    settings.min_fraction = float(layout.min_correspondence_fraction)
+    settings.w_vignette = float(layout.weight_vignette)
+    settings.w_order = float(layout.weight_order)
+    settings.w_anchor = float(layout.anchor_weight)
+    settings.clip_iters = int(layout.clip_iterations)
+    settings.clip_sigma = float(layout.clip_sigma)
+    settings.max_norm_blur = float(layout.max_normalized_blur)
+    settings.blur_all_factor = float(layout.blur_all_factor)
+    settings.worst_field_factor = float(layout.worst_field_factor)
+    settings.polish_gate = float(layout.polish_gate)
+    settings.stop_on_focus = bool(layout.stop_on_focus)
+    settings.autofocus_plane = bool(layout.autofocus_image_plane)
+    settings.seed = int(layout.seed)
+    settings.population = int(layout.population)
+    settings.generations = int(layout.generations)
+    settings.max_evals = int(layout.max_evals)
+    settings.nm_iterations = int(layout.nm_iterations)
+    settings.xatol = float(layout.xatol)
+    settings.fatol = float(layout.fatol)
+    settings.stall_generations = int(layout.stall_generations)
+    settings.enable_pipeline = pipeline_on
+    settings.ray_pilot = int(layout.ray_pilot)
+    settings.ray_coarse = int(layout.ray_coarse)
+    settings.ray_medium = int(layout.ray_medium)
+    settings.ray_full = int(layout.ray_full)
+    settings.pilot_min_shared = int(layout.pilot_min_shared)
+    settings.min_rays_per_group = int(layout.min_rays_per_group)
+    settings.archive_size = int(layout.archive_size)
+    settings.archive_min_dist = float(layout.archive_min_dist)
+    settings.promotion_factor = float(layout.promotion_factor)
+    settings.finalist_count = int(layout.finalist_count)
+    settings.enable_candidate_concurrency = bool(layout.enable_candidate_concurrency)
+    settings.total_threads = int(layout.candidate_threads)
+    outcome = _native.optimize_layout(problem, settings)
 
     status = str(outcome["status"])
     best = np.asarray(outcome["best"], dtype=float)

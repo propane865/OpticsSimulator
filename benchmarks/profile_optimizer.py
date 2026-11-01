@@ -137,10 +137,13 @@ class Problem:
 class Prep:
     """Everything the native solver borrows during a run, built by the setup stages."""
 
-    def __init__(self, system: OpticalSystem, blur_ref: float, kwargs: dict[str, Any]) -> None:
+    def __init__(
+        self, system: OpticalSystem, blur_ref: float, problem: Any, knobs: dict[str, Any]
+    ) -> None:
         self.system = system
         self.blur_ref = blur_ref
-        self.kwargs = kwargs
+        self.problem = problem
+        self.knobs = knobs
 
 
 def timed(key: str, fn: Callable[[], Any], times: "dict[str, float] | None") -> Any:
@@ -180,44 +183,52 @@ def prepare(problem: Problem, times: "dict[str, float] | None" = None) -> Prep:
 
     groups = timed("grouping", grouping, times)
 
-    def marshalling() -> dict[str, Any]:
+    def marshalling() -> "tuple[_native.OptimizeProblem, dict[str, Any]]":
         sp, ip = problem.source_plane, problem.image_plane
         # The solver walks the persistent native stack directly, like the wrapper does.
-        return {
-            "stack": system._stack,
-            "free_indices": problem.indices,
-            "x_init": problem.x_init,
-            "lo": np.asarray(problem.lo, dtype=float),
-            "hi": np.asarray(problem.hi, dtype=float),
-            "gaps": np.asarray(problem.gaps, dtype=float),
-            "origins": problem.origins,
-            "dirs": problem.dirs,
-            "powers": problem.powers,
-            "po": np.ascontiguousarray([sp.o, ip.o], dtype=float),
-            "pn": np.ascontiguousarray([sp.n, ip.n], dtype=float),
-            "u_min": np.ascontiguousarray([sp.u_min, ip.u_min], dtype=float),
-            "u_max": np.ascontiguousarray([sp.u_max, ip.u_max], dtype=float),
-            "v_min": np.ascontiguousarray([sp.v_min, ip.v_min], dtype=float),
-            "v_max": np.ascontiguousarray([sp.v_max, ip.v_max], dtype=float),
-            "s_u": np.ascontiguousarray([sp.frame_coeffs[0], ip.frame_coeffs[0]]),
-            "s_v": np.ascontiguousarray([sp.frame_coeffs[1], ip.frame_coeffs[1]]),
-            "t_u": np.ascontiguousarray([sp.frame_coeffs[2], ip.frame_coeffs[2]]),
-            "t_v": np.ascontiguousarray([sp.frame_coeffs[3], ip.frame_coeffs[3]]),
-            "groups": groups,
-            "dest_plane": 1,
+        native_problem = _native.OptimizeProblem(
+            system._stack,
+            problem.indices,
+            problem.x_init,
+            np.asarray(problem.lo, dtype=float),
+            np.asarray(problem.hi, dtype=float),
+            np.asarray(problem.gaps, dtype=float),
+            problem.origins,
+            problem.dirs,
+            problem.powers,
+            np.ascontiguousarray([sp.o, ip.o], dtype=float),
+            np.ascontiguousarray([sp.n, ip.n], dtype=float),
+            np.ascontiguousarray([sp.u_min, ip.u_min], dtype=float),
+            np.ascontiguousarray([sp.u_max, ip.u_max], dtype=float),
+            np.ascontiguousarray([sp.v_min, ip.v_min], dtype=float),
+            np.ascontiguousarray([sp.v_max, ip.v_max], dtype=float),
+            np.ascontiguousarray([sp.frame_coeffs[0], ip.frame_coeffs[0]]),
+            np.ascontiguousarray([sp.frame_coeffs[1], ip.frame_coeffs[1]]),
+            np.ascontiguousarray([sp.frame_coeffs[2], ip.frame_coeffs[2]]),
+            np.ascontiguousarray([sp.frame_coeffs[3], ip.frame_coeffs[3]]),
+            groups,
+            1,
+        )
+        base_knobs: dict[str, Any] = {
             "w_focus": 1.0,
             "blur_ref": blur_ref,
             "min_fraction": _MIN_FRACTION,
             "w_vignette": 1.0,
             "w_anchor": _W_ANCHOR,
         }
+        return native_problem, base_knobs
 
-    kwargs = timed("marshalling", marshalling, times)
-    return Prep(system, blur_ref, kwargs)
+    native_problem, base_knobs = timed("marshalling", marshalling, times)
+    return Prep(system, blur_ref, native_problem, base_knobs)
 
 
 def solve_native(prep: Prep, knobs: dict[str, int]) -> dict[str, Any]:
-    return _native.optimize_layout(**prep.kwargs, **knobs)
+    settings = _native.OptimizerSettings()
+    for key, value in prep.knobs.items():
+        setattr(settings, key, value)
+    for key, value in knobs.items():
+        setattr(settings, key, value)
+    return _native.optimize_layout(prep.problem, settings)
 
 
 def teardown(problem: Problem, outcome: dict[str, Any], times: "dict[str, float]") -> None:

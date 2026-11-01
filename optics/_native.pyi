@@ -216,65 +216,77 @@ def measure_planes_multi(
 def fit_clipped_similarity(
     src: np.ndarray, dst: np.ndarray, iters: int = 3, sigma: float = 3.0
 ) -> dict[str, Any]: ...
-def optimize_layout(
-    stack: TraceStack,
-    free_indices: list[int],
-    x_init: np.ndarray,
-    lo: np.ndarray,
-    hi: np.ndarray,
-    gaps: np.ndarray,
-    origins: np.ndarray,
-    dirs: np.ndarray,
-    powers: np.ndarray,
-    po: np.ndarray,
-    pn: np.ndarray,
-    u_min: np.ndarray,
-    u_max: np.ndarray,
-    v_min: np.ndarray,
-    v_max: np.ndarray,
-    s_u: np.ndarray,
-    s_v: np.ndarray,
-    t_u: np.ndarray,
-    t_v: np.ndarray,
-    groups: np.ndarray,
-    dest_plane: int = 1,
-    eps: float = ...,
-    w_focus: float = 1.0,
-    blur_ref: float = 1.0,
-    min_fraction: float = 0.5,
-    w_vignette: float = 1.0,
-    w_order: float = 1e3,
-    w_anchor: float = 0.0,
-    clip_iters: int = 3,
-    clip_sigma: float = 3.0,
-    seed: int = 0,
-    population: int = 0,
-    generations: int = 300,
-    max_evals: int = 6000,
-    nm_iterations: int = 1500,
-    stall_generations: int = 60,
-    xatol: float = 1e-6,
-    fatol: float = 1e-10,
-    max_norm_blur: float = 0.10,
-    blur_all_factor: float = 2.0,
-    worst_field_factor: float = 2.0,
-    polish_gate: float = 5.0,
-    stop_on_focus: bool = True,
-    autofocus_plane: bool = False,
-    enable_pipeline: bool = False,
-    ray_pilot: int = 48,
-    ray_coarse: int = 512,
-    ray_medium: int = 3072,
-    ray_full: int = 0,
-    pilot_min_shared: int = 4,
-    min_rays_per_group: int = 8,
-    archive_size: int = 16,
-    archive_min_dist: float = 0.05,
-    promotion_factor: float = 3.0,
-    finalist_count: int = 4,
-    enable_candidate_concurrency: bool = False,
-    total_threads: int = 0,
-) -> dict[str, Any]: ...
+class OptimizeProblem:
+    """Traced optimization problem: stack, parameter box, two planes and the
+    ray fan (with per-ray object-point ids). Validates at construction."""
+
+    def __init__(
+        self,
+        stack: TraceStack,
+        free_indices: list[int],
+        x_init: np.ndarray,
+        lo: np.ndarray,
+        hi: np.ndarray,
+        gaps: np.ndarray,
+        origins: np.ndarray,
+        dirs: np.ndarray,
+        powers: np.ndarray,
+        po: np.ndarray,
+        pn: np.ndarray,
+        u_min: np.ndarray,
+        u_max: np.ndarray,
+        v_min: np.ndarray,
+        v_max: np.ndarray,
+        s_u: np.ndarray,
+        s_v: np.ndarray,
+        t_u: np.ndarray,
+        t_v: np.ndarray,
+        groups: np.ndarray,
+        dest_plane: int,
+    ) -> None: ...
+class OptimizerSettings:
+    """Tuning knobs for :func:`optimize_layout`, default-initialized from the
+    kernel spec's own defaults; assign attributes to override."""
+
+    eps: float
+    w_focus: float
+    blur_ref: float
+    min_fraction: float
+    w_vignette: float
+    w_order: float
+    w_anchor: float
+    clip_iters: int
+    clip_sigma: float
+    max_norm_blur: float
+    blur_all_factor: float
+    worst_field_factor: float
+    polish_gate: float
+    stop_on_focus: bool
+    autofocus_plane: bool
+    seed: int
+    population: int
+    generations: int
+    max_evals: int
+    nm_iterations: int
+    stall_generations: int
+    xatol: float
+    fatol: float
+    enable_pipeline: bool
+    ray_pilot: int
+    ray_coarse: int
+    ray_medium: int
+    ray_full: int
+    pilot_min_shared: int
+    min_rays_per_group: int
+    archive_size: int
+    archive_min_dist: float
+    promotion_factor: float
+    finalist_count: int
+    enable_candidate_concurrency: bool
+    total_threads: int
+
+    def __init__(self) -> None: ...
+def optimize_layout(problem: OptimizeProblem, settings: OptimizerSettings) -> dict[str, Any]: ...
 def trace_segments_and_planes(
     stack: TraceStack,
     origins: np.ndarray,
