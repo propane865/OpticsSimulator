@@ -37,8 +37,8 @@ from optics.expression import compile_parametric_surface
 from optics.measurement_plane import MeasurementPlane
 from optics.project import DEFAULT_MEASUREMENT_CONFIG
 from optics.system import OpticalSystem
+from rendering.measurements import _measurement_vertex_colors
 from rendering.meshing import SurfaceMesher
-from rendering.visualize import _measurement_vertex_colors
 
 MESH_N = 128
 

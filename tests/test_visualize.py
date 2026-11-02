@@ -1,4 +1,4 @@
-﻿import types
+import types
 
 import numpy as np
 import pytest
@@ -11,6 +11,8 @@ from optics.source import PointSource
 from optics.system import OpticalSystem
 from rendering import demo
 from rendering.meshing import SurfaceMesher
+from rendering.rays import _make_segment
+from rendering.sources import _make_marker
 
 
 @pytest.fixture
@@ -128,7 +130,7 @@ def test_surface_mesh_reaches_domain_boundary_sphere(make_element):
 
 
 def test_ray_segment_rendered_above_surfaces():
-    line = visualize._make_segment(
+    line = _make_segment(
         np.array([0.0, 0.0, 3.0]),
         np.array([0.0, 0.0, 0.5]),
         (1.0, 0.0, 0.0, 1.0),
@@ -141,12 +143,12 @@ def test_ray_segment_rendered_above_surfaces():
 
 
 def test_ray_marker_rendered_above_surfaces():
-    marker = visualize._make_marker(np.array([0.0, 0.0, 1.0]), (1.0, 0.0, 0.0, 1.0))
+    marker = _make_marker(np.array([0.0, 0.0, 1.0]), (1.0, 0.0, 0.0, 1.0))
     assert marker._vshare.gl_state["depth_test"] is False
 
 
 def test_make_segment_rejects_non_finite_points():
-    assert visualize._make_segment(np.array([np.nan, 0.0, 0.0]), np.zeros(3), (1.0, 0.0, 0.0, 1.0), 1) is None
+    assert _make_segment(np.array([np.nan, 0.0, 0.0]), np.zeros(3), (1.0, 0.0, 0.0, 1.0), 1) is None
 
 
 def test_surface_mesh_reaches_vertical_wall_boundary():

@@ -2,18 +2,14 @@
 
 The implementation lives in the per-primitive modules (``style``, ``surfaces``,
 ``measurements``, ``rays``, ``sources``, ``camera``, ``canvas``); this module
-only re-exports the original ``rendering.visualize`` surface so existing
-imports keep working.
+only re-exports the original public ``rendering.visualize`` surface so existing
+imports keep working (private helpers are reached at their real homes).
 """
 
-from .camera import _add_axes, _scene_radius, frame_view, scene_bounds
+from .camera import frame_view, scene_bounds
 from .canvas import build_scene, clear_scene, create_canvas, remove_nodes
 from .measurements import (
     MeshTemplate,
-    _cell_to_vertex_values,
-    _measurement_outline,
-    _measurement_plane_geometry,
-    _measurement_vertex_colors,
     build_measurement_nodes,
     make_measurement_plane_visual,
     measurement_geometry_key,
@@ -21,21 +17,8 @@ from .measurements import (
     set_measurement_nodes_highlight,
     update_measurement_colors,
 )
-from .rays import (
-    _add_segment,
-    _build_ray_visual_nodes,
-    _make_segment,
-    _ray_line_data,
-    build_ray_nodes,
-    build_ray_nodes_from_segments,
-)
-from .sources import (
-    _add_marker,
-    _add_marker_cloud,
-    _make_marker,
-    _marker_positions,
-    build_source_nodes,
-)
+from .rays import build_ray_nodes, build_ray_nodes_from_segments
+from .sources import build_source_nodes
 from .style import (
     AXIS_COLORS,
     BOUND_SAMPLE_N,
@@ -52,12 +35,9 @@ from .style import (
     SOURCE_MARKER_RADIUS,
     SURFACE1_COLOR,
     SURFACE2_COLOR,
-    _as_system,
-    _attach,
     send_to_back,
 )
 from .surfaces import (
-    _translucent_mesh,
     build_element_nodes,
     make_surface_visual,
     make_wall_visual,
@@ -82,23 +62,6 @@ __all__ = [
     "SOURCE_MARKER_RADIUS",
     "SURFACE1_COLOR",
     "SURFACE2_COLOR",
-    "_add_axes",
-    "_add_marker",
-    "_add_marker_cloud",
-    "_add_segment",
-    "_as_system",
-    "_attach",
-    "_build_ray_visual_nodes",
-    "_cell_to_vertex_values",
-    "_make_marker",
-    "_make_segment",
-    "_marker_positions",
-    "_measurement_outline",
-    "_measurement_plane_geometry",
-    "_measurement_vertex_colors",
-    "_ray_line_data",
-    "_scene_radius",
-    "_translucent_mesh",
     "build_element_nodes",
     "build_measurement_nodes",
     "build_ray_nodes",

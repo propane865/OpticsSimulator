@@ -7,7 +7,7 @@ The implementation lives in :mod:`ui.project` (``state`` aggregate root,
 """
 
 from .project.elements import DEFAULT_ELEMENT_CONFIG, classify_element_edit, unique_name
-from .project.measurements import _LOCK_SOURCE_OFFSET_Z, PlaneRow
+from .project.measurements import PlaneRow
 from .project.state import ProjectState
 
 __all__ = [
@@ -15,6 +15,5 @@ __all__ = [
     "ProjectState",
     "classify_element_edit",
     "unique_name",
-    "_LOCK_SOURCE_OFFSET_Z",
     "PlaneRow",
 ]
