@@ -32,6 +32,8 @@ add_library(optics_core OBJECT
   native/intersection/invert.cpp
   native/tracing/direction.cpp
   native/tracing/element.cpp
+  native/tracing/element_build.cpp
+  native/tracing/element_hit.cpp
   native/tracing/stack.cpp
   native/measurement/measurement.cpp
   native/measurement/reconstruct.cpp
