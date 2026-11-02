@@ -1,9 +1,10 @@
 // Coarse-to-fine pipeline driver (see the header comment on ``pipeline_run``)
-// and the public ``optimize_layout`` entry point that selects a driver. The
-// pipeline stages are discrete functions: a coarse DE fills a diverse archive,
-// ``medium_rerank`` re-traces the promoted subset, and ``validate_full_batch``
-// runs the only place success can occur. Shared machinery lives in
-// ``optimizer_detail.hpp``.
+// and the public ``optimize_layout`` entry point that selects a driver. Each
+// stage is a function of its own: ``coarse_search`` runs a coarse DE that fills
+// a diverse archive (and can end the run early on a validated full-fidelity
+// focus), ``refine_and_validate`` re-traces the promoted subset at a medium
+// budget and runs ``validate_full_batch`` -- the only place success can occur.
+// Shared machinery lives in the ``optimizing/`` detail headers.
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -207,60 +208,52 @@ FullValidation validate_full_batch(LayoutObjective& obj, const OptimizerSpec& sp
     return res;
 }
 
-}  // namespace
+// What the coarse phase leaves for the refinement and polish phases: the
+// running best (full and swept), the diverse archive, and the winner decided
+// either by an in-loop validated focus or by the refinement phases.
+struct Coarse {
+    std::vector<double> best;        // full-length current best (plane z last)
+    std::vector<double> best_swept;  // swept parameters of the current best
+    LayoutObjective::Stats best_stats;
+    std::vector<Candidate> archive;
+    std::vector<double> win_x;       // set early on a validated in-loop focus
+    LayoutObjective::Stats win;
+    bool won = false;
+};
 
-namespace detail {
-
-// Coarse-to-fine driver: a global DE at a coarse ray budget fills a diverse
-// archive of distinct candidates; a promoted subset is re-ranked at a medium ray
-// budget and candidates are then validated at the whole fan -- best-first, and
-// while nothing passes and the reserve lasts, further down the archive -- where
-// the hard focus acceptance is the ONLY success gate. A low coarse/medium
-// objective is never success -- it only decides which candidates earn a
-// full-fidelity trace -- so the pipeline can reorder search but never weakens
-// the acceptance contract or reports an unfocused layout as focused. A validated
-// winner, and any promising near-focus best, then gets the same gated
-// Nelder-Mead polish the legacy path runs. The search is single-threaded and
-// fully seeded, so it is bit-reproducible run to run.
-void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
-    LayoutObjective obj(spec);
-    int cand_threads = 1;  // widened if an independent stage actually fans out
-    const std::size_t d_full = spec.lo.size();
+// Coarse global search: a seeded Latin-hypercube-initialized DE at a coarse ray
+// budget, every improving trial flowing into the diverse archive. The cheap
+// geometry precheck and shallow pilot gate discard hopeless trials before they
+// pay for the coarse trace. Under ``stop_on_focus`` the coarse best is
+// periodically whole-fan probed, and a *validated* focused winner (the full
+// trace IS the acceptance gate) ends the search early -- exactly the legacy
+// early stop, but gated on full fidelity.
+void coarse_search(LayoutObjective& obj, const OptimizerSpec& spec, OptimizerOutcome& out,
+                   std::size_t k_coarse, std::size_t k_full, std::mt19937_64& rng, Coarse& c) {
     const std::size_t d = obj.dim();
     const std::size_t n_fan = spec.rays.count;
-    out.n_total = n_fan;
-    if (d_full == 0 || n_fan == 0) {
-        out.status = "empty-problem";
-        out.best = spec.x_init;
-        return;
-    }
-    const std::size_t k_coarse = spec.ray_coarse > 0 ? std::min(spec.ray_coarse, n_fan) : n_fan;
-    const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
-
-    std::mt19937_64 rng(spec.seed);
     U01 u01{&rng};
 
-    std::vector<double> best = clamped_start(spec);
-    std::vector<double> best_swept(d);
-    LayoutObjective::Stats best_stats = [&] {
+    c.best = clamped_start(spec);
+    c.best_swept.assign(d, 0.0);
+    c.best_stats = [&] {
         PhaseTimer timer(out.diagnostics.ns_coarse);
-        return obj.evaluate(best.data(), k_coarse, true);
+        return obj.evaluate(c.best.data(), k_coarse, true);
     }();
     out.diagnostics.coarse_evals++;
-    out.diagnostics.rays_traced += static_cast<std::int64_t>(best_stats.n_traced);
+    out.diagnostics.rays_traced += static_cast<std::int64_t>(c.best_stats.n_traced);
     auto record = [&](const LayoutObjective::Stats& s, const double* xs) {
-        best_stats = s;
-        record_winner(best, d, s, xs);
-        best_swept.assign(best.begin(), best.begin() + d);
+        c.best_stats = s;
+        record_winner(c.best, d, s, xs);
+        c.best_swept.assign(c.best.begin(), c.best.begin() + d);
     };
-    record(best_stats, best.data());
-    out.history.push_back(best_stats.cost);
-    obj.maybe_tick_progress(0, best_stats);
+    record(c.best_stats, c.best.data());
+    out.history.push_back(c.best_stats.cost);
+    obj.maybe_tick_progress(0, c.best_stats);
 
     // Diverse archive of distinct coarse winners (kept sorted focus-first/cost).
-    std::vector<Candidate> archive;
     const int size = spec.archive_size > 0 ? spec.archive_size : 16;
-    archive_insert(archive, best.data(), best_stats, d, size, spec, out.diagnostics);
+    archive_insert(c.archive, c.best.data(), c.best_stats, d, size, spec, out.diagnostics);
 
     // --- Coarse DE (Latin-hypercube initialized), budget-capped --------------
     int pop = 0;
@@ -272,7 +265,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     pop = std::min(pop, std::max(4, spec.max_evals));
     px.assign(static_cast<std::size_t>(pop) * d, 0.0);
     pf.assign(static_cast<std::size_t>(pop), LayoutObjective::Stats());
-    std::copy_n(best.begin(), d, px.begin());
+    std::copy_n(c.best.begin(), d, px.begin());
     lhs_seed_population(px, d, pop, spec, rng);
     {
         PhaseTimer timer(out.diagnostics.ns_coarse);
@@ -287,13 +280,13 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             out.diagnostics.rays_traced +=
                 static_cast<std::int64_t>(pf[static_cast<std::size_t>(p)].n_traced);
             ++evaluated;
-            obj.maybe_tick_progress(0, best_stats);
+            obj.maybe_tick_progress(0, c.best_stats);
         }
     }
     for (int p = 0; p < evaluated; ++p) {
-        archive_insert(archive, &px[static_cast<std::size_t>(p) * d],
+        archive_insert(c.archive, &px[static_cast<std::size_t>(p) * d],
                        pf[static_cast<std::size_t>(p)], d, size, spec, out.diagnostics);
-        if (better_stats(spec, pf[static_cast<std::size_t>(p)], best_stats)) {
+        if (better_stats(spec, pf[static_cast<std::size_t>(p)], c.best_stats)) {
             record(pf[static_cast<std::size_t>(p)], &px[static_cast<std::size_t>(p) * d]);
         }
     }
@@ -332,31 +325,26 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
 
     std::vector<double> trial(d);
     int stalled = 0;
-    double last_best = best_stats.cost;
-    std::vector<double> win_x;         // set early on a validated in-loop focus
-    LayoutObjective::Stats win;
-    bool won = false;
+    double last_best = c.best_stats.cost;
     // stop_on_focus: validate the best layout the population already found.
-    // A whole-fan pass is a real focused winner, so the global search is skipped
-    // entirely -- exactly the legacy early stop, but gated on full fidelity.
     if (spec.stop_on_focus && obj.evals() < spec.max_evals) {
         LayoutObjective::Stats probe;
         {
             PhaseTimer timer(out.diagnostics.ns_full);
-            probe = obj.evaluate(best_swept.data(), k_full, true);
+            probe = obj.evaluate(c.best_swept.data(), k_full, true);
         }
         out.diagnostics.full_evals++;
         out.diagnostics.rays_traced += static_cast<std::int64_t>(probe.n_traced);
-        obj.maybe_tick_progress(0, best_stats);
+        obj.maybe_tick_progress(0, c.best_stats);
         if (probe.cost < kBadCost && focus_accepted(spec, probe)) {
             out.diagnostics.full_passes++;
-            win_x = best_swept;
-            win = probe;
-            won = true;
+            c.win_x = c.best_swept;
+            c.win = probe;
+            c.won = true;
         }
     }
     for (int gen = 0; gen < spec.generations; ++gen) {
-        if (won) {
+        if (c.won) {
             break;
         }
         for (int p = 0; p < pop; ++p) {
@@ -369,7 +357,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             if (!trial_survives(trial.data())) {
                 // Rejected trials still bill pilot traces: keep the tick
                 // evaluation-driven even when the whole population is rejected.
-                obj.maybe_tick_progress(gen, best_stats);
+                obj.maybe_tick_progress(gen, c.best_stats);
                 continue;
             }
             out.diagnostics.generated++;
@@ -383,40 +371,40 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             if (better_stats(spec, ft, pf[static_cast<std::size_t>(p)])) {
                 std::copy(trial.begin(), trial.end(), &px[static_cast<std::size_t>(p) * d]);
                 pf[static_cast<std::size_t>(p)] = ft;
-                archive_insert(archive, trial.data(), ft, d, size, spec, out.diagnostics);
-                if (better_stats(spec, ft, best_stats)) {
+                archive_insert(c.archive, trial.data(), ft, d, size, spec, out.diagnostics);
+                if (better_stats(spec, ft, c.best_stats)) {
                     record(ft, trial.data());
                 }
             }
             // Evaluation-driven progress: report the running coarse best once
             // every ``kProgressEvalInterval`` evaluations (see LayoutObjective).
-            obj.maybe_tick_progress(gen, best_stats);
+            obj.maybe_tick_progress(gen, c.best_stats);
         }
-        out.history.push_back(best_stats.cost);
-        out.diagnostics.gen_best.push_back(best_stats.cost);
+        out.history.push_back(c.best_stats.cost);
+        out.diagnostics.gen_best.push_back(c.best_stats.cost);
         // stop_on_focus: periodically full-trace the coarse best. A *validated*
         // focused winner (the full trace IS the acceptance gate) lets the global
         // search stop early without ever weakening the hard acceptance. Bounded
         // overhead: one whole-fan probe per few generations.
-        if (spec.stop_on_focus && !won && obj.evals() < spec.max_evals && gen % 5 == 4) {
+        if (spec.stop_on_focus && !c.won && obj.evals() < spec.max_evals && gen % 5 == 4) {
             LayoutObjective::Stats probe;
             {
                 PhaseTimer timer(out.diagnostics.ns_full);
-                probe = obj.evaluate(best_swept.data(), k_full, true);
+                probe = obj.evaluate(c.best_swept.data(), k_full, true);
             }
             out.diagnostics.full_evals++;
             out.diagnostics.rays_traced += static_cast<std::int64_t>(probe.n_traced);
-            obj.maybe_tick_progress(gen, best_stats);
+            obj.maybe_tick_progress(gen, c.best_stats);
             if (probe.cost < kBadCost && focus_accepted(spec, probe)) {
                 out.diagnostics.full_passes++;
-                win_x = best_swept;
-                win = probe;
-                won = true;
+                c.win_x = c.best_swept;
+                c.win = probe;
+                c.won = true;
                 break;
             }
         }
-        if (cost_progress(best_stats.cost, last_best)) {
-            last_best = best_stats.cost;
+        if (cost_progress(c.best_stats.cost, last_best)) {
+            last_best = c.best_stats.cost;
             stalled = 0;
         } else {
             ++stalled;
@@ -425,88 +413,136 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
             break;
         }
     }
+}
 
-    if (!won) {
-        // --- Promotion: distinct coarse candidates near the coarse best ------
-        // Always keep the top ``finalist_count`` so finalists exist; additionally
-        // promote coarse-competitive candidates within ``promotion_factor`` of
-        // the best, bounded by ``medium_cap`` so the medium stage stays
-        // budget-cheap.
-        std::stable_sort(archive.begin(), archive.end(), [&](const Candidate& a,
+// Promotion, medium re-rank and whole-fan validation (skipped when the coarse
+// phase already secured a validated winner): the result is written back as the
+// coarse phase's winner.
+void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, OptimizerOutcome& out,
+                         int& cand_threads, Coarse& c) {
+    const std::size_t d = obj.dim();
+    const std::size_t n_fan = spec.rays.count;
+    const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
+
+    // --- Promotion: distinct coarse candidates near the coarse best ------
+    // Always keep the top ``finalist_count`` so finalists exist; additionally
+    // promote coarse-competitive candidates within ``promotion_factor`` of
+    // the best, bounded by ``medium_cap`` so the medium stage stays
+    // budget-cheap.
+    std::stable_sort(c.archive.begin(), c.archive.end(), [&](const Candidate& a,
                                                              const Candidate& b) {
-            return better_stats(spec, a.s, b.s);
-        });
-        const int need = std::max(1, spec.finalist_count);
-        const int medium_cap = std::max(need * 2, 4);
-        const double promote_limit = best_stats.cost * std::max(spec.promotion_factor, 1.0);
-        std::vector<Candidate> promoted;
-        for (const Candidate& e : archive) {
-            if (!distinct_from_all(promoted, e.x.data(), d, spec, entry_x)) {
-                continue;
-            }
-            if (static_cast<int>(promoted.size()) < need || e.s.cost <= promote_limit) {
-                promoted.push_back(e);
-            }
-            if (static_cast<int>(promoted.size()) >= medium_cap) {
-                break;
-            }
+        return better_stats(spec, a.s, b.s);
+    });
+    const int need = std::max(1, spec.finalist_count);
+    const int medium_cap = std::max(need * 2, 4);
+    const double promote_limit = c.best_stats.cost * std::max(spec.promotion_factor, 1.0);
+    std::vector<Candidate> promoted;
+    for (const Candidate& e : c.archive) {
+        if (!distinct_from_all(promoted, e.x.data(), d, spec, entry_x)) {
+            continue;
         }
-        if (promoted.empty()) {
-            promoted.push_back(Candidate{best_swept, best_stats});
+        if (static_cast<int>(promoted.size()) < need || e.s.cost <= promote_limit) {
+            promoted.push_back(e);
         }
-        out.diagnostics.medium_promoted += static_cast<std::int64_t>(promoted.size());
+        if (static_cast<int>(promoted.size()) >= medium_cap) {
+            break;
+        }
+    }
+    if (promoted.empty()) {
+        promoted.push_back(Candidate{c.best_swept, c.best_stats});
+    }
+    out.diagnostics.medium_promoted += static_cast<std::int64_t>(promoted.size());
 
-        // --- Medium re-rank: re-trace the promoted set at a finer budget -----
-        // The budget leaves a reserve so full validation always runs even under
-        // autofocus (each candidate is many traced focus-scan samples).
-        const std::size_t k_medium = spec.ray_medium > 0 ? std::min(spec.ray_medium, n_fan) : k_full;
-        const std::int64_t second_half =
-            coarse_budget + (static_cast<std::int64_t>(spec.max_evals) - coarse_budget) / 2;
-        // Keep the whole-fan stage a real gate: the medium re-rank stops with
-        // room for the first validation batch plus one more candidate to try.
-        const std::int64_t reserved = static_cast<std::int64_t>(need + 1) * kMaxFocusScanTraces;
-        std::int64_t medium_budget =
-            std::min(second_half, static_cast<std::int64_t>(spec.max_evals) - reserved);
-        medium_budget = std::max(coarse_budget, medium_budget);
-        const std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> ranked =
-            medium_rerank(obj, spec, promoted, k_medium, medium_budget, out.diagnostics,
-                          cand_threads, best_stats);
+    // --- Medium re-rank: re-trace the promoted set at a finer budget -----
+    // The budget leaves a reserve so full validation always runs even under
+    // autofocus (each candidate is many traced focus-scan samples).
+    const std::size_t k_medium = spec.ray_medium > 0 ? std::min(spec.ray_medium, n_fan) : k_full;
+    const std::int64_t coarse_budget = std::max<std::int64_t>(200, spec.max_evals / 2);
+    const std::int64_t second_half =
+        coarse_budget + (static_cast<std::int64_t>(spec.max_evals) - coarse_budget) / 2;
+    // Keep the whole-fan stage a real gate: the medium re-rank stops with
+    // room for the first validation batch plus one more candidate to try.
+    const std::int64_t reserved = static_cast<std::int64_t>(need + 1) * kMaxFocusScanTraces;
+    std::int64_t medium_budget =
+        std::min(second_half, static_cast<std::int64_t>(spec.max_evals) - reserved);
+    medium_budget = std::max(coarse_budget, medium_budget);
+    const std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> ranked =
+        medium_rerank(obj, spec, promoted, k_medium, medium_budget, out.diagnostics, cand_threads,
+                      c.best_stats);
 
-        // --- Finalist selection: distinct best medium candidates -------------
-        std::vector<Candidate> finalists;
-        for (const auto& r : ranked) {
-            if (distinct_from_all(finalists, r.first.data(), d, spec, entry_x)) {
-                finalists.push_back(Candidate{r.first, r.second});
-            }
-            if (static_cast<int>(finalists.size()) >= need) {
-                break;
-            }
+    // --- Finalist selection: distinct best medium candidates -------------
+    std::vector<Candidate> finalists;
+    for (const auto& r : ranked) {
+        if (distinct_from_all(finalists, r.first.data(), d, spec, entry_x)) {
+            finalists.push_back(Candidate{r.first, r.second});
         }
-        if (finalists.empty()) {
-            finalists.push_back(Candidate{best_swept, best_stats});
+        if (static_cast<int>(finalists.size()) >= need) {
+            break;
         }
+    }
+    if (finalists.empty()) {
+        finalists.push_back(Candidate{c.best_swept, c.best_stats});
+    }
 
-        // --- Full-fidelity validation: the only place success can occur ------
-        std::vector<Candidate> queue = finalists;
-        for (const Candidate& e : archive) {
-            if (distinct_from_all(queue, e.x.data(), d, spec, entry_x)) {
-                queue.push_back(e);
-            }
+    // --- Full-fidelity validation: the only place success can occur ------
+    std::vector<Candidate> queue = finalists;
+    for (const Candidate& e : c.archive) {
+        if (distinct_from_all(queue, e.x.data(), d, spec, entry_x)) {
+            queue.push_back(e);
         }
-        const std::size_t batch = std::min(queue.size(), finalists.size());
-        const FullValidation validation = validate_full_batch(
-            obj, spec, queue, batch, k_full, out.diagnostics, cand_threads, best_stats);
+    }
+    const std::size_t batch = std::min(queue.size(), finalists.size());
+    const FullValidation validation =
+        validate_full_batch(obj, spec, queue, batch, k_full, out.diagnostics, cand_threads,
+                            c.best_stats);
 
-        // Full-validation winner: the whole-fan passers decide, else the best
-        // full (unfocused) candidate is reported so a failure still has a
-        // layout.
-        win = validation.best_full;
-        win_x = validation.best_full_x;
-        if (!validation.passers.empty()) {
-            win_x = validation.passers.front().first;
-            win = validation.passers.front().second;
-            won = true;
-        }
+    // Full-validation winner: the whole-fan passers decide, else the best
+    // full (unfocused) candidate is reported so a failure still has a
+    // layout.
+    c.win = validation.best_full;
+    c.win_x = validation.best_full_x;
+    if (!validation.passers.empty()) {
+        c.win_x = validation.passers.front().first;
+        c.win = validation.passers.front().second;
+        c.won = true;
+    }
+}
+
+}  // namespace
+
+namespace detail {
+
+// Coarse-to-fine driver: a global DE at a coarse ray budget fills a diverse
+// archive of distinct candidates; a promoted subset is re-ranked at a medium ray
+// budget and candidates are then validated at the whole fan -- best-first, and
+// while nothing passes and the reserve lasts, further down the archive -- where
+// the hard focus acceptance is the ONLY success gate. A low coarse/medium
+// objective is never success -- it only decides which candidates earn a
+// full-fidelity trace -- so the pipeline can reorder search but never weakens
+// the acceptance contract or reports an unfocused layout as focused. A validated
+// winner, and any promising near-focus best, then gets the same gated
+// Nelder-Mead polish the legacy path runs. The search is single-threaded and
+// fully seeded, so it is bit-reproducible run to run.
+void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
+    LayoutObjective obj(spec);
+    int cand_threads = 1;  // widened if an independent stage actually fans out
+    const std::size_t d_full = spec.lo.size();
+    const std::size_t d = obj.dim();
+    const std::size_t n_fan = spec.rays.count;
+    out.n_total = n_fan;
+    if (d_full == 0 || n_fan == 0) {
+        out.status = "empty-problem";
+        out.best = spec.x_init;
+        return;
+    }
+    const std::size_t k_coarse = spec.ray_coarse > 0 ? std::min(spec.ray_coarse, n_fan) : n_fan;
+    const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
+
+    std::mt19937_64 rng(spec.seed);
+    Coarse coarse;
+    coarse_search(obj, spec, out, k_coarse, k_full, rng, coarse);
+    if (!coarse.won) {
+        refine_and_validate(obj, spec, out, cand_threads, coarse);
     }
 
     // Local polish, exactly as the legacy driver gates it (shared rule): an
@@ -514,35 +550,35 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     // best -- the polish is what drags a layout that the global search only
     // got *close* to focus over the acceptance line, so skipping it on a
     // failure path is what made runs need repeating.
-    const bool promising = polish_promising(spec, win, won);
-    if (promising && !win_x.empty() && obj.evals() < spec.max_evals) {
-        nelder_mead(obj, spec, win_x, win);
-        won = focus_accepted(spec, win);
+    const bool promising = polish_promising(spec, coarse.win, coarse.won);
+    if (promising && !coarse.win_x.empty() && obj.evals() < spec.max_evals) {
+        nelder_mead(obj, spec, coarse.win_x, coarse.win);
+        coarse.won = focus_accepted(spec, coarse.win);
     }
-    out.history.push_back(win.cost);
+    out.history.push_back(coarse.win.cost);
 
     out.best.assign(d_full, 0.0);
-    if (!win_x.empty()) {
-        std::copy_n(win_x.begin(), d, out.best.begin());
-        out.best[d_full - 1] = win.plane_z;
+    if (!coarse.win_x.empty()) {
+        std::copy_n(coarse.win_x.begin(), d, out.best.begin());
+        out.best[d_full - 1] = coarse.win.plane_z;
     } else {
-        out.best = best;
+        out.best = coarse.best;
     }
     for (std::size_t i = 0; i < out.best.size(); ++i) {
         out.best[i] = clamp_box(out.best[i], spec.lo[i], spec.hi[i]);
     }
-    out.cost = win.cost;
-    out.scale = win.scale;
-    out.rms = win.rms;
-    out.blur = win.blur;
-    out.blur_all = win.blur_all;
-    out.blur_max = win.blur_max;
-    out.n_used = win.n_used;
-    out.n_shared = win.n_shared;
+    out.cost = coarse.win.cost;
+    out.scale = coarse.win.scale;
+    out.rms = coarse.win.rms;
+    out.blur = coarse.win.blur;
+    out.blur_all = coarse.win.blur_all;
+    out.blur_max = coarse.win.blur_max;
+    out.n_used = coarse.win.n_used;
+    out.n_shared = coarse.win.n_shared;
     out.evals = obj.evals();
     out.diagnostics.candidate_threads = cand_threads;
     out.diagnostics.ray_threads = 1;
-    if (won) {
+    if (coarse.won) {
         out.status = "ok";
     } else if (out.cost >= kBadCost) {
         out.status = "infeasible";
@@ -550,7 +586,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
         out.status = "no-focus-found";
     }
     if (out.status != "ok") {
-        out.failure_reason = failure_reason_name(classify_failure(spec, win));
+        out.failure_reason = failure_reason_name(classify_failure(spec, coarse.win));
     }
 }
 
