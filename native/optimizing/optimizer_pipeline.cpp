@@ -32,6 +32,15 @@ struct Candidate {
 
 const std::vector<double>& entry_x(const Candidate& e) { return e.x; }
 
+// A candidate re-ranked at a given fidelity: its swept parameters plus the
+// objective stats that ranking earned. The medium stage produces these and the
+// finalist/validation stages consume them (what an inline (params, stats) pair
+// spelled before).
+struct RankedCandidate {
+    std::vector<double> x;
+    LayoutObjective::Stats s;
+};
+
 // Insert a candidate into the diverse archive of distinct coarse winners (kept
 // focus-first/cost): an already-seen candidate never re-enters, and a full
 // archive evicts its current worst only for a strict improvement.
@@ -60,11 +69,11 @@ void archive_insert(std::vector<Candidate>& archive, const double* xs,
 // Re-trace the promoted set at a finer ray budget and rank the results
 // focus-first. A medium candidate is still not success -- it only reorders
 // which few finalists reach the whole-fan gate.
-std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> medium_rerank(
+std::vector<RankedCandidate> medium_rerank(
     LayoutObjective& obj, const OptimizerSpec& spec, const std::vector<Candidate>& promoted,
     std::size_t k_medium, std::int64_t medium_budget, OptimizerDiagnostics& dg,
     int& cand_threads, const LayoutObjective::Stats& coarse_best) {
-    std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> ranked;
+    std::vector<RankedCandidate> ranked;
     const std::int64_t med_head = static_cast<std::int64_t>(promoted.size()) * kMaxFocusScanTraces;
     const bool med_parallel = spec.enable_candidate_concurrency && promoted.size() > 1 &&
                               obj.evals() + med_head <= medium_budget;
@@ -72,8 +81,7 @@ std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> medium_reran
         // Headroom guarantees the serial loop would not break early, so a
         // full-fan re-trace of every promoted candidate is bit-identical to the
         // serial path; fan it out, then rebuild ``ranked`` in promoted order.
-        std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> res(
-            promoted.size());
+        std::vector<RankedCandidate> res(promoted.size());
         const std::int64_t used = [&] {
             PhaseTimer timer(dg.ns_medium);
             return parallel_candidates(
@@ -88,7 +96,7 @@ std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> medium_reran
         obj.maybe_tick_progress(kRefinementGeneration, coarse_best);
         dg.medium_evals += static_cast<std::int64_t>(promoted.size());
         for (auto& r : res) {
-            dg.rays_traced += static_cast<std::int64_t>(r.second.n_traced);
+            dg.rays_traced += static_cast<std::int64_t>(r.s.n_traced);
             ranked.push_back(std::move(r));
         }
         cand_threads = std::max(
@@ -105,25 +113,25 @@ std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> medium_reran
             }
             dg.medium_evals++;
             dg.rays_traced += static_cast<std::int64_t>(ms.n_traced);
-            ranked.emplace_back(e.x, ms);
+            ranked.push_back({e.x, ms});
             obj.maybe_tick_progress(kRefinementGeneration, coarse_best);
         }
     }
     if (ranked.empty()) {
         for (const Candidate& e : promoted) {
-            ranked.emplace_back(e.x, e.s);
+            ranked.push_back({e.x, e.s});
         }
     }
     std::stable_sort(ranked.begin(), ranked.end(),
-                     [&](const auto& a, const auto& b) { return better_stats(spec, a.second, b.second); });
+                     [&](const auto& a, const auto& b) { return better_stats(spec, a.s, b.s); });
     return ranked;
 }
 
 // The full-fidelity validation result: every candidate whose whole-fan trace
 // passed acceptance (best-first), plus the best full candidate overall so a
 // failed run still has a layout to report.
-struct FullValidation {
-    std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> passers;
+struct ValidationResult {
+    std::vector<RankedCandidate> passers;
     LayoutObjective::Stats best_full;
     std::vector<double> best_full_x;
 };
@@ -134,11 +142,11 @@ struct FullValidation {
 // the first accepted layout is the focus-first contract; continuing past the
 // first ``finalist_count`` is what keeps a run from failing because the coarse
 // ranking put the only focusable layout fifth.
-FullValidation validate_full_batch(LayoutObjective& obj, const OptimizerSpec& spec,
-                                   const std::vector<Candidate>& queue, std::size_t batch,
-                                   std::size_t k_full, OptimizerDiagnostics& dg,
-                                   int& cand_threads, const LayoutObjective::Stats& coarse_best) {
-    FullValidation res;
+ValidationResult validate_full_batch(LayoutObjective& obj, const OptimizerSpec& spec,
+                                    const std::vector<Candidate>& queue, std::size_t batch,
+                                    std::size_t k_full, OptimizerDiagnostics& dg,
+                                    int& cand_threads, const LayoutObjective::Stats& coarse_best) {
+    ValidationResult res;
     res.best_full.cost = kBadCost;
     // Validation bills whole-fan traces per candidate, so it must tick too:
     // report the best full-fidelity layout so far, falling back to the coarse
@@ -159,7 +167,7 @@ FullValidation validate_full_batch(LayoutObjective& obj, const OptimizerSpec& sp
         dg.rays_traced += static_cast<std::int64_t>(fs.n_traced);
         if (fs.cost < kBadCost && focus_accepted(spec, fs)) {
             dg.full_passes++;
-            res.passers.emplace_back(xs, fs);
+            res.passers.push_back({xs, fs});
         } else {
             dg.full_failures++;
         }
@@ -204,14 +212,14 @@ FullValidation validate_full_batch(LayoutObjective& obj, const OptimizerSpec& sp
         tick();
     }
     std::stable_sort(res.passers.begin(), res.passers.end(),
-                     [&](const auto& a, const auto& b) { return better_stats(spec, a.second, b.second); });
+                     [&](const auto& a, const auto& b) { return better_stats(spec, a.s, b.s); });
     return res;
 }
 
 // What the coarse phase leaves for the refinement and polish phases: the
 // running best (full and swept), the diverse archive, and the winner decided
 // either by an in-loop validated focus or by the refinement phases.
-struct Coarse {
+struct CoarseSearchResult {
     std::vector<double> best;        // full-length current best (plane z last)
     std::vector<double> best_swept;  // swept parameters of the current best
     LayoutObjective::Stats best_stats;
@@ -229,7 +237,7 @@ struct Coarse {
 // trace IS the acceptance gate) ends the search early -- exactly the legacy
 // early stop, but gated on full fidelity.
 void coarse_search(LayoutObjective& obj, const OptimizerSpec& spec, OptimizerOutcome& out,
-                   std::size_t k_coarse, std::size_t k_full, std::mt19937_64& rng, Coarse& c) {
+                   std::size_t k_coarse, std::size_t k_full, std::mt19937_64& rng, CoarseSearchResult& c) {
     const std::size_t d = obj.dim();
     const std::size_t n_fan = spec.rays.count;
     U01 u01{&rng};
@@ -419,7 +427,7 @@ void coarse_search(LayoutObjective& obj, const OptimizerSpec& spec, OptimizerOut
 // phase already secured a validated winner): the result is written back as the
 // coarse phase's winner.
 void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, OptimizerOutcome& out,
-                         int& cand_threads, Coarse& c) {
+                         int& cand_threads, CoarseSearchResult& c) {
     const std::size_t d = obj.dim();
     const std::size_t n_fan = spec.rays.count;
     const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
@@ -466,15 +474,15 @@ void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, Optimi
     std::int64_t medium_budget =
         std::min(second_half, static_cast<std::int64_t>(spec.max_evals) - reserved);
     medium_budget = std::max(coarse_budget, medium_budget);
-    const std::vector<std::pair<std::vector<double>, LayoutObjective::Stats>> ranked =
+    const std::vector<RankedCandidate> ranked =
         medium_rerank(obj, spec, promoted, k_medium, medium_budget, out.diagnostics, cand_threads,
                       c.best_stats);
 
     // --- Finalist selection: distinct best medium candidates -------------
     std::vector<Candidate> finalists;
     for (const auto& r : ranked) {
-        if (distinct_from_all(finalists, r.first.data(), d, spec, entry_x)) {
-            finalists.push_back(Candidate{r.first, r.second});
+        if (distinct_from_all(finalists, r.x.data(), d, spec, entry_x)) {
+            finalists.push_back(Candidate{r.x, r.s});
         }
         if (static_cast<int>(finalists.size()) >= need) {
             break;
@@ -492,7 +500,7 @@ void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, Optimi
         }
     }
     const std::size_t batch = std::min(queue.size(), finalists.size());
-    const FullValidation validation =
+    const ValidationResult validation =
         validate_full_batch(obj, spec, queue, batch, k_full, out.diagnostics, cand_threads,
                             c.best_stats);
 
@@ -502,8 +510,8 @@ void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, Optimi
     c.win = validation.best_full;
     c.win_x = validation.best_full_x;
     if (!validation.passers.empty()) {
-        c.win_x = validation.passers.front().first;
-        c.win = validation.passers.front().second;
+        c.win_x = validation.passers.front().x;
+        c.win = validation.passers.front().s;
         c.won = true;
     }
 }
@@ -539,7 +547,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
 
     std::mt19937_64 rng(spec.seed);
-    Coarse coarse;
+    CoarseSearchResult coarse;
     coarse_search(obj, spec, out, k_coarse, k_full, rng, coarse);
     if (!coarse.won) {
         refine_and_validate(obj, spec, out, cand_threads, coarse);
