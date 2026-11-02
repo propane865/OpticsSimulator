@@ -1006,3 +1006,54 @@ def test_plane_view_expanding_and_resolution_independent_hint(qt_app):
     finally:
         low_container.close()
         high_container.close()
+
+
+def test_plane_view_collapses_to_image_in_tall_column(qt_app):
+    # The regression: an Expanding view reserved all leftover column height,
+    # so a narrow sidebar showed a large empty band above the Display Mode
+    # row. The view is height-for-width and must shrink to the image.
+    plane = MeasurementPlane(
+        origin=(0.0, 0.0, 0.0),
+        normal=(0.0, 0.0, 1.0),
+        u_range=(-20.0, 20.0),
+        v_range=(-2.0, 2.0),
+        resolution=(16, 4),
+    )
+    column = QtWidgets.QWidget()
+    layout = QtWidgets.QVBoxLayout(column)
+    placeholder = QtWidgets.QWidget()
+    view = PlaneView(placeholder)
+    layout.addWidget(view._container)
+    layout.addStretch(1)
+    view.show_result(plane.new_result())
+    try:
+        column.resize(200, 1200)
+        column.show()
+        qt_app.processEvents()
+        host = view._container
+        assert host.width() > 0 and host.height() > 0
+        # aspect 10:1 -> the view collapses to the minimum image height
+        # instead of claiming the whole 1200px column.
+        assert host.height() <= 66
+    finally:
+        column.close()
+
+
+def test_plane_view_shrinkable_width(qt_app):
+    plane = MeasurementPlane(
+        origin=(0.0, 0.0, 0.0),
+        normal=(0.0, 0.0, 1.0),
+        u_range=(-5.0, 5.0),
+        v_range=(-5.0, 5.0),
+        resolution=(8, 8),
+    )
+    placeholder = QtWidgets.QWidget()
+    view = PlaneView(placeholder)
+    view.show_result(plane.new_result())
+    host = view._container
+    try:
+        assert host.minimumSizeHint().width() <= 64
+        assert host.hasHeightForWidth()
+        assert host.heightForWidth(120) == 120
+    finally:
+        host.close()

@@ -5,6 +5,11 @@ irradiance grid into the ``planeView`` placeholder of ``main.ui`` as a QImage
 raster, letterboxed to the aspect ratio of the plane's in-plane sizes so the
 display shows the raw image the plane encounters rather than its world XY
 projection, using the same viridis normalization as the 3D detector mesh.
+
+The placeholder is turned into a height-for-width container: it reserves only
+the letterboxed image's height for its allocated width, so a narrow sidebar
+shrinks the view to the image instead of leaving an empty band between the
+view's header and the controls below it.
 """
 
 from __future__ import annotations
@@ -28,6 +33,10 @@ __all__ = ["PlaneView"]
 # Resolution-independent size reported by :class:`_AspectLabel`; the label is
 # Expanding so this only anchors the preferred size, never the displayed one.
 _SIZE_HINT = 256
+
+# Smallest side (px) :class:`_PlaneViewContainer` will shrink to, so a very
+# narrow sidebar can still show a tiny image instead of forcing a wide dock.
+_MIN_IMAGE_PX = 64
 
 
 def _result_rgba(result: MeasurementResult) -> np.ndarray:
@@ -80,7 +89,10 @@ class _AspectLabel(QtWidgets.QLabel):
     from the pixmap, which would make the surrounding layout reserve an
     amount of space proportional to the detector resolution and shrink the
     displayed image for low-resolution planes; returning a fixed hint keeps
-    the allocated rectangle constant so the letterboxed image fills it.
+    the allocated rectangle constant so the letterboxed image fills it. The
+    label fills its :class:`_PlaneViewContainer`, which sizes itself to the
+    letterboxed image, so letterbox bars only appear when the tab is taller
+    than the image needs.
     """
 
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
@@ -118,19 +130,101 @@ class _AspectLabel(QtWidgets.QLabel):
             painter.end()
 
 
+class _PlaneViewContainer(QtWidgets.QWidget):
+    """Host widget that reserves exactly the letterboxed image's height.
+
+    The container is width-driven (:meth:`hasHeightForWidth`): for an
+    allocated width it requests only ``width / aspect`` height, so when the
+    sidebar is narrower than the surrounding tab is tall, the view collapses
+    to the image instead of leaving an empty expanding band between the
+    view's header and the controls below it. Hints stay independent of the
+    pixmap's pixel resolution like :class:`_AspectLabel`'s, and the minimum
+    is small so a narrow dock can still shrink the view instead of being
+    pinned to the preferred size. The label is parented and resized directly
+    instead of through a nested layout: a layout inside a height-for-width
+    widget feeds its own (resolution-sized) hints back into the parent
+    layout's height-for-width pass, which then collapses the widget to zero
+    height.
+    """
+
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("planeView")
+        self._aspect = 1.0
+        self._label: _AspectLabel | None = None
+        policy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Minimum,
+        )
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def set_label(self, label: _AspectLabel) -> None:
+        self._label = label
+        label.setParent(self)
+        label.setGeometry(self.rect())
+
+    def set_aspect(self, aspect: float) -> None:
+        if aspect > 0.0 and math.isfinite(aspect):
+            self._aspect = float(aspect)
+        if self._label is not None:
+            self._label.set_aspect(aspect)
+        self.updateGeometry()
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if self._label is not None:
+            self._label.setGeometry(self.rect())
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return max(_MIN_IMAGE_PX, round(width / self._aspect))
+
+    def sizeHint(self) -> QtCore.QSize:
+        return QtCore.QSize(_SIZE_HINT, _SIZE_HINT)
+
+    def minimumSizeHint(self) -> QtCore.QSize:
+        return QtCore.QSize(_MIN_IMAGE_PX, _MIN_IMAGE_PX)
+
+
 class PlaneView:
     """Shows the colormap of the selected measurement plane's detector image."""
 
     def __init__(self, container: QtWidgets.QWidget) -> None:
-        self._label = _AspectLabel(container)
-        self._label.setMinimumSize(_SIZE_HINT, _SIZE_HINT)
+        self._container = self._make_height_for_width(container)
+        self._label = _AspectLabel(self._container)
         self._label.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
             QtWidgets.QSizePolicy.Policy.Expanding,
         )
-        layout = QtWidgets.QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._label)
+        self._container.set_label(self._label)
+
+    @staticmethod
+    def _make_height_for_width(container: QtWidgets.QWidget) -> _PlaneViewContainer:
+        """Provide a height-for-width host for ``container``.
+
+        When ``container`` sits in a ``QVBoxLayout`` (the ``main.ui``
+        ``planeView`` placeholder inside the tab's column), it is replaced at
+        the same index by a :class:`_PlaneViewContainer` reusing the
+        ``planeView`` object name so lookups keep working. A bare standalone
+        container (no surrounding vertical layout) instead hosts the new
+        container widget directly.
+        """
+        parent = container.parentWidget()
+        parent_layout = parent.layout() if parent is not None else None
+        if isinstance(parent_layout, QtWidgets.QVBoxLayout) and parent_layout.indexOf(container) >= 0:
+            index = parent_layout.indexOf(container)
+            container.setObjectName("")
+            parent_layout.takeAt(index)
+            container.setParent(None)
+            host = _PlaneViewContainer()
+            parent_layout.insertWidget(index, host)
+            return host
+        host = _PlaneViewContainer(container)
+        host.setObjectName("")
+        return host
 
     def show_result(self, result: MeasurementResult | None) -> None:
         """Display ``result``'s irradiance colormap; ``None`` clears the view."""
@@ -142,5 +236,5 @@ class PlaneView:
         image = QtGui.QImage(rgba.data, cols, rows, 4 * cols, QtGui.QImage.Format.Format_RGBA8888)
         plane = result.plane
         size_x, size_y = plane.in_plane_size
-        self._label.set_aspect(size_x / size_y if size_y > 0.0 else 1.0)
+        self._container.set_aspect(size_x / size_y if size_y > 0.0 else 1.0)
         self._label.setPixmap(QtGui.QPixmap.fromImage(image.copy()))

@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PySide6 = pytest.importorskip("PySide6")
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from rendering import demo
 from tests.ui_helpers import (
@@ -69,13 +69,37 @@ def test_dock_forms_stay_resizable(window):
 
     image = window.findChild(QtWidgets.QLabel, "planeImageLabel")
     assert image is not None
-    assert image.minimumSize().width() <= 256
+
+    view = window.findChild(QtWidgets.QWidget, "planeView")
+    assert view is not None
+    assert view.minimumSizeHint().width() <= 256
+    assert view.hasHeightForWidth()
 
     lock = window.findChild(QtWidgets.QCheckBox, "analysisLockImageCheck")
     suboptimal = window.findChild(QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck")
     assert lock is not None and suboptimal is not None
     assert lock.parentWidget() is suboptimal.parentWidget()
     assert isinstance(lock.parentWidget().layout(), QtWidgets.QVBoxLayout)
+
+
+def test_narrow_tall_tab_keeps_forms_compact(qt_app, window):
+    # The regression: once the plane view stopped expanding, a tall narrow
+    # tab spread its surplus space through the Preferred widgets, inflating
+    # the gap between the plane form and its OK/Cancel buttons. The tab
+    # spacers must absorb the surplus instead.
+    tab = window.findChild(QtWidgets.QTabWidget, "tabWidget")
+    tab.setCurrentIndex(2)
+    form = window.findChild(QtWidgets.QWidget, "widget_4")
+    buttons = window.findChild(QtWidgets.QDialogButtonBox, "planeButtonBox")
+    gaps = []
+    for height in (700, 1500):
+        window.resize(560, height)
+        window.show()
+        qt_app.processEvents()
+        top = buttons.mapTo(form.parentWidget(), QtCore.QPoint(0, 0)).y()
+        gaps.append(top - (form.geometry().bottom() + 1))
+    assert gaps[0] <= 12
+    assert gaps[0] == gaps[1]
 
 
 def test_window_shows_with_scene(qt_app, make_window, make_element):
