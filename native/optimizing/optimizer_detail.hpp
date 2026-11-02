@@ -1,15 +1,18 @@
 // Shared internals for the layout-optimizer translation units: the fidelity
 // ray levels and ``LayoutObjective`` trace-and-merit engine (``objective.hpp``),
 // the diagnostic timer (``timing.hpp``), the DE operator set both drivers
-// consume in the same order (``sampling.hpp``), and the candidate acceptance,
-// diversity and concurrency helpers (``candidates.hpp``). This header pulls
-// them together and declares the two search drivers. In the private ``detail``
+// consume in the same order (``sampling.hpp``), the acceptance policy
+// (``acceptance.hpp``), the candidate-diversity gate (``candidates.hpp``) and the
+// candidate-concurrency fan-out (``parallel.hpp``). This header pulls them
+// together and declares the two search drivers. In the private ``detail``
 // namespace: internal to ``native/optimizing/``, not part of the kernel API
 // (see ``optics/optimizing/optimizer.hpp``).
 #pragma once
 
+#include "acceptance.hpp"
 #include "candidates.hpp"
 #include "objective.hpp"
+#include "parallel.hpp"
 #include "sampling.hpp"
 #include "timing.hpp"
 
