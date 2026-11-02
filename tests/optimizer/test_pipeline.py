@@ -1,0 +1,129 @@
+"""The coarse-to-fine pipeline: convergence, determinism, candidate concurrency,
+ray-budget savings, structured failure and grouped-fan focus."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+import pytest
+
+from optics.optimizer import OptimizationError, optimize_layout
+from tests.optimizer._common import (
+    _FAST,
+    _GROUPED,
+    _PIPELINE,
+    _WIDE_BOUNDS,
+    _WIDE_IMAGE_BOUNDS,
+    _grouped_problem,
+    _optimize_pipeline,
+    _plane_at,
+    _problem,
+    _spot_radius,
+    _sweep_best_z,
+    _system,
+)
+
+
+def test_pipeline_converges_to_best_focus():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    system = _system(schema)
+    base_radius = _spot_radius(system, p2, origins, dirs, powers, p1)
+    _, ref_radius = _sweep_best_z(system, p1, p2, origins, dirs, powers)
+    result = _optimize_pipeline(schema, source, p1, p2)
+    assert result.status == "ok"
+    assert result.spot_radius_mm <= ref_radius * 1.1
+    assert result.spot_radius_mm < base_radius / 3.0
+
+
+def test_pipeline_spot_matches_a_retrace():
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    result = _optimize_pipeline(schema, source, p1, p2)
+    assert result.status == "ok"
+    image = _plane_at(p2, result.best_z[-1])
+    recomputed = _spot_radius(_system(result.elements_config), image, origins, dirs, powers, p1)
+    assert result.spot_radius_mm > 0.0
+    assert result.spot_radius_mm <= recomputed * (1.0 + 1e-9)
+
+
+def test_pipeline_is_deterministic():
+    schema, source, p1, p2 = _problem()
+    a = _optimize_pipeline(schema, source, p1, p2)
+    b = _optimize_pipeline(schema, source, p1, p2)
+    assert a.status == "ok" and b.status == "ok"
+    assert a.best_z == b.best_z
+    assert a.spot_radius_mm == b.spot_radius_mm
+
+
+def test_pipeline_candidate_concurrency_matches_serial():
+    # Opt-in candidate concurrency only reorders independent stage evaluations;
+    # with the same configuration the result must be identical to serial.
+    schema, source, p1, p2 = _problem()
+    base = replace(_PIPELINE, finalist_count=6, archive_min_dist=0.0)
+    serial = _optimize_pipeline(schema, source, p1, p2, replace(base, enable_candidate_concurrency=False))
+    conc = _optimize_pipeline(
+        schema,
+        source,
+        p1,
+        p2,
+        replace(base, enable_candidate_concurrency=True, candidate_threads=0),
+    )
+    assert serial.status == "ok" and conc.status == "ok"
+    assert serial.best_z == conc.best_z
+    assert serial.spot_radius_mm == conc.spot_radius_mm
+    assert serial.evaluations == conc.evaluations
+    assert serial.rays_traced == conc.rays_traced
+
+
+def test_pipeline_traces_fewer_rays_than_legacy():
+    schema, source, p1, p2 = _problem()
+    pipe = _optimize_pipeline(schema, source, p1, p2)
+    legacy = _optimize_pipeline(schema, source, p1, p2, replace(_FAST, enable_pipeline=False))
+    assert pipe.status == "ok" and legacy.status == "ok"
+    # Coarse-to-fine must trace strictly fewer total rays than the legacy
+    # full-fidelity-per-candidate search for the same problem and seed.
+    assert pipe.rays_traced < legacy.rays_traced
+
+
+def test_pipeline_reports_a_structured_failure_reason():
+    schema, source, p1, p2 = _problem()
+    # A zero tolerance can never be met by this finite spot, so the pipeline
+    # must fail with a structured reason rather than report a least-bad layout.
+    with pytest.raises(OptimizationError, match="reason:"):
+        _optimize_pipeline(schema, source, p1, p2, replace(_PIPELINE, max_normalized_blur=0.0))
+
+
+def test_pipeline_converges_on_a_grouped_fan_in_one_run():
+    schema, source, p1, p2 = _grouped_problem()
+    origins, dirs, powers = source.emit_arrays()
+    assert origins.shape[0] == 1024  # 64 object points of 16 rays each
+    result = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_WIDE_BOUNDS,
+        image_bounds=_WIDE_IMAGE_BOUNDS,
+        optimization=_GROUPED,
+    )
+    legacy = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_WIDE_BOUNDS,
+        image_bounds=_WIDE_IMAGE_BOUNDS,
+        optimization=replace(_GROUPED, enable_pipeline=False, allow_suboptimal=True),
+    )
+    # The coarse level gets 48 rays for 64 object points. Spread one ray per
+    # object point, a point's spread about itself is zero: the coarse stage
+    # ranks layouts on how many rays survive and never sees blur at all, so the
+    # run stalls on a best-effort layout and only walks into focus over several
+    # repeated clicks (each re-centering the window on the last best effort).
+    assert result.status == "ok"
+    assert result.spot_radius_mm <= legacy.spot_radius_mm * 1.15
