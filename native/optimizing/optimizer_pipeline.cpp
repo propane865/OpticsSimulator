@@ -3,7 +3,7 @@
 // stage is a function of its own: ``run_coarse_search`` runs a coarse DE that fills
 // a diverse archive (and can end the run early on a validated full-fidelity
 // focus), ``refine_and_validate`` re-traces the promoted subset at a medium
-// budget and runs ``validate_full_batch`` -- the only place success can occur.
+// budget and runs ``validate_candidates`` -- the only place success can occur.
 // Shared machinery lives in the ``optimizing/`` detail headers.
 #include <algorithm>
 #include <cstddef>
@@ -60,7 +60,7 @@ void archive_insert(std::vector<Candidate>& archive, const double* xs,
 // Re-trace the promoted set at a finer ray budget and rank the results
 // focus-first. A medium candidate is still not success -- it only reorders
 // which few finalists reach the whole-fan gate.
-std::vector<RankedCandidate> medium_rerank(
+std::vector<RankedCandidate> evaluate_medium_fidelity(
     LayoutObjective& obj, const OptimizerSpec& spec, const std::vector<Candidate>& promoted,
     std::size_t k_medium, std::int64_t medium_budget, OptimizerDiagnostics& dg,
     int& cand_threads, const LayoutObjective::Stats& coarse_best) {
@@ -133,7 +133,7 @@ struct ValidationResult {
 // the first accepted layout is the focus-first contract; continuing past the
 // first ``finalist_count`` is what keeps a run from failing because the coarse
 // ranking put the only focusable layout fifth.
-ValidationResult validate_full_batch(LayoutObjective& obj, const OptimizerSpec& spec,
+ValidationResult validate_candidates(LayoutObjective& obj, const OptimizerSpec& spec,
                                     const std::vector<Candidate>& queue, std::size_t batch,
                                     std::size_t k_full, OptimizerDiagnostics& dg,
                                     int& cand_threads, const LayoutObjective::Stats& coarse_best) {
@@ -460,7 +460,7 @@ void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, Optimi
         std::min(second_half, static_cast<std::int64_t>(spec.max_evals) - reserved);
     medium_budget = std::max(coarse_budget, medium_budget);
     const std::vector<RankedCandidate> ranked =
-        medium_rerank(obj, spec, promoted, k_medium, medium_budget, out.diagnostics, cand_threads,
+        evaluate_medium_fidelity(obj, spec, promoted, k_medium, medium_budget, out.diagnostics, cand_threads,
                       c.best_stats);
 
     // --- Finalist selection: distinct best medium candidates -------------
@@ -486,7 +486,7 @@ void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, Optimi
     }
     const std::size_t batch = std::min(queue.size(), finalists.size());
     const ValidationResult validation =
-        validate_full_batch(obj, spec, queue, batch, k_full, out.diagnostics, cand_threads,
+        validate_candidates(obj, spec, queue, batch, k_full, out.diagnostics, cand_threads,
                             c.best_stats);
 
     // Full-validation winner: the whole-fan passers decide, else the best
