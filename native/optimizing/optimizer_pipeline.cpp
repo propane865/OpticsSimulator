@@ -430,40 +430,34 @@ std::vector<Candidate> promote_candidates(CoarseSearchResult& coarse, const Opti
     return promoted;
 }
 
-// Promotion, medium re-rank and whole-fan validation (skipped when the coarse
-// phase already secured a validated winner): the result is written back as the
-// coarse phase's winner.
-void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, OptimizerOutcome& out,
-                         int& cand_threads, CoarseSearchResult& c) {
-    const std::size_t d = obj.dim();
-    const std::size_t n_fan = spec.rays.count;
-    const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
+// The medium stage's inputs: the ray budget it re-traces at and the evaluation
+// ceiling it stops under. The ceiling reserves room (one focus scan per finalist
+// plus one more candidate) so whole-fan validation always runs even under
+// autofocus, where each candidate is many traced focus-scan samples.
+struct MediumPlan {
+    std::size_t k_medium;
+    std::int64_t medium_budget;
+};
 
-    // --- Promotion: distinct coarse candidates near the coarse best ------
-    // Order focus-first and keep the top ``finalist_count`` plus any within
-    // ``promotion_factor`` of the best, bounded by ``medium_cap`` (see
-    // ``promote_candidates``). ``need`` is reused below for finalist/reserve math.
-    const int need = std::max(1, spec.finalist_count);
-    std::vector<Candidate> promoted = promote_candidates(c, spec, d, out.diagnostics);
-
-    // --- Medium re-rank: re-trace the promoted set at a finer budget -----
-    // The budget leaves a reserve so full validation always runs even under
-    // autofocus (each candidate is many traced focus-scan samples).
+MediumPlan plan_medium(int need, const OptimizerSpec& spec, std::size_t n_fan, std::size_t k_full) {
     const std::size_t k_medium = spec.ray_medium > 0 ? std::min(spec.ray_medium, n_fan) : k_full;
     const std::int64_t coarse_budget = std::max<std::int64_t>(200, spec.max_evals / 2);
     const std::int64_t second_half =
         coarse_budget + (static_cast<std::int64_t>(spec.max_evals) - coarse_budget) / 2;
-    // Keep the whole-fan stage a real gate: the medium re-rank stops with
-    // room for the first validation batch plus one more candidate to try.
     const std::int64_t reserved = static_cast<std::int64_t>(need + 1) * kMaxFocusScanTraces;
     std::int64_t medium_budget =
         std::min(second_half, static_cast<std::int64_t>(spec.max_evals) - reserved);
     medium_budget = std::max(coarse_budget, medium_budget);
-    const std::vector<RankedCandidate> ranked =
-        evaluate_medium_fidelity(obj, spec, promoted, k_medium, medium_budget, out.diagnostics, cand_threads,
-                      c.best_stats);
+    return MediumPlan{k_medium, medium_budget};
+}
 
-    // --- Finalist selection: distinct best medium candidates -------------
+// Finalist selection: the distinct best medium candidates (``ranked`` is already
+// focus-first ordered), at least the top ``finalist_count``; if nothing distinct
+// survives, the best swept candidate stands in.
+std::vector<Candidate> select_finalists(const std::vector<RankedCandidate>& ranked,
+                                        const CoarseSearchResult& coarse, std::size_t d,
+                                        const OptimizerSpec& spec) {
+    const int need = std::max(1, spec.finalist_count);
     std::vector<Candidate> finalists;
     for (const auto& r : ranked) {
         if (distinct_from_all(finalists, r.x.data(), d, spec, entry_x)) {
@@ -474,79 +468,57 @@ void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, Optimi
         }
     }
     if (finalists.empty()) {
-        finalists.push_back(Candidate{c.best_swept, c.best_stats});
+        finalists.push_back(Candidate{coarse.best_swept, coarse.best_stats});
     }
+    return finalists;
+}
 
-    // --- Full-fidelity validation: the only place success can occur ------
+// The validation queue: the finalists first (validated as a batch), then every
+// distinct archive candidate behind them, so a run cannot fail just because the
+// coarse ranking buried the only focusable layout past the first batch.
+std::vector<Candidate> build_validation_queue(const std::vector<Candidate>& finalists,
+                                              const CoarseSearchResult& coarse, std::size_t d,
+                                              const OptimizerSpec& spec) {
     std::vector<Candidate> queue = finalists;
-    for (const Candidate& e : c.archive) {
+    for (const Candidate& e : coarse.archive) {
         if (distinct_from_all(queue, e.x.data(), d, spec, entry_x)) {
             queue.push_back(e);
         }
     }
-    const std::size_t batch = std::min(queue.size(), finalists.size());
-    const ValidationResult validation =
-        validate_candidates(obj, spec, queue, batch, k_full, out.diagnostics, cand_threads,
-                            c.best_stats);
+    return queue;
+}
 
-    // Full-validation winner: the whole-fan passers decide, else the best
-    // full (unfocused) candidate is reported so a failure still has a
-    // layout.
-    c.win = validation.best_full;
-    c.win_x = validation.best_full_x;
+// Adopt the whole-fan validation outcome as the coarse phase's winner: the first
+// accepted passer (best-first) decides a win; otherwise the best full (unfocused)
+// candidate is carried so a failed run still reports a layout.
+void adopt_validated_winner(CoarseSearchResult& coarse, const ValidationResult& validation) {
+    coarse.win = validation.best_full;
+    coarse.win_x = validation.best_full_x;
     if (!validation.passers.empty()) {
-        c.win_x = validation.passers.front().x;
-        c.win = validation.passers.front().s;
-        c.won = true;
+        coarse.win_x = validation.passers.front().x;
+        coarse.win = validation.passers.front().s;
+        coarse.won = true;
     }
 }
 
-}  // namespace
-
-namespace detail {
-
-// Coarse-to-fine driver: a global DE at a coarse ray budget fills a diverse
-// archive of distinct candidates; a promoted subset is re-ranked at a medium ray
-// budget and candidates are then validated at the whole fan -- best-first, and
-// while nothing passes and the reserve lasts, further down the archive -- where
-// the hard focus acceptance is the ONLY success gate. A low coarse/medium
-// objective is never success -- it only decides which candidates earn a
-// full-fidelity trace -- so the pipeline can reorder search but never weakens
-// the acceptance contract or reports an unfocused layout as focused. A validated
-// winner, and any promising near-focus best, then gets the same gated
-// Nelder-Mead polish the legacy path runs. The search is single-threaded and
-// fully seeded, so it is bit-reproducible run to run.
-void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
-    LayoutObjective obj(spec);
-    int cand_threads = 1;  // widened if an independent stage actually fans out
-    const std::size_t d_full = spec.lo.size();
-    const std::size_t d = obj.dim();
-    const std::size_t n_fan = spec.rays.count;
-    out.n_total = n_fan;
-    if (d_full == 0 || n_fan == 0) {
-        out.status = "empty-problem";
-        out.best = spec.x_init;
-        return;
-    }
-    const std::size_t k_coarse = spec.ray_coarse > 0 ? std::min(spec.ray_coarse, n_fan) : n_fan;
-    const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
-
-    std::mt19937_64 rng(spec.seed);
-    CoarseSearchResult coarse = run_coarse_search(obj, spec, out, k_coarse, k_full, rng);
-    if (!coarse.won) {
-        refine_and_validate(obj, spec, out, cand_threads, coarse);
-    }
-
-    // Local polish, exactly as the legacy driver gates it (shared rule): an
-    // accepted winner always polishes, and so does a promising near-focus
-    // best -- the polish is what drags a layout that the global search only
-    // got *close* to focus over the acceptance line, so skipping it on a
-    // failure path is what made runs need repeating.
-    const bool promising = polish_promising(spec, coarse.win, coarse.won);
-    if (promising && !coarse.win_x.empty() && obj.evals() < spec.max_evals) {
+// Gated Nelder-Mead polish (the shared rule with the legacy driver): an accepted
+// winner always polishes, and so does a promising near-focus best -- dragging a
+// layout the global search only got close to focus over the acceptance line.
+void polish_finalists(LayoutObjective& obj, const OptimizerSpec& spec, CoarseSearchResult& coarse) {
+    if (polish_promising(spec, coarse.win, coarse.won) && !coarse.win_x.empty() &&
+        obj.evals() < spec.max_evals) {
         nelder_mead(obj, spec, coarse.win_x, coarse.win);
         coarse.won = focus_accepted(spec, coarse.win);
     }
+}
+
+// Marshal the winning candidate into the outcome: reassemble the full-length best
+// from the swept winner and its focus-scan plane z, box-clamp it, copy the
+// reported merit, and classify any failure with a structured reason.
+void finalize_outcome(const OptimizerSpec& spec, LayoutObjective& obj,
+                      const CoarseSearchResult& coarse, int cand_threads, OptimizerOutcome& out) {
+    const std::size_t d_full = spec.lo.size();
+    const std::size_t d = obj.dim();
     out.history.push_back(coarse.win.cost);
 
     out.best.assign(d_full, 0.0);
@@ -580,6 +552,67 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     if (out.status != "ok") {
         out.failure_reason = failure_reason_name(classify_failure(spec, coarse.win));
     }
+}
+
+}  // namespace
+
+namespace detail {
+
+// Coarse-to-fine driver: a global DE at a coarse ray budget fills a diverse
+// archive of distinct candidates; a promoted subset is re-ranked at a medium ray
+// budget and candidates are then validated at the whole fan -- best-first, and
+// while nothing passes and the reserve lasts, further down the archive -- where
+// the hard focus acceptance is the ONLY success gate. A low coarse/medium
+// objective is never success -- it only decides which candidates earn a
+// full-fidelity trace -- so the pipeline can reorder search but never weakens
+// the acceptance contract or reports an unfocused layout as focused. A validated
+// winner, and any promising near-focus best, then gets the same gated
+// Nelder-Mead polish the legacy path runs. The search is single-threaded and
+// fully seeded, so it is bit-reproducible run to run.
+void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
+    LayoutObjective obj(spec);
+    int cand_threads = 1;  // widened if an independent stage actually fans out
+    const std::size_t d_full = spec.lo.size();
+    const std::size_t d = obj.dim();
+    const std::size_t n_fan = spec.rays.count;
+    out.n_total = n_fan;
+    if (d_full == 0 || n_fan == 0) {
+        out.status = "empty-problem";
+        out.best = spec.x_init;
+        return;
+    }
+    const std::size_t k_coarse = spec.ray_coarse > 0 ? std::min(spec.ray_coarse, n_fan) : n_fan;
+    const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
+
+    // 1. Coarse global search proposes a diverse archive of candidates (and can
+    //    itself end the run on a validated whole-fan focus).
+    std::mt19937_64 rng(spec.seed);
+    CoarseSearchResult coarse = run_coarse_search(obj, spec, out, k_coarse, k_full, rng);
+
+    // 2-5. Refinement proves the proposals: promote distinct candidates, re-rank
+    //      them at medium fidelity, then validate at the whole fan -- the ONLY
+    //      place success can occur. Skipped when coarse already won.
+    if (!coarse.won) {
+        const int need = std::max(1, spec.finalist_count);
+        std::vector<Candidate> promoted = promote_candidates(coarse, spec, d, out.diagnostics);
+        const MediumPlan medium = plan_medium(need, spec, n_fan, k_full);
+        std::vector<RankedCandidate> ranked = evaluate_medium_fidelity(
+            obj, spec, promoted, medium.k_medium, medium.medium_budget, out.diagnostics,
+            cand_threads, coarse.best_stats);
+        std::vector<Candidate> finalists = select_finalists(ranked, coarse, d, spec);
+        std::vector<Candidate> queue = build_validation_queue(finalists, coarse, d, spec);
+        const std::size_t batch = std::min(queue.size(), finalists.size());
+        const ValidationResult validation = validate_candidates(
+            obj, spec, queue, batch, k_full, out.diagnostics, cand_threads, coarse.best_stats);
+        adopt_validated_winner(coarse, validation);
+    }
+
+    // 6. Polish the winner (and any promising near-focus best) with the shared
+    //    gated Nelder-Mead.
+    polish_finalists(obj, spec, coarse);
+
+    // 7. Marshal the winning layout into the outcome and classify any failure.
+    finalize_outcome(spec, obj, coarse, cand_threads, out);
 }
 
 }  // namespace detail
