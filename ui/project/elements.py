@@ -1,0 +1,208 @@
+"""Element mutation policy and stack operations.
+
+:class:`ui.project.state.ProjectState` stays the single owner of the state;
+these are the operations it performs on the element list (naming, add/replace/
+remove, and the cascade-on-merge import). :func:`classify_element_edit` is the
+optical-model mutation policy the UI consults to decide what must be rebuilt.
+"""
+
+from __future__ import annotations
+
+import copy
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any
+
+from optics.config import element_position, refractive_element_from_config
+from optics.element import RefractiveElement
+from optics.system import OpticalSystem
+
+if TYPE_CHECKING:
+    from .state import ProjectState
+
+DEFAULT_ELEMENT_CONFIG: dict[str, Any] = {
+    "surface1": {
+        "x": "u",
+        "y": "v",
+        "z": "-2.5",
+        "u_range": [-20.0, 20.0],
+        "v_range": [-20.0, 20.0],
+        "aperture": {"radius": 7.5},
+    },
+    "surface2": {
+        "x": "u",
+        "y": "v",
+        "z": "2.5",
+        "u_range": [-20.0, 20.0],
+        "v_range": [-20.0, 20.0],
+        "aperture": {"radius": 7.5},
+    },
+    "material": {"refractive_index": 1.5},
+}
+
+
+def unique_name(base: str, used: Iterable[str], *, prefix: str = "plane") -> str:
+    """Return a name not present in ``used``.
+
+    A non-empty ``base`` is honored when free; otherwise the first free
+    ``{prefix}{n}`` (n starting at 1) is returned. This unifies the previously
+    duplicated interactive-add and file-load naming into one code path.
+    """
+    taken = set(used)
+    if base and base not in taken:
+        return base
+    index = 1
+    while f"{prefix}{index}" in taken:
+        index += 1
+    return f"{prefix}{index}"
+
+
+_ELEMENT_GEOMETRY_FIELDS = ("x", "y", "z", "u_range", "v_range", "aperture")
+_ELEMENT_TRANSFORM_KEYS = ("position", "orientation")
+
+
+def _only_index_changed(old_material: dict, new_material: dict) -> bool:
+    if set(old_material) != set(new_material):
+        return False
+    for key in old_material:
+        if key == "refractive_index":
+            continue
+        if old_material[key] != new_material[key]:
+            return False
+    return old_material.get("refractive_index") != new_material.get("refractive_index")
+
+
+def classify_element_edit(
+    old: dict[str, Any] | None, new: dict[str, Any] | None
+) -> str:
+    """Classify an element-config edit as ``none``, ``index``, ``transform`` or ``geometry``.
+
+    The result lets the UI skip needless work: refractive-index-only edits do
+    not change the rendered surface geometry, and a no-op edit needs no
+    re-trace. Unknown or mixed changes conservatively report ``geometry``.
+    """
+    if old == new:
+        return "none"
+    old = old or {}
+    new = new or {}
+
+    geometry_changed = False
+    for key in ("surface1", "surface2"):
+        old_surface = old.get(key) or {}
+        new_surface = new.get(key) or {}
+        if any(old_surface.get(f) != new_surface.get(f) for f in _ELEMENT_GEOMETRY_FIELDS):
+            geometry_changed = True
+
+    transform_changed = any(old.get(k) != new.get(k) for k in _ELEMENT_TRANSFORM_KEYS)
+
+    old_material = old.get("material") or {}
+    new_material = new.get("material") or {}
+    index_changed = old_material.get("refractive_index") != new_material.get("refractive_index")
+
+    other_changed = old_material != new_material and not _only_index_changed(
+        old_material, new_material
+    )
+    tracked = {"surface1", "surface2", "material", *_ELEMENT_TRANSFORM_KEYS}
+    for key in set(old) | set(new):
+        if key in tracked:
+            continue
+        if old.get(key) != new.get(key):
+            other_changed = True
+
+    if geometry_changed or other_changed:
+        return "geometry"
+    if transform_changed:
+        return "transform"
+    if index_changed:
+        return "index"
+    return "geometry"
+
+
+def new_element_name(state: ProjectState) -> str:
+    return unique_name("", (state.schema or {}).keys(), prefix="lens")
+
+
+def add_element(state: ProjectState, name: str, config: dict[str, Any], element: RefractiveElement) -> None:
+    if state._schema is None:
+        state._schema = {}
+    state._schema[name] = config
+    state._elements.append(element)
+    state._system = None
+
+
+def replace_element(state: ProjectState, name: str, config: dict[str, Any], element: RefractiveElement) -> int:
+    assert state._schema is not None
+    index = list(state._schema.keys()).index(name)
+    state._schema[name] = config
+    state._elements[index] = element
+    state._system = None
+    return index
+
+
+def remove_element(state: ProjectState, name: str) -> None:
+    assert state._schema is not None
+    index = list(state._schema.keys()).index(name)
+    del state._schema[name]
+    state._elements.pop(index)
+    state._system = None
+
+
+def import_elements(
+    state: ProjectState, elements_config: dict[str, Any], *, radius: float = 0.0
+) -> list[str]:
+    """Merge imported ``elements_config`` into the current project.
+
+    The stack is cascaded downstream (along ``-Z``) of the rearmost existing
+    element (or the source when the project has none), separated by a gap
+    scaled by ``radius``; the internal spacing and any cemented shared
+    vertices are preserved (a single translation is applied to every
+    element). The current source and measurement planes are kept and
+    re-measured. Element names are de-duplicated against the existing
+    schema (``lens1`` -> ``lens3`` on collision).
+
+    Construction and combined-system validation run before any mutation, so
+    a bad import leaves the current state untouched (callers re-raise).
+    Returns the names actually added. Assumes untilted (``[0, 0, 1]``)
+    elements, as the Zemax importer emits.
+    """
+    if not elements_config:
+        return []
+
+    taken: set[str] = set(state._schema or {})
+    named: list[tuple[str, dict[str, Any]]] = []
+    for base, config in elements_config.items():
+        name = unique_name(base, taken, prefix="lens")
+        taken.add(name)
+        named.append((name, config))
+
+    incoming_front = max(
+        element_position(config)[2] for _, config in named
+    )
+    if state._elements:
+        anchor = min(float(element.surface2.point(0.0, 0.0)[2]) for element in state._elements)
+    else:
+        anchor = float(state._source.position[2])
+    delta = anchor - max(2.0 * float(radius), 1.0) - incoming_front
+
+    offset_configs: dict[str, Any] = {}
+    built: list[RefractiveElement] = []
+    for name, config in named:
+        new_config = copy.deepcopy(config)
+        position = element_position(new_config)
+        position[2] += delta
+        new_config["position"] = position
+        offset_configs[name] = new_config
+        built.append(refractive_element_from_config(new_config))
+
+    new_system = OpticalSystem([*state._elements, *built])
+    origins, dirs, powers = state.rays_arrays()
+    new_rows = state._measurements.split_hits(
+        *new_system.measure_planes(origins, dirs, powers, state._measurements.planes)
+    )
+
+    if state._schema is None:
+        state._schema = {}
+    state._schema.update(offset_configs)
+    state._elements.extend(built)
+    state._system = new_system
+    state._measurements.load(new_rows)
+    return [name for name, _ in named]
