@@ -131,7 +131,8 @@ array buffers only.
     the fast lens-edit path, and versioned-document load/save via
     `optics.project`)
   - `scene.py`: `SceneController` — vispy view + node bookkeeping for elements,
-    rays, the source marker and measurement planes
+    rays, the source marker and measurement planes, plus the selection
+    highlight (a tinted lens, a rim-tinted plane)
   - `editors.py`: `ElementEditor`/`SourceEditor`/`PlaneEditor` controllers over
     the dock widgets (populate/apply/add/remove) and `AnalysisEditor`
     driving the Optimize Layout panel (element z-lock table, image-plane
@@ -140,6 +141,10 @@ array buffers only.
     `optimize_layout` and marshalling results back onto the UI thread
   - `plane_view.py`: 2D colormap view of a measurement plane's detector
     image (letterboxed `QImage` raster, viridis like the 3D mesh)
+  - `project_tree.py`: `ProjectTree` for the left dock — mirrors the project as
+    source / lens stack / measurement planes, and reports a `(kind, name)`
+    selection that the window routes to the matching editor, tab and 3D
+    highlight (and back, when a selector changes)
   - `widgets.py`: shared PySide6 helpers (`find_child`, `configure_spin`,
     `enable_widgets`, `run_validated`)
 

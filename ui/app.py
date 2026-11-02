@@ -1,8 +1,10 @@
 """PySide6 desktop application: composition root for the optics simulator.
 
 The window wires the Qt UI (``main.ui``) to the Qt-free domain
-(:mod:`ui.model`), the vispy view (:mod:`ui.scene`) and the property editors
-(:mod:`ui.editors`); it stays a thin orchestrator.
+(:mod:`ui.model`), the vispy view (:mod:`ui.scene`), the project tree
+(:mod:`ui.project_tree`) and the property editors (:mod:`ui.editors`); it stays
+a thin orchestrator that owns the selection shared between tree, editors and
+scene.
 """
 
 import json
@@ -32,6 +34,7 @@ from . import imagecodec
 from .editors import AnalysisEditor, ElementEditor, PlaneEditor, SourceEditor
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
 from .plane_view import PlaneView
+from .project_tree import ELEMENT, PLANE, SOURCE, ProjectTree, Selection
 from .scene import RAY_LENGTH, SceneController, make_display
 from .widgets import find_child, run_validated
 
@@ -52,9 +55,22 @@ _TAB_TOOLTIPS = (
     "Compare two plane images and optimize the layout for focus",
 )
 
+# Which tab shows a project object selected in the tree. Keyed by the tab page's
+# object name (resolved to an index in ``_load_ui``) so a Designer reorder
+# cannot silently send a selection to the wrong form.
+_TAB_BY_PAGE = {ELEMENT: "tab", SOURCE: "tab_2", PLANE: "tab_3"}
+
+# The two docks main.ui declares, with the area each belongs in. QUiLoader hands
+# them over as children of the loaded window; they only become real docks of
+# this window once re-parented in ``_load_ui``.
+_DOCK_AREAS = {
+    "dockWidget": QtCore.Qt.DockWidgetArea.RightDockWidgetArea,
+    "dockWidget_2": QtCore.Qt.DockWidgetArea.LeftDockWidgetArea,
+}
+
 
 class OpticsMainWindow(QtWidgets.QMainWindow):
-    """Main window: owns the project state, scene and the three editors."""
+    """Main window: owns the project state, scene, project tree and the editors."""
 
     def __init__(
         self,
@@ -66,16 +82,19 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._ui: QtWidgets.QMainWindow
         self._state = ProjectState(rays=rays)
         self._scene = SceneController(canvas)
+        self._selection_kind: str | None = None
         self._load_ui()
         self._embed_canvas(canvas)
         self._plane_view = PlaneView(find_child(self, QtWidgets.QWidget, "planeView", UI_PATH.name))
+        # Both selectors report into _on_project_changed, which runs only after
+        # construction, so the tree the callback refreshes can be built last.
         self._element_editor = ElementEditor(
             self,
             self._state,
             self._scene,
             self._set_status,
             self._refresh_trace,
-            on_elements_changed=lambda: self._analysis_editor.populate(),
+            on_elements_changed=self._on_project_changed,
         )
         self._source_editor = SourceEditor(
             self, self._state, self._scene, self._set_status, self._refresh_after_source
@@ -86,12 +105,18 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._scene,
             self._set_status,
             self._update_plane_view,
-            on_populated=lambda: self._analysis_editor.populate(),
+            on_populated=self._on_project_changed,
         )
         self._analysis_editor = AnalysisEditor(
             self, self._state, self._scene, self._set_status, self._refresh_trace
         )
+        self._project_tree = ProjectTree(
+            find_child(self, QtWidgets.QTreeWidget, "projectTree", UI_PATH.name),
+            self._state,
+            self._on_tree_select,
+        )
         self._connect_actions()
+        self._connect_selectors()
         self._scene.refresh_source(self._state.source)
 
     # -- UI construction -----------------------------------------------------
@@ -102,13 +127,23 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(cast(QtWidgets.QWidget, loaded.centralWidget()))
         self.setMenuWidget(cast(QtWidgets.QWidget, loaded.menuWidget()))
         self.setStatusBar(loaded.statusBar())
-        dock = loaded.findChild(QtWidgets.QDockWidget, "dockWidget")
-        if dock is not None:
-            self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self._tabs: QtWidgets.QTabWidget | None = None
+        self._tab_index: dict[str, int] = {}
+        for name, area in _DOCK_AREAS.items():
+            dock = loaded.findChild(QtWidgets.QDockWidget, name)
+            if dock is None:
+                continue
+            self.addDockWidget(area, dock)
             tab_widget = dock.findChild(QtWidgets.QTabWidget, "tabWidget")
-            if tab_widget is not None:
-                for index, tip in enumerate(_TAB_TOOLTIPS):
-                    tab_widget.tabBar().setTabToolTip(index, tip)
+            if tab_widget is None:
+                continue
+            self._tabs = tab_widget
+            for index, tip in enumerate(_TAB_TOOLTIPS):
+                tab_widget.tabBar().setTabToolTip(index, tip)
+            for kind, page in _TAB_BY_PAGE.items():
+                page_widget = tab_widget.findChild(QtWidgets.QWidget, page)
+                if page_widget is not None:
+                    self._tab_index[kind] = tab_widget.indexOf(page_widget)
 
     def _embed_canvas(self, canvas: Any) -> None:
         container = find_child(self, QtWidgets.QWidget, "openGLWidget", UI_PATH.name)
@@ -134,7 +169,69 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         )
         display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
 
+    def _connect_selectors(self) -> None:
+        """Mirror selection made in the editors back into the tree and scene."""
+        lens = find_child(self, QtWidgets.QComboBox, "lensSelector", UI_PATH.name)
+        plane = find_child(self, QtWidgets.QComboBox, "planeSelectorCombo", UI_PATH.name)
+        lens.currentIndexChanged.connect(lambda _: self._on_editor_selection(ELEMENT))
+        plane.currentIndexChanged.connect(lambda _: self._on_editor_selection(PLANE))
+
+    # -- project selection (tree <-> editors <-> scene) -----------------------
+    def _on_tree_select(self, selection: Selection) -> None:
+        """Show the clicked project object in its editor, tab and lit in 3D."""
+        kind, name = selection
+        self._selection_kind = kind
+        self._show_tab(kind)
+        if kind == ELEMENT:
+            self._element_editor.select(name)
+        elif kind == PLANE:
+            self._plane_editor.select(name)
+        self._apply_scene_selection()
+
+    def _on_editor_selection(self, kind: str, *_: object) -> None:
+        """Follow a selector change: move the tree highlight to the same object."""
+        self._selection_kind = kind
+        self._project_tree.set_current(self._selection())
+        self._apply_scene_selection()
+
+    def _selection(self) -> Selection | None:
+        """The project object the editors are currently showing, if any."""
+        kind = self._selection_kind
+        if kind == ELEMENT:
+            name = self._element_editor.selected_name()
+            return None if name is None else (ELEMENT, name)
+        if kind == PLANE:
+            names = self._state.plane_names
+            index = self._plane_editor.selected_index()
+            return (PLANE, names[index]) if 0 <= index < len(names) else None
+        return None if kind is None else (SOURCE, "")
+
+    def _apply_scene_selection(self) -> None:
+        """Light the selected object: elements tint, planes rim, source neither."""
+        selection = self._selection()
+        kind = None if selection is None else selection[0]
+        name = "" if selection is None else selection[1]
+        names = list(self._state.schema or {})
+        self._scene.select_element(names.index(name) if kind == ELEMENT and name in names else None)
+        planes = self._state.plane_names
+        self._scene.select_plane(planes.index(name) if kind == PLANE and name in planes else None)
+
+    def _show_tab(self, kind: str) -> None:
+        index = self._tab_index.get(kind, -1)
+        if self._tabs is not None and index >= 0:
+            self._tabs.setCurrentIndex(index)
+
     # -- orchestration shared by the editors --------------------------------
+    def _on_project_changed(self) -> None:
+        """Refill everything derived from the element and plane lists."""
+        self._analysis_editor.populate()
+        self._project_tree.populate()
+        # The editors own the selection and their selector lists were just
+        # rebuilt (to the first item after a load), so mirror what they show
+        # rather than whatever row the tree happened to remember.
+        self._project_tree.set_current(self._selection())
+        self._apply_scene_selection()
+
     def frame_to_scene(self) -> None:
         """Fit the camera to the whole project (called on load/import only)."""
         self._scene.frame_view(

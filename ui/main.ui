@@ -67,7 +67,7 @@
      <item>
       <widget class="QTabWidget" name="tabWidget">
        <property name="currentIndex">
-        <number>3</number>
+        <number>0</number>
        </property>
        <widget class="QWidget" name="tab">
         <property name="sizePolicy">
@@ -778,7 +778,7 @@
        </widget>
        <widget class="QWidget" name="tab_3">
         <attribute name="title">
-         <string>Measurement Planes</string>
+         <string>Measurement</string>
         </attribute>
         <layout class="QVBoxLayout" name="verticalLayout_9">
          <item>
@@ -1575,6 +1575,33 @@
          </item>
         </layout>
        </widget>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget_2">
+   <property name="windowTitle">
+    <string>Project</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContents_2">
+    <layout class="QVBoxLayout" name="verticalLayout_17">
+     <item>
+      <widget class="QTreeWidget" name="projectTree">
+       <property name="toolTip">
+        <string>Select the light source, a lens or a measurement plane to edit it</string>
+       </property>
+       <property name="headerHidden">
+        <bool>true</bool>
+       </property>
+       <column>
+        <property name="text">
+         <string>Project</string>
+        </property>
+       </column>
       </widget>
      </item>
     </layout>

@@ -52,10 +52,41 @@ class SceneController:
         self._plane_nodes: list[list[Any]] = []
         self._plane_keys: list[tuple] = []
         self._plane_templates: list[visualize.MeshTemplate] = []
+        self._selected_element: int | None = None
+        self._selected_plane: int | None = None
 
     @property
     def canvas(self) -> Any:
         return self._canvas
+
+    # -- selection highlight -------------------------------------------------
+    def select_element(self, index: int | None) -> None:
+        """Tint the element the editors are showing (``None`` clears the tint)."""
+        if index is not None and not 0 <= index < len(self._element_nodes):
+            index = None
+        if index == self._selected_element:
+            return
+        self._tint_element(self._selected_element, False)
+        self._selected_element = index
+        self._tint_element(index, True)
+
+    def select_plane(self, index: int | None) -> None:
+        """Rim-tint the selected measurement plane (``None`` clears it)."""
+        if index is not None and not 0 <= index < len(self._plane_nodes):
+            index = None
+        if index == self._selected_plane:
+            return
+        self._tint_plane(self._selected_plane, False)
+        self._selected_plane = index
+        self._tint_plane(index, True)
+
+    def _tint_element(self, index: int | None, highlighted: bool) -> None:
+        if index is not None and 0 <= index < len(self._element_nodes):
+            visualize.set_element_nodes_highlight(self._element_nodes[index], highlighted)
+
+    def _tint_plane(self, index: int | None, highlighted: bool) -> None:
+        if index is not None and 0 <= index < len(self._plane_nodes):
+            visualize.set_measurement_nodes_highlight(self._plane_nodes[index], highlighted)
 
     # -- full / partial rebuilds --------------------------------------------
     def full_rebuild(
@@ -73,6 +104,10 @@ class SceneController:
         self._plane_nodes = []
         self._plane_keys = []
         self._plane_templates = []
+        # Freshly built nodes carry their own colors: forget a selection whose
+        # nodes no longer exist.
+        self._selected_element = None
+        self._selected_plane = None
         _, self._element_nodes, self._ray_nodes = visualize.build_scene(
             self._view, elements, rays, ray_length=ray_length
         )
@@ -127,9 +162,18 @@ class SceneController:
     def replace_element_nodes(self, index: int, element: RefractiveElement) -> None:
         visualize.remove_nodes(self._element_nodes[index])
         self._element_nodes[index] = visualize.build_element_nodes(self._view, element)
+        # An applied edit swaps in untinted meshes: keep the edited element lit.
+        if index == self._selected_element:
+            self._tint_element(index, True)
 
     def remove_element_nodes(self, index: int) -> None:
         visualize.remove_nodes(self._element_nodes.pop(index))
+        selected = self._selected_element
+        if index == selected:
+            self._selected_element = None
+        elif selected is not None and index < selected:
+            # The stack shifted up: the tinted node moved with it.
+            self._selected_element = selected - 1
 
     # -- measurement planes --------------------------------------------------
     def rebuild_planes(
@@ -151,28 +195,40 @@ class SceneController:
     def _sync_plane_node(
         self, index: int, plane: MeasurementPlane, result: MeasurementResult
     ) -> None:
+        """Attach/refresh one plane visual, keeping the selection rim lit.
+
+        A geometry change rebuilds the nodes (untinted), so the highlight is
+        re-asserted for whichever plane is selected; a color-only refresh leaves
+        it in place already.
+        """
         key = visualize.measurement_geometry_key(plane)
         if index >= len(self._plane_nodes):
             nodes = visualize.build_measurement_nodes(self._view, plane, result)
             self._plane_nodes.append(nodes)
             self._plane_keys.append(key)
             self._plane_templates.append(visualize.measurement_mesh_template(nodes[0]))
-            return
-        if self._plane_keys[index] == key:
+        elif self._plane_keys[index] == key:
             visualize.update_measurement_colors(
                 self._plane_nodes[index][0], result, self._plane_templates[index]
             )
-            return
-        visualize.remove_nodes(self._plane_nodes[index])
-        nodes = visualize.build_measurement_nodes(self._view, plane, result)
-        self._plane_nodes[index] = nodes
-        self._plane_keys[index] = key
-        self._plane_templates[index] = visualize.measurement_mesh_template(nodes[0])
+        else:
+            visualize.remove_nodes(self._plane_nodes[index])
+            nodes = visualize.build_measurement_nodes(self._view, plane, result)
+            self._plane_nodes[index] = nodes
+            self._plane_keys[index] = key
+            self._plane_templates[index] = visualize.measurement_mesh_template(nodes[0])
+        if index == self._selected_plane:
+            self._tint_plane(index, True)
 
     def _drop_plane_node(self, index: int) -> None:
         visualize.remove_nodes(self._plane_nodes.pop(index))
         self._plane_keys.pop(index)
         self._plane_templates.pop(index)
+        selected = self._selected_plane
+        if index == selected:
+            self._selected_plane = None
+        elif selected is not None and index < selected:
+            self._selected_plane = selected - 1
 
     def add_plane_nodes(self, plane: MeasurementPlane, result: MeasurementResult) -> None:
         self._sync_plane_node(len(self._plane_nodes), plane, result)

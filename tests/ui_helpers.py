@@ -4,7 +4,7 @@ import pytest
 
 PySide6 = pytest.importorskip("PySide6")
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 OK = QtWidgets.QDialogButtonBox.StandardButton.Ok
 CANCEL = QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -113,3 +113,37 @@ def _plane_editor(window):
 
 def _click_plane(window, role):
     _plane_editor(window)["buttons"].button(role).click()
+
+
+def _tree(window):
+    return window.findChild(QtWidgets.QTreeWidget, "projectTree")
+
+
+def _tree_item(tree, name):
+    """The row labelled ``name``, whether a group, a leaf or the source."""
+    root = tree.invisibleRootItem()
+    for row in range(root.childCount()):
+        item = root.child(row)
+        if item.text(0) == name:
+            return item
+        for sub in range(item.childCount()):
+            if item.child(sub).text(0) == name:
+                return item.child(sub)
+    raise AssertionError(f"{name!r} missing from the project tree")
+
+
+def _tree_names(tree, group_label):
+    group = _tree_item(tree, group_label)
+    return [group.child(i).text(0) for i in range(group.childCount())]
+
+
+def _tree_select(window, name):
+    tree = _tree(window)
+    item = _tree_item(tree, name)
+    assert item.flags() & QtCore.Qt.ItemFlag.ItemIsSelectable, f"{name!r} is not selectable"
+    tree.setCurrentItem(item)
+
+
+def _tab_index(window, page_name):
+    tabs = window.findChild(QtWidgets.QTabWidget, "tabWidget")
+    return tabs.indexOf(tabs.findChild(QtWidgets.QWidget, page_name))

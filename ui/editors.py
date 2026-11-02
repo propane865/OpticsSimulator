@@ -147,6 +147,10 @@ class _SelectorEditor:
         self._selector.setCurrentText(name)
         self.populate_fields()
 
+    def selected_name(self) -> str | None:
+        """The selector's current item, or ``None`` when the list is empty."""
+        return self._selector.currentText() or None
+
     def apply(self) -> None:
         built = run_validated(
             self._window,

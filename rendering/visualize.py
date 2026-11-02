@@ -36,6 +36,14 @@ RAY_COLOR = (1.0, 1.0, 0.0, 0.2)
 MEASUREMENT_OUTLINE_COLOR = (0.75, 0.35, 0.85, 1.0)
 MEASUREMENT_MESH_ORDER = -10
 
+# Accent shared by every selection cue: a tinted lens and a tinted plane
+# outline read the same way, as "the object the editors are showing".
+SELECTED_COLOR = (1.0, 0.55, 0.1, 0.9)
+
+# The colors ``build_element_nodes`` assigns, in that same order, so un-tinting
+# restores each mesh's own color without tracking it per node.
+ELEMENT_NODE_COLORS = (SURFACE1_COLOR, SURFACE2_COLOR, SIDEWALL_COLOR)
+
 AXIS_COLORS = {
     "x": (0.85, 0.15, 0.15, 1.0),
     "y": (0.15, 0.65, 0.2, 1.0),
@@ -236,6 +244,16 @@ def build_measurement_nodes(
     return nodes
 
 
+def set_measurement_nodes_highlight(nodes: Sequence[Any], highlighted: bool) -> None:
+    """Tint a plane's outline, or restore the default outline color.
+
+    Only the rim is touched: the mesh's vertex colors *are* the detector image,
+    so tinting the surface would destroy the measurement it renders.
+    """
+    for segment in nodes[1:]:
+        segment.set_data(color=SELECTED_COLOR if highlighted else MEASUREMENT_OUTLINE_COLOR)
+
+
 def _marker_positions(
     pos: np.ndarray,
     radius: float = MARKER_RADIUS,
@@ -411,6 +429,18 @@ def build_element_nodes(view: Any, element: RefractiveElement) -> list[Any]:
     if sidewall is not None:
         nodes.append(_attach(view, make_wall_visual(sidewall, SIDEWALL_COLOR)))
     return nodes
+
+
+def set_element_nodes_highlight(nodes: Sequence[Any], highlighted: bool) -> None:
+    """Tint an element's meshes, or restore their own colors.
+
+    Element visuals carry a single uniform color each (never vertex colors),
+    so the swap is a plain color assignment; ``nodes`` is in
+    :func:`build_element_nodes` order, which is what :data:`ELEMENT_NODE_COLORS`
+    restores.
+    """
+    for node, base in zip(nodes, ELEMENT_NODE_COLORS):
+        node.color = SELECTED_COLOR if highlighted else base
 
 
 def _add_marker_cloud(view: Any, points: np.ndarray, color: Any, size: float = 8.0) -> Any:
