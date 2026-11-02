@@ -210,9 +210,9 @@ def test_visualize_attaches_sidewall_when_aperture(sphere_pair, monkeypatch):
             views.append(view)
             return view
 
-    monkeypatch.setattr(visualize, "scene", types.SimpleNamespace(SceneCanvas=_FakeCanvas))
-    monkeypatch.setattr(visualize, "make_surface_visual", lambda surface, color: ("surface", surface))
-    monkeypatch.setattr(visualize, "make_wall_visual", lambda wall, color: ("wall", wall))
+    monkeypatch.setattr("rendering.canvas.scene", types.SimpleNamespace(SceneCanvas=_FakeCanvas))
+    monkeypatch.setattr("rendering.surfaces.make_surface_visual", lambda surface, color: ("surface", surface))
+    monkeypatch.setattr("rendering.surfaces.make_wall_visual", lambda wall, color: ("wall", wall))
 
     canvas = demo.visualize([sphere_pair], [], show=False)
 
@@ -300,12 +300,11 @@ def test_build_scene_axis_length_follows_scene(make_element, monkeypatch):
     elem = make_element("0", "-2", aperture_radius=0.5)
     lengths = []
     monkeypatch.setattr(
-        visualize, "_add_axes", lambda view, width, length: lengths.append(length)
+        "rendering.canvas._add_axes", lambda view, width, length: lengths.append(length)
     )
-    monkeypatch.setattr(visualize, "build_element_nodes", lambda view, element: [])
+    monkeypatch.setattr("rendering.canvas.build_element_nodes", lambda view, element: [])
     monkeypatch.setattr(
-        visualize,
-        "build_ray_nodes",
+        "rendering.canvas.build_ray_nodes",
         lambda view, elements, rays, ray_length: [],
     )
 
