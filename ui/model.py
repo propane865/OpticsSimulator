@@ -1,15 +1,17 @@
 """Qt-free domain model for the desktop application.
 
 Holds the current optical project (element configs, elements, light source,
-rays and measurement planes) and the operations that mutate it. This module
-has no PySide6/vispy dependencies so the naming, ordering and legacy-vs-
-versioned file semantics can be reasoned about and unit-tested in isolation.
+rays and measurement planes) and the operations that mutate it. The aggregate
+root stays the single owner of the state but delegates the plane subsystem to
+:class:`ui.project.measurements.MeasurementState`. This module has no
+PySide6/vispy dependencies so the naming, ordering and legacy-vs-versioned
+file semantics can be reasoned about and unit-tested in isolation.
 """
 
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from typing import Any
 
 import numpy as np
@@ -24,7 +26,6 @@ from optics.measurement_plane import (
     MeasurementPlane,
     MeasurementResult,
     rays_to_arrays,
-    results_from_hits,
 )
 from optics.primitive import Ray
 from optics.project import (
@@ -35,17 +36,14 @@ from optics.project import (
 from optics.source import PointSource
 from optics.system import OpticalSystem
 
+from .project.measurements import _LOCK_SOURCE_OFFSET_Z, MeasurementState
+
 __all__ = [
     "DEFAULT_ELEMENT_CONFIG",
     "ProjectState",
     "classify_element_edit",
+    "_LOCK_SOURCE_OFFSET_Z",
 ]
-
-PlaneRow = tuple[np.ndarray, np.ndarray, np.ndarray]
-
-# World-Z offset (mm) where a plane locked to the source is pinned, just
-# downstream of the source point; xy always track the source exactly.
-_LOCK_SOURCE_OFFSET_Z = -0.001
 
 DEFAULT_ELEMENT_CONFIG: dict[str, Any] = {
     "surface1": {
@@ -158,12 +156,7 @@ class ProjectState:
         self._source: PointSource = source if source is not None else PointSource(**DEFAULT_SOURCE_CONFIG)
         self._rays: list[Ray] = list(rays) if rays is not None else list(self._source.emit_rays())
         self._rays_arrays: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
-        self._planes: list[MeasurementPlane] = []
-        self._plane_names: list[str] = []
-        self._plane_results: list[MeasurementResult] = []
-        self._plane_hit_rows: list[PlaneRow] = []
-        self._plane_locked: list[bool] = []
-        self._plane_reconstruct: bool = False
+        self._measurements = MeasurementState(self)
         self._system: OpticalSystem | None = None
 
     # -- read-only accessors -------------------------------------------------
@@ -211,27 +204,21 @@ class ProjectState:
         return arrays
 
     def measure_plane(self, plane: MeasurementPlane) -> MeasurementResult:
-        """A fresh detector image for ``plane`` over the cached ray arrays.
-
-        Array-based single-plane measurement (no per-``Ray`` marshalling);
-        identical results to ``plane.measure(self.rays, self.system)``.
-        """
-        origins, dirs, powers = self.rays_arrays()
-        row = self._measure_rows([plane])[0]
-        return self._result_from_row(plane, row)
+        """A fresh detector image for ``plane`` over the cached ray arrays."""
+        return self._measurements.measure_plane(plane)
 
     @property
     def planes(self) -> list[MeasurementPlane]:
-        return self._planes
+        return self._measurements.planes
 
     @property
     def plane_names(self) -> list[str]:
-        return self._plane_names
+        return self._measurements.names
 
     @property
     def plane_results(self) -> list[MeasurementResult]:
         """Accumulated detector image per plane (parallel to :attr:`planes`)."""
-        return self._plane_results
+        return self._measurements.results
 
     @property
     def plane_reconstruct(self) -> bool:
@@ -242,14 +229,14 @@ class ProjectState:
         reconstruct`). Toggling re-derives the images from cached hits, so it
         never triggers a re-trace.
         """
-        return self._plane_reconstruct
+        return self._measurements.reconstruct
 
     # -- naming --------------------------------------------------------------
     def new_element_name(self) -> str:
         return unique_name("", (self._schema or {}).keys(), prefix="lens")
 
     def new_plane_name(self) -> str:
-        return unique_name("", self._plane_names, prefix="plane")
+        return unique_name("", self._measurements.names, prefix="plane")
 
     # -- element operations --------------------------------------------------
     def add_element(self, name: str, config: dict[str, Any], element: RefractiveElement) -> None:
@@ -323,20 +310,16 @@ class ProjectState:
 
         new_system = OpticalSystem([*self._elements, *built])
         origins, dirs, powers = self.rays_arrays()
-        new_rows = self._split_hits(
-            *new_system.measure_planes(origins, dirs, powers, self._planes)
+        new_rows = self._measurements.split_hits(
+            *new_system.measure_planes(origins, dirs, powers, self._measurements.planes)
         )
-        new_results = [
-            self._result_from_row(plane, row) for plane, row in zip(self._planes, new_rows)
-        ]
 
         if self._schema is None:
             self._schema = {}
         self._schema.update(offset_configs)
         self._elements.extend(built)
         self._system = new_system
-        self._plane_hit_rows = new_rows
-        self._plane_results = new_results
+        self._measurements.load(new_rows)
         return [name for name, _ in named]
 
     # -- source / rays -------------------------------------------------------
@@ -344,125 +327,39 @@ class ProjectState:
         self._source = source
         self._rays = rays
         self._rays_arrays = None
-        for index, locked in enumerate(self._plane_locked):
-            if locked:
-                self._planes[index] = self._pinned_plane(self._planes[index])
+        self._measurements.relock_to_source()
 
     # -- measurement plane operations ---------------------------------------
-    @staticmethod
-    def _split_hits(us: np.ndarray, vs: np.ndarray, pws: np.ndarray) -> list[PlaneRow]:
-        """Split ``(P, N)`` hit buffers into per-plane ``(u, v, power)`` rows."""
-        return [(us[q], vs[q], pws[q]) for q in range(us.shape[0])]
-
-    def _measure_rows(self, planes: Sequence[MeasurementPlane]) -> list[PlaneRow]:
-        """One trace's hits against ``planes``, split into per-plane rows."""
-        origins, dirs, powers = self.rays_arrays()
-        return self._split_hits(*self.system.measure_planes(origins, dirs, powers, planes))
-
-    def _result_from_row(self, plane: MeasurementPlane, row: PlaneRow) -> MeasurementResult:
-        """Detector image for one hit row, filled in the current display mode.
-
-        The fill-mode policy lives in core (:func:`results_from_hits`), so the
-        cached-row display path cannot drift from the one-shot ``measure`` path.
-        """
-        u, v, power = row
-        return results_from_hits(
-            [plane],
-            np.asarray(u)[np.newaxis, :],
-            np.asarray(v)[np.newaxis, :],
-            np.asarray(power)[np.newaxis, :],
-            reconstruct=self._plane_reconstruct,
-        )[0]
-
-    def _derive_results(self, planes: Sequence[MeasurementPlane] | None = None) -> list[MeasurementResult]:
-        rows = self._plane_hit_rows
-        planes = self._planes if planes is None else list(planes)
-        return [
-            self._result_from_row(plane, row) for plane, row in zip(planes, rows)
-        ]
-
+    # The plane lists, cached hits, images and source-lock policy live in
+    # :class:`ui.project.measurements.MeasurementState`; these are the
+    # aggregate root's compatibility surface for it.
     def add_plane(self, name: str, plane: MeasurementPlane) -> MeasurementResult:
-        row = self._measure_rows([plane])[0]
-        result = self._result_from_row(plane, row)
-        self._planes.append(plane)
-        self._plane_names.append(name)
-        self._plane_results.append(result)
-        self._plane_hit_rows.append(row)
-        self._plane_locked.append(False)
-        return result
+        return self._measurements.add(name, plane)
 
     def replace_plane(self, index: int, plane: MeasurementPlane) -> None:
-        if self._plane_locked[index]:
-            plane = self._pinned_plane(plane)
-        row = self._measure_rows([plane])[0]
-        self._planes[index] = plane
-        self._plane_hit_rows[index] = row
-        self._plane_results[index] = self._result_from_row(plane, row)
+        self._measurements.replace(index, plane)
 
     def remove_plane(self, index: int) -> None:
-        self._planes.pop(index)
-        self._plane_names.pop(index)
-        self._plane_results.pop(index)
-        self._plane_hit_rows.pop(index)
-        self._plane_locked.pop(index)
+        self._measurements.remove(index)
 
-    # -- source-locked planes ----------------------------------------------
     def is_plane_locked(self, index: int) -> bool:
         """Whether plane ``index`` is pinned just downstream of the source."""
-        return 0 <= index < len(self._plane_locked) and self._plane_locked[index]
+        return self._measurements.is_locked(index)
 
     def set_plane_locked(self, index: int, locked: bool) -> MeasurementPlane | None:
-        """Pin/unlock plane ``index`` to the source; return the pinned plane.
-
-        Locking rebuilds the plane at the pinned offset (normal, size and
-        resolution unchanged) through :meth:`replace_plane` so its cached hits
-        and image follow the snap; unlocking only clears the flag. Returns the
-        new plane when one was built, else ``None``.
-        """
-        if index < 0 or index >= len(self._planes):
-            return None
-        if not locked:
-            self._plane_locked[index] = False
-            return None
-        pinned = self._pinned_plane(self._planes[index])
-        self._plane_locked[index] = True
-        self.replace_plane(index, pinned)
-        return self._planes[index]
-
-    def _pinned_plane(self, plane: MeasurementPlane) -> MeasurementPlane:
-        """``plane`` rebuilt at the pinned source offset (shape unchanged)."""
-        position = self._source.position
-        return MeasurementPlane(
-            origin=(position[0], position[1], position[2] + _LOCK_SOURCE_OFFSET_Z),
-            normal=plane.n,
-            u_range=(plane.u_min, plane.u_max),
-            v_range=(plane.v_min, plane.v_max),
-            resolution=(plane.ru, plane.rv),
-        )
+        """Pin/unlock plane ``index`` to the source; return the pinned plane."""
+        return self._measurements.set_locked(index, locked)
 
     def set_plane_hits(self, us: np.ndarray, vs: np.ndarray, pws: np.ndarray) -> list[MeasurementResult]:
-        """Cache one trace's ``(P, N)`` plane hits and derive the images.
-
-        The images use the current display mode; keeping the rows lets
-        :meth:`set_plane_display_mode` re-derive them without re-tracing.
-        """
-        self._plane_hit_rows = self._split_hits(us, vs, pws)
-        self._plane_results = self._derive_results()
-        return list(self._plane_results)
+        """Cache one trace's ``(P, N)`` plane hits and derive the images."""
+        return self._measurements.set_hits(us, vs, pws)
 
     def set_plane_display_mode(self, reconstruct: bool) -> list[MeasurementResult]:
-        """Switch images between raw histogram and adaptive reconstruction.
-
-        Re-derives every image from the cached hit rows (no re-trace) and
-        returns the fresh per-plane results (parallel to :attr:`planes`).
-        """
-        self._plane_reconstruct = bool(reconstruct)
-        self._plane_results = self._derive_results()
-        return list(self._plane_results)
+        """Switch images between raw histogram and adaptive reconstruction."""
+        return self._measurements.set_display_mode(reconstruct)
 
     def measure_all(self) -> None:
-        self._plane_hit_rows = self._measure_rows(self._planes)
-        self._plane_results = self._derive_results()
+        self._measurements.measure_all()
 
     # -- document (de)serialization -----------------------------------------
     def load_document(self, document: object) -> tuple[list[RefractiveElement], bool]:
@@ -491,20 +388,17 @@ class ProjectState:
                 name = unique_name(base_name, used, prefix="plane")
                 used.add(name)
                 new_names.append(name)
-            new_rows = self._split_hits(
+            new_rows = self._measurements.split_hits(
                 *new_system.measure_planes(ray_arrays[0], ray_arrays[1], ray_arrays[2], new_planes)
             )
             replaced = True
         else:
-            new_rows = self._split_hits(
-                *new_system.measure_planes(ray_arrays[0], ray_arrays[1], ray_arrays[2], self._planes)
+            new_rows = self._measurements.split_hits(
+                *new_system.measure_planes(ray_arrays[0], ray_arrays[1], ray_arrays[2], self._measurements.planes)
             )
-            new_planes = self._planes
-            new_names = self._plane_names
+            new_planes = self._measurements.planes
+            new_names = self._measurements.names
             replaced = False
-        new_results = [
-            self._result_from_row(plane, row) for plane, row in zip(new_planes, new_rows)
-        ]
 
         self._schema = elements_config
         self._elements = elements
@@ -512,14 +406,15 @@ class ProjectState:
         self._source = new_source
         self._rays = new_rays
         self._rays_arrays = None
-        self._planes = new_planes
-        self._plane_names = new_names
-        self._plane_results = new_results
-        self._plane_hit_rows = new_rows
-        self._plane_locked = [False] * len(new_planes) if replaced else self._plane_locked
+        if replaced:
+            self._measurements.load_planes(new_planes, new_names, new_rows)
+        else:
+            self._measurements.load(new_rows)
         return elements, replaced
 
     def to_document(self) -> dict[str, Any]:
         if self._schema is None:
             raise RuntimeError("No optical stack loaded to save")
-        return build_project_document(self._schema, self._source, self._plane_names, self._planes)
+        return build_project_document(
+            self._schema, self._source, self._measurements.names, self._measurements.planes
+        )
