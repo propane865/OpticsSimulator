@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Callable
+from typing import Any
 
 from PySide6 import QtCore, QtWidgets
 
@@ -228,18 +229,26 @@ class AnalysisEditor:
             label.setText(self.PLACEHOLDER)
 
     # -- layout optimization ---------------------------------------------------
-    def _on_optimize(self) -> None:
-        """Sweep the unlocked elements' z (and the image plane's) on a worker thread."""
+    def _build_optimization_request(self) -> dict[str, Any] | None:
+        """Assemble everything the worker thread reads, or ``None`` when the
+        current UI state cannot start a run.
+
+        Kept free of log/busy-state side effects so the request is a testable
+        boundary between the Qt widgets and :class:`~ui.optimize.LayoutOptimizer`
+        (it does surface the "why not" status for a missing stack or a fully
+        locked set). The schema and ray fan are snapshotted so the worker owns no
+        shared mutable UI state.
+        """
         if self._optimizing or not self._valid_selection():
-            return
+            return None
         schema = self._state.schema
         if not schema:
             self._set_status("Load an optical stack before optimizing")
-            return
+            return None
         free = self._free_element_names()
         if not free:
             self._set_status("Unlock at least one element to optimize")
-            return
+            return None
         planes = self._state.planes
         source_plane = planes[self._source_combo.currentIndex()]
         image_plane = planes[self._image_combo.currentIndex()]
@@ -248,31 +257,49 @@ class AnalysisEditor:
         schema_snapshot = copy.deepcopy(schema)
         origins, dirs, powers = self._state.rays_arrays()
         spec = LensOptimization(allow_suboptimal=self._allow_suboptimal_check.isChecked())
-        image_locked = self._lock_image_check.isChecked()
         image_bounds: tuple[float, float] | None = None
-        if image_locked:
+        if self._lock_image_check.isChecked():
             z_image = float(image_plane.o[2])
             image_bounds = (z_image, z_image)
+        return {
+            "free": free,
+            "schema_snapshot": schema_snapshot,
+            "source_plane": source_plane,
+            "image_plane": image_plane,
+            "origins": origins,
+            "dirs": dirs,
+            "powers": powers,
+            "image_bounds": image_bounds,
+            "optimization": spec,
+        }
+
+    def _on_optimize(self) -> None:
+        """Sweep the unlocked elements' z (and the image plane's) on a worker thread."""
+        request = self._build_optimization_request()
+        if request is None:
+            return
+        free = request["free"]
+        image_bounds = request["image_bounds"]
         # Fresh log for this run: clear any previous run, then a header so the
         # streaming generation lines below have context.
         self._last_free = free
         self._results_browser.clear()
         self._results_browser.append("Layout optimization started")
         self._results_browser.append(f"Free elements: {', '.join(free)}")
-        self._results_browser.append(f"Image plane: {'locked' if image_locked else 'free'}")
+        self._results_browser.append(f"Image plane: {'locked' if image_bounds else 'free'}")
         self._results_browser.append("")
         self._set_optimizing(True)
         self._set_status("Optimizing layout (this can take a minute)...")
         self._optimizer.start(
-            schema_snapshot,
-            source_plane,
-            image_plane,
-            origins,
-            dirs,
-            powers,
+            request["schema_snapshot"],
+            request["source_plane"],
+            request["image_plane"],
+            request["origins"],
+            request["dirs"],
+            request["powers"],
             free_element_names=free,
             image_bounds=image_bounds,
-            optimization=spec,
+            optimization=request["optimization"],
         )
 
     def _set_optimizing(self, running: bool) -> None:
