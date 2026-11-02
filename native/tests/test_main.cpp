@@ -11,6 +11,7 @@ void test_element();
 void test_stack();
 void test_measurement();
 void test_optimizer();
+void test_optimizer_acceptance();
 
 int main() {
     test_expression();
@@ -21,6 +22,7 @@ int main() {
     test_stack();
     test_measurement();
     test_optimizer();
+    test_optimizer_acceptance();
     if (g_failures == 0) {
         std::printf("native tests passed\n");
         return 0;
