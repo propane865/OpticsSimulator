@@ -100,7 +100,8 @@ pybind11_add_module(_native
   native/bindings/kernels.cpp
   native/bindings/tracing.cpp
   native/bindings/measurement.cpp
-  native/bindings/optimizer.cpp)
+  native/bindings/optimizer.cpp
+  native/bindings/optimizer_layout.cpp)
 target_link_libraries(_native PRIVATE optics_core)
 target_include_directories(_native SYSTEM PRIVATE "${NUMPY_INCLUDE_DIR}")
 # Pin the module output so multi-config generators (Visual Studio) do not
