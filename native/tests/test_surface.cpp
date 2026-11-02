@@ -11,6 +11,7 @@
 #include "optics/common/matrix.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/geometry/surface.hpp"
+#include "optics/geometry/transform.hpp"
 #include "optics/intersection/solver.hpp"
 
 #include "check.hpp"
@@ -331,6 +332,46 @@ void test_tiled_grid() {
     }
 }
 
+// A transform-only surface variant (with rotation) must match a from-scratch
+// surface built with the same world transform, on both grid points and hits.
+void test_surface_variant_with_rotation() {
+    Surface::Options o;
+    o.x_src = "u";
+    o.y_src = "v";
+    o.z_src = "0.3 * (u*u + v*v)";
+    o.u_min = -1.0;
+    o.u_max = 1.0;
+    o.v_min = -1.0;
+    o.v_max = 1.0;
+    o.aperture_radius = 0.9;
+    o.rot = optics::native::rotation_from_z(make_vec3(0.1, 0.0, 1.0));
+    o.trans = make_vec3(0.0, 0.0, 4.0);
+    o.grid_n = 32;
+    const auto base = Surface::create(o);
+    optics::native::Transform tr;
+    tr.rot = o.rot;
+    tr.trans = make_vec3(0.5, -0.25, 1.5);
+    const auto variant = Surface::with_transform(*base, tr);
+    o.trans = make_vec3(0.5, -0.25, 1.5);
+    const auto scratch = Surface::create(o);
+
+    const auto& gv = variant->grid();
+    const auto& gs = scratch->grid();
+    CHECK(gv.m() == gs.m());
+    CHECK(gv.p_world.size() == gs.p_world.size());
+    for (std::size_t k = 0; k < gs.p_world.size(); ++k) {
+        CHECK(close(gv.p_world[k], gs.p_world[k], 1e-12));
+    }
+    const auto hv = variant->intersect(make_vec3(0.5, -0.25, 9.0), make_vec3(0.0, 0.0, -1.0));
+    const auto hs = scratch->intersect(make_vec3(0.5, -0.25, 9.0), make_vec3(0.0, 0.0, -1.0));
+    CHECK(hv.has_value() && hs.has_value());
+    if (hv && hs) {
+        CHECK(close(hv->t, hs->t, 1e-10));
+        CHECK(close(hv->u, hs->u, 1e-10));
+        CHECK(close(hv->v, hs->v, 1e-10));
+    }
+}
+
 }  // namespace
 
 void test_surface() {
@@ -344,4 +385,5 @@ void test_surface() {
     test_sphere_intersect();
     test_intersect_regression();
     test_tiled_grid();
+    test_surface_variant_with_rotation();
 }

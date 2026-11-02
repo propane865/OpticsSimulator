@@ -173,6 +173,42 @@ void test_trace_tir() {
     }
 }
 
+// A transform-only element variant must trace bit-identically to a from-scratch
+// rebuild at the same world placement (translated plate vs. rebuilt plate).
+void test_variant_trace_equivalence() {
+    const auto base = fixture::make_plate_ptr(1.5, 1.0, -0.5, 0.5, 2.0, 48, true);
+    const auto moved = optics::native::Element::translated(*base, make_vec3(0.0, 0.0, -5.0));
+    const auto scratch =
+        fixture::make_plate_ptr(1.5, 1.0, -0.5, 0.5, -3.0, 48, true);
+
+    CHECK(moved->box_valid == scratch->box_valid);
+    CHECK(moved->wall_valid == scratch->wall_valid);
+    for (int j = 0; j < 3; ++j) {
+        CHECK(close(moved->box_lo[j], scratch->box_lo[j], 1e-12));
+        CHECK(close(moved->box_hi[j], scratch->box_hi[j], 1e-12));
+    }
+    CHECK(moved->n_tris() == scratch->n_tris());
+
+    const Vec3 o = make_vec3(0.1, -0.05, 6.0);
+    const Vec3 d = make_vec3(0.05, 0.02, -1.0);
+    const auto hv = element_first_hit(*moved, o, d, 0.0);
+    const auto hs = element_first_hit(*scratch, o, d, 0.0);
+    CHECK(hv.found && hs.found);
+    CHECK(close(hv.t, hs.t, 1e-10));
+    for (int j = 0; j < 3; ++j) {
+        CHECK(close(hv.p[j], hs.p[j], 1e-10));
+        CHECK(close(hv.n[j], hs.n[j], 1e-10));
+    }
+    const auto mv = trace_element(*moved, o, d);
+    const auto ms = trace_element(*scratch, o, d);
+    CHECK(mv.exited == ms.exited);
+    CHECK(mv.n_pts == ms.n_pts);
+    for (int j = 0; j < 3; ++j) {
+        CHECK(close(mv.exit_o[j], ms.exit_o[j], 1e-10));
+        CHECK(close(mv.exit_d[j], ms.exit_d[j], 1e-12));
+    }
+}
+
 }  // namespace
 
 void test_element() {
@@ -182,4 +218,5 @@ void test_element() {
     test_trace_straight();
     test_trace_oblique();
     test_trace_tir();
+    test_variant_trace_equivalence();
 }

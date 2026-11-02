@@ -66,6 +66,10 @@ if(OPTICS_BUILD_TESTS)
     native/tests/test_stack.cpp
     native/tests/test_measurement.cpp
     native/tests/test_optimizer.cpp
+    native/tests/test_optimizer_fit.cpp
+    native/tests/test_optimizer_objective.cpp
+    native/tests/test_optimizer_pipeline.cpp
+    native/tests/test_optimizer_parallel.cpp
     native/tests/test_optimizer_acceptance.cpp
     native/tests/test_optimizer_promotion.cpp)
   target_link_libraries(optics_native_tests PRIVATE optics_core)
