@@ -1,6 +1,6 @@
 // Coarse-to-fine pipeline driver (see the header comment on ``pipeline_run``)
 // and the public ``optimize_layout`` entry point that selects a driver. Each
-// stage is a function of its own: ``coarse_search`` runs a coarse DE that fills
+// stage is a function of its own: ``run_coarse_search`` runs a coarse DE that fills
 // a diverse archive (and can end the run early on a validated full-fidelity
 // focus), ``refine_and_validate`` re-traces the promoted subset at a medium
 // budget and runs ``validate_full_batch`` -- the only place success can occur.
@@ -15,22 +15,13 @@
 #include "optics/optimizing/optimizer.hpp"
 
 #include "optimizer_detail.hpp"
+#include "promotion.hpp"
 
 namespace optics::native {
 
 using namespace detail;
 
 namespace {
-
-// A distinct candidate: swept parameters plus the objective stats they earned.
-// Diverse archives, promotions, finalists and the validation queue are all
-// sorted focus-first over this pair (the one entry type the pipeline keeps).
-struct Candidate {
-    std::vector<double> x;
-    LayoutObjective::Stats s;
-};
-
-const std::vector<double>& entry_x(const Candidate& e) { return e.x; }
 
 // A candidate re-ranked at a given fidelity: its swept parameters plus the
 // objective stats that ranking earned. The medium stage produces these and the
@@ -236,8 +227,10 @@ struct CoarseSearchResult {
 // periodically whole-fan probed, and a *validated* focused winner (the full
 // trace IS the acceptance gate) ends the search early -- exactly the legacy
 // early stop, but gated on full fidelity.
-void coarse_search(LayoutObjective& obj, const OptimizerSpec& spec, OptimizerOutcome& out,
-                   std::size_t k_coarse, std::size_t k_full, std::mt19937_64& rng, CoarseSearchResult& c) {
+CoarseSearchResult run_coarse_search(LayoutObjective& obj, const OptimizerSpec& spec,
+                                     OptimizerOutcome& out, std::size_t k_coarse,
+                                     std::size_t k_full, std::mt19937_64& rng) {
+    CoarseSearchResult c;
     const std::size_t d = obj.dim();
     const std::size_t n_fan = spec.rays.count;
     U01 u01{&rng};
@@ -421,6 +414,20 @@ void coarse_search(LayoutObjective& obj, const OptimizerSpec& spec, OptimizerOut
             break;
         }
     }
+    return c;
+}
+
+// Promotion stage: order the archive focus-first (persisted so the downstream
+// validation queue is explored in the same order), then apply the pure
+// distinct/cost/capacity gate to pick the medium candidates. Traces nothing.
+std::vector<Candidate> promote_candidates(CoarseSearchResult& coarse, const OptimizerSpec& spec,
+                                          std::size_t d, OptimizerDiagnostics& dg) {
+    std::stable_sort(coarse.archive.begin(), coarse.archive.end(),
+                     [&](const Candidate& a, const Candidate& b) { return better_stats(spec, a.s, b.s); });
+    std::vector<Candidate> promoted =
+        promote_from_archive(coarse.archive, coarse.best_swept, coarse.best_stats, d, spec);
+    dg.medium_promoted += static_cast<std::int64_t>(promoted.size());
+    return promoted;
 }
 
 // Promotion, medium re-rank and whole-fan validation (skipped when the coarse
@@ -433,33 +440,11 @@ void refine_and_validate(LayoutObjective& obj, const OptimizerSpec& spec, Optimi
     const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
 
     // --- Promotion: distinct coarse candidates near the coarse best ------
-    // Always keep the top ``finalist_count`` so finalists exist; additionally
-    // promote coarse-competitive candidates within ``promotion_factor`` of
-    // the best, bounded by ``medium_cap`` so the medium stage stays
-    // budget-cheap.
-    std::stable_sort(c.archive.begin(), c.archive.end(), [&](const Candidate& a,
-                                                             const Candidate& b) {
-        return better_stats(spec, a.s, b.s);
-    });
+    // Order focus-first and keep the top ``finalist_count`` plus any within
+    // ``promotion_factor`` of the best, bounded by ``medium_cap`` (see
+    // ``promote_candidates``). ``need`` is reused below for finalist/reserve math.
     const int need = std::max(1, spec.finalist_count);
-    const int medium_cap = std::max(need * 2, 4);
-    const double promote_limit = c.best_stats.cost * std::max(spec.promotion_factor, 1.0);
-    std::vector<Candidate> promoted;
-    for (const Candidate& e : c.archive) {
-        if (!distinct_from_all(promoted, e.x.data(), d, spec, entry_x)) {
-            continue;
-        }
-        if (static_cast<int>(promoted.size()) < need || e.s.cost <= promote_limit) {
-            promoted.push_back(e);
-        }
-        if (static_cast<int>(promoted.size()) >= medium_cap) {
-            break;
-        }
-    }
-    if (promoted.empty()) {
-        promoted.push_back(Candidate{c.best_swept, c.best_stats});
-    }
-    out.diagnostics.medium_promoted += static_cast<std::int64_t>(promoted.size());
+    std::vector<Candidate> promoted = promote_candidates(c, spec, d, out.diagnostics);
 
     // --- Medium re-rank: re-trace the promoted set at a finer budget -----
     // The budget leaves a reserve so full validation always runs even under
@@ -547,8 +532,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     const std::size_t k_full = spec.ray_full > 0 ? std::min(spec.ray_full, n_fan) : n_fan;
 
     std::mt19937_64 rng(spec.seed);
-    CoarseSearchResult coarse;
-    coarse_search(obj, spec, out, k_coarse, k_full, rng, coarse);
+    CoarseSearchResult coarse = run_coarse_search(obj, spec, out, k_coarse, k_full, rng);
     if (!coarse.won) {
         refine_and_validate(obj, spec, out, cand_threads, coarse);
     }

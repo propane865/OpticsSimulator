@@ -66,7 +66,8 @@ if(OPTICS_BUILD_TESTS)
     native/tests/test_stack.cpp
     native/tests/test_measurement.cpp
     native/tests/test_optimizer.cpp
-    native/tests/test_optimizer_acceptance.cpp)
+    native/tests/test_optimizer_acceptance.cpp
+    native/tests/test_optimizer_promotion.cpp)
   target_link_libraries(optics_native_tests PRIVATE optics_core)
   add_test(NAME native_tests COMMAND optics_native_tests)
 endif()
