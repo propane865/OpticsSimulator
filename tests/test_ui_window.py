@@ -21,11 +21,15 @@ from tests.ui_helpers import (
     _editor,
     _mesh_count,
     _plane_editor,
+    _show_plane_page,
     _source_editor,
+    _tree,
+    _tree_names,
     _trigger,
     _trigger_measurement_plane,
 )
 from ui.app import make_display
+from ui.project_tree import ProjectTree
 
 
 def test_window_title(window):
@@ -87,8 +91,7 @@ def test_narrow_tall_tab_keeps_forms_compact(qt_app, window):
     # tab spread its surplus space through the Preferred widgets, inflating
     # the gap between the plane form and its OK/Cancel buttons. The tab
     # spacers must absorb the surplus instead.
-    tab = window.findChild(QtWidgets.QTabWidget, "tabWidget")
-    tab.setCurrentIndex(2)
+    _show_plane_page(window)
     form = window.findChild(QtWidgets.QWidget, "widget_4")
     buttons = window.findChild(QtWidgets.QDialogButtonBox, "planeButtonBox")
     gaps = []
@@ -262,8 +265,7 @@ def test_save_load_round_trip_preserves_source_and_planes(
     assert len(window2.rays) == 8
     assert len(window2.planes) == 1
     assert window2.planes[0].o[2] == pytest.approx(-5.0)
-    selector = window2.findChild(QtWidgets.QComboBox, "planeSelectorCombo")
-    assert [selector.itemText(i) for i in range(selector.count())] == ["plane1"]
+    assert _tree_names(_tree(window2), ProjectTree.PLANES_LABEL) == ["plane1"]
 
 
 def test_save_load_round_trip_preserves_position_and_resolution(
@@ -394,9 +396,7 @@ def test_import_zemax_merges_into_existing(window, repo_root, monkeypatch):
     # biconvex imports a single lens; existing lens1/lens2 force a rename.
     assert len(window.elements) == elements_before + 1
     assert "lens3" in window._state.schema
-    selector = window.findChild(QtWidgets.QComboBox, "lensSelector")
-    items = [selector.itemText(i) for i in range(selector.count())]
-    assert "lens3" in items
+    assert "lens3" in _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL)
     assert window.source is source_before
     assert len(window.planes) == 1
     assert "Imported 1 element" in window.statusBar().currentMessage()

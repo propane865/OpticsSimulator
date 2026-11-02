@@ -69,7 +69,7 @@
        <property name="currentIndex">
         <number>0</number>
        </property>
-       <widget class="QWidget" name="tab">
+       <widget class="QWidget" name="tabEditor">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
           <horstretch>0</horstretch>
@@ -77,1145 +77,1125 @@
          </sizepolicy>
         </property>
         <attribute name="title">
-         <string>Lens</string>
+         <string>Editor</string>
         </attribute>
-        <layout class="QVBoxLayout" name="verticalLayout_6">
+        <layout class="QVBoxLayout" name="verticalLayout_12">
          <item>
-          <widget class="QWidget" name="widget" native="true">
-           <layout class="QVBoxLayout" name="verticalLayout_3">
-            <item>
-             <widget class="QLabel" name="label">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="text">
-               <string>Lens Properties</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="Line" name="line">
-              <property name="orientation">
-               <enum>Qt::Orientation::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="removeElementButton">
-              <property name="toolTip">
-               <string>Remove the selected element from the stack and retrace</string>
-              </property>
-              <property name="text">
-               <string>Remove Element</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QWidget" name="widget_7" native="true">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <layout class="QFormLayout" name="formLayout">
-               <property name="rowWrapPolicy">
-                <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
-               </property>
-               <item row="1" column="0">
-                <widget class="QLabel" name="label_6">
-                 <property name="text">
-                  <string>Lens</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="1">
-                <widget class="QComboBox" name="lensSelector">
-                 <property name="toolTip">
-                  <string>Choose which lens in the stack to edit below</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="4" column="0">
-                <widget class="QLabel" name="label_2">
-                 <property name="text">
-                  <string>Refractive Index</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="4" column="1">
-                <widget class="QDoubleSpinBox" name="refractiveIndexSpin">
-                 <property name="minimumSize">
-                  <size>
-                   <width>40</width>
-                   <height>0</height>
-                  </size>
-                 </property>
-                 <property name="toolTip">
-                  <string>Refractive index of the lens material (1.0 to 3.0)</string>
-                 </property>
-                 <property name="buttonSymbols">
-                  <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                 </property>
-                </widget>
-               </item>
-               <item row="5" column="0">
-                <widget class="QLabel" name="label_3">
-                 <property name="text">
-                  <string>Aperture Radii</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="6" column="0">
-                <widget class="QLabel" name="label_4">
-                 <property name="text">
-                  <string>Surface 1</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="6" column="1">
-                <widget class="QLineEdit" name="surface1Edit">
-                 <property name="toolTip">
-                  <string>z position of surface 1 as an expression in local coordinates u and v, e.g. '0' or '(u^2+v^2)/100'</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="7" column="0">
-                <widget class="QLabel" name="label_5">
-                 <property name="text">
-                  <string>Surface 2</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="7" column="1">
-                <widget class="QLineEdit" name="surface2Edit">
-                 <property name="toolTip">
-                  <string>z position of surface 2 as an expression in local coordinates u and v, e.g. '0' or '(u^2+v^2)/100'</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="0">
-                <widget class="QLabel" name="label_17">
-                 <property name="text">
-                  <string>Position</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="3" column="0">
-                <widget class="QLabel" name="label_18">
-                 <property name="text">
-                  <string>Normal</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="1">
-                <widget class="QWidget" name="widget_8" native="true">
-                 <layout class="QHBoxLayout" name="horizontalLayout_4">
-                  <property name="leftMargin">
-                   <number>0</number>
+          <widget class="QStackedWidget" name="editorStack">
+           <widget class="QWidget" name="editorPageElement">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_6">
+             <item>
+              <widget class="QWidget" name="widget" native="true">
+               <layout class="QVBoxLayout" name="verticalLayout_3">
+                <item>
+                 <widget class="QLabel" name="label">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
                   </property>
-                  <property name="topMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="rightMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
-                  </property>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="elementPosXSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>x coordinate of the element's origin (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="elementPosYSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>y coordinate of the element's origin (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="elementPosZSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>z coordinate of the element's origin (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-               <item row="3" column="1">
-                <widget class="QWidget" name="widget_10" native="true">
-                 <layout class="QHBoxLayout" name="horizontalLayout_5">
-                  <property name="leftMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="topMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="rightMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
-                  </property>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="elementNormalXSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>x component of the element's optical axis direction (unit vector)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="elementNormalYSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>y component of the element's optical axis direction (unit vector)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="elementNormalZSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>z component of the element's optical axis direction (unit vector)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-               <item row="5" column="1">
-                <widget class="QWidget" name="widget_19" native="true">
-                 <layout class="QHBoxLayout" name="horizontalLayout_10">
-                  <property name="leftMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="topMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="rightMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
-                  </property>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="apertureRadiusSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>Radius of the circular aperture clipping surface 1 (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="apertureRadius2Spin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>Radius of the circular aperture clipping surface 2 (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </item>
-            <item>
-             <widget class="QDialogButtonBox" name="lensButtonBox">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="standardButtons">
-               <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <spacer name="tabSpacer">
-              <property name="orientation">
-               <enum>Qt::Orientation::Vertical</enum>
-              </property>
-              <property name="sizeType">
-               <enum>QSizePolicy::Policy::Expanding</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>20</width>
-                <height>0</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
-           </layout>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="tab_2">
-        <attribute name="title">
-         <string>Light Source</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="verticalLayout_8">
-         <item>
-          <widget class="QWidget" name="widget_11" native="true">
-           <layout class="QVBoxLayout" name="verticalLayout_4">
-            <item>
-             <widget class="QLabel" name="label_7">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="text">
-               <string>Light Source Properties</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="Line" name="line_3">
-              <property name="orientation">
-               <enum>Qt::Orientation::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QWidget" name="widget_2" native="true">
-              <layout class="QFormLayout" name="formLayout_2">
-               <property name="rowWrapPolicy">
-                <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
-               </property>
-               <item row="1" column="0">
-                <widget class="QLabel" name="label_8">
-                 <property name="text">
-                  <string>Source Type</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="1">
-                <widget class="QComboBox" name="sourceTypeCombo">
-                 <property name="toolTip">
-                  <string>Single Point emits one ray fan from a point; Point Array emits rays weighted by a PNG image's brightness</string>
-                 </property>
-                 <item>
                   <property name="text">
-                   <string>Single Point</string>
+                   <string>Lens Properties</string>
                   </property>
-                 </item>
-                 <item>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="Line" name="line">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="removeElementButton">
+                  <property name="toolTip">
+                   <string>Remove the selected element from the stack and retrace</string>
+                  </property>
                   <property name="text">
-                   <string>Point Array</string>
+                   <string>Remove Element</string>
                   </property>
-                 </item>
-                </widget>
-               </item>
-               <item row="2" column="0">
-                <widget class="QLabel" name="label_12">
-                 <property name="text">
-                  <string>Light Cone Angle</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="1">
-                <widget class="QDoubleSpinBox" name="coneAngleSpin">
-                 <property name="minimumSize">
-                  <size>
-                   <width>40</width>
-                   <height>0</height>
-                  </size>
-                 </property>
-                 <property name="toolTip">
-                  <string>Full opening angle of the emitted ray cone about the +z axis (degrees)</string>
-                 </property>
-                 <property name="buttonSymbols">
-                  <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                 </property>
-                </widget>
-               </item>
-               <item row="3" column="0">
-                <widget class="QLabel" name="label_9">
-                 <property name="text">
-                  <string>Source Power</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="3" column="1">
-                <widget class="QDoubleSpinBox" name="sourcePowerSpin">
-                 <property name="minimumSize">
-                  <size>
-                   <width>40</width>
-                   <height>0</height>
-                  </size>
-                 </property>
-                 <property name="toolTip">
-                  <string>Total source power, split across the emitted rays</string>
-                 </property>
-                 <property name="buttonSymbols">
-                  <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                 </property>
-                </widget>
-               </item>
-               <item row="4" column="0">
-                <widget class="QLabel" name="label_10">
-                 <property name="text">
-                  <string>Rays per Point</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="4" column="1">
-                <widget class="QSpinBox" name="numRaysSpin">
-                 <property name="minimumSize">
-                  <size>
-                   <width>40</width>
-                   <height>0</height>
-                  </size>
-                 </property>
-                 <property name="toolTip">
-                  <string>Number of rays traced from each source point</string>
-                 </property>
-                 <property name="buttonSymbols">
-                  <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                 </property>
-                </widget>
-               </item>
-               <item row="5" column="0">
-                <widget class="QLabel" name="label_11">
-                 <property name="text">
-                  <string>Position (xyz)</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="5" column="1">
-                <widget class="QWidget" name="widget_3" native="true">
-                 <layout class="QHBoxLayout" name="horizontalLayout">
-                  <property name="leftMargin">
-                   <number>0</number>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QWidget" name="widget_7" native="true">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
                   </property>
-                  <property name="topMargin">
-                   <number>0</number>
+                  <layout class="QFormLayout" name="formLayout">
+                   <property name="rowWrapPolicy">
+                    <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
+                   </property>
+                    <item row="4" column="0">
+                    <widget class="QLabel" name="label_2">
+                     <property name="text">
+                      <string>Refractive Index</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="4" column="1">
+                    <widget class="QDoubleSpinBox" name="refractiveIndexSpin">
+                     <property name="minimumSize">
+                      <size>
+                       <width>40</width>
+                       <height>0</height>
+                      </size>
+                     </property>
+                     <property name="toolTip">
+                      <string>Refractive index of the lens material (1.0 to 3.0)</string>
+                     </property>
+                     <property name="buttonSymbols">
+                      <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="5" column="0">
+                    <widget class="QLabel" name="label_3">
+                     <property name="text">
+                      <string>Aperture Radii</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="6" column="0">
+                    <widget class="QLabel" name="label_4">
+                     <property name="text">
+                      <string>Surface 1</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="6" column="1">
+                    <widget class="QLineEdit" name="surface1Edit">
+                     <property name="toolTip">
+                      <string>z position of surface 1 as an expression in local coordinates u and v, e.g. '0' or '(u^2+v^2)/100'</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="7" column="0">
+                    <widget class="QLabel" name="label_5">
+                     <property name="text">
+                      <string>Surface 2</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="7" column="1">
+                    <widget class="QLineEdit" name="surface2Edit">
+                     <property name="toolTip">
+                      <string>z position of surface 2 as an expression in local coordinates u and v, e.g. '0' or '(u^2+v^2)/100'</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="2" column="0">
+                    <widget class="QLabel" name="label_17">
+                     <property name="text">
+                      <string>Position</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="3" column="0">
+                    <widget class="QLabel" name="label_18">
+                     <property name="text">
+                      <string>Normal</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="2" column="1">
+                    <widget class="QWidget" name="widget_8" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout_4">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="elementPosXSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>x coordinate of the element's origin (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="elementPosYSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>y coordinate of the element's origin (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="elementPosZSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>z coordinate of the element's origin (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                   <item row="3" column="1">
+                    <widget class="QWidget" name="widget_10" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout_5">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="elementNormalXSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>x component of the element's optical axis direction (unit vector)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="elementNormalYSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>y component of the element's optical axis direction (unit vector)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="elementNormalZSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>z component of the element's optical axis direction (unit vector)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                   <item row="5" column="1">
+                    <widget class="QWidget" name="widget_19" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout_10">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="apertureRadiusSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Radius of the circular aperture clipping surface 1 (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="apertureRadius2Spin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Radius of the circular aperture clipping surface 2 (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QDialogButtonBox" name="lensButtonBox">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
                   </property>
-                  <property name="rightMargin">
-                   <number>0</number>
+                  <property name="standardButtons">
+                   <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
                   </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="tabSpacer">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Vertical</enum>
                   </property>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="sourceX">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>x position of the light source (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="sourceY">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>y position of the light source (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="sourceZ">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>z position of the light source (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-               <item row="6" column="0" colspan="2">
-                <widget class="QWidget" name="widget_15" native="true">
-                 <layout class="QFormLayout" name="formLayout_5">
-                  <property name="rowWrapPolicy">
-                   <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Policy::Expanding</enum>
                   </property>
-                  <item row="2" column="0">
-                   <widget class="QWidget" name="widget_16" native="true">
-                    <layout class="QHBoxLayout" name="horizontalLayout_7">
-                     <property name="leftMargin">
-                      <number>0</number>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>20</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="editorPageSource">
+            <layout class="QVBoxLayout" name="verticalLayout_8">
+             <item>
+              <widget class="QWidget" name="widget_11" native="true">
+               <layout class="QVBoxLayout" name="verticalLayout_4">
+                <item>
+                 <widget class="QLabel" name="label_7">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="text">
+                   <string>Light Source Properties</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="Line" name="line_3">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QWidget" name="widget_2" native="true">
+                  <layout class="QFormLayout" name="formLayout_2">
+                   <property name="rowWrapPolicy">
+                    <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
+                   </property>
+                   <item row="1" column="0">
+                    <widget class="QLabel" name="label_8">
+                     <property name="text">
+                      <string>Source Type</string>
                      </property>
-                     <property name="topMargin">
-                      <number>0</number>
-                     </property>
-                     <property name="rightMargin">
-                      <number>0</number>
-                     </property>
-                     <property name="bottomMargin">
-                      <number>0</number>
-                     </property>
-                    </layout>
-                   </widget>
-                  </item>
-                  <item row="5" column="0">
-                   <widget class="QLabel" name="label_22">
-                    <property name="text">
-                     <string>Pixel Pitch</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="5" column="1">
-                   <widget class="QDoubleSpinBox" name="pixelPitchSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>Physical size of one image pixel in mm; sets the footprint of the source array</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="6" column="0">
-                   <widget class="QLabel" name="label_23">
-                    <property name="text">
-                     <string>Max Grid</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="6" column="1">
-                   <widget class="QSpinBox" name="maxGridSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>Downsample the source image to at most N x N emitting points</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="4" column="0">
-                   <widget class="QLabel" name="label_24">
-                    <property name="text">
-                     <string>Source Image</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="4" column="1">
-                   <widget class="QWidget" name="widget_17" native="true">
-                    <layout class="QHBoxLayout" name="horizontalLayout_8">
-                     <property name="leftMargin">
-                      <number>0</number>
-                     </property>
-                     <property name="topMargin">
-                      <number>0</number>
-                     </property>
-                     <property name="rightMargin">
-                      <number>0</number>
-                     </property>
-                     <property name="bottomMargin">
-                      <number>0</number>
+                    </widget>
+                   </item>
+                   <item row="1" column="1">
+                    <widget class="QComboBox" name="sourceTypeCombo">
+                     <property name="toolTip">
+                      <string>Single Point emits one ray fan from a point; Point Array emits rays weighted by a PNG image's brightness</string>
                      </property>
                      <item>
-                      <widget class="QPushButton" name="sourceImageButton">
-                       <property name="toolTip">
-                        <string>Choose a PNG image whose pixel brightness weights the emitted rays (Point Array only)</string>
-                       </property>
-                       <property name="text">
-                        <string>Browse PNG...</string>
-                       </property>
-                      </widget>
+                      <property name="text">
+                       <string>Single Point</string>
+                      </property>
                      </item>
                      <item>
-                      <widget class="QLabel" name="sourceImageLabel">
-                       <property name="text">
-                        <string>no image</string>
-                       </property>
-                      </widget>
+                      <property name="text">
+                       <string>Point Array</string>
+                      </property>
                      </item>
-                    </layout>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </item>
-            <item>
-             <widget class="QDialogButtonBox" name="sourceButtonBox">
-              <property name="standardButtons">
-               <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <spacer name="tab2Spacer">
-              <property name="orientation">
-               <enum>Qt::Orientation::Vertical</enum>
-              </property>
-              <property name="sizeType">
-               <enum>QSizePolicy::Policy::Expanding</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>20</width>
-                <height>0</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
-           </layout>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="tab_3">
-        <attribute name="title">
-         <string>Measurement</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="verticalLayout_9">
-         <item>
-          <widget class="QWidget" name="widget_12" native="true">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <layout class="QVBoxLayout" name="verticalLayout_5">
-            <item>
-             <widget class="QLabel" name="label_13">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="text">
-               <string>Measurement Plane Properties</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="Line" name="line_5">
-              <property name="orientation">
-               <enum>Qt::Orientation::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="removePlaneButton">
-              <property name="toolTip">
-               <string>Remove the selected measurement plane</string>
-              </property>
-              <property name="text">
-               <string>Remove Plane</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QCheckBox" name="planeLockSourceCheck">
-              <property name="toolTip">
-               <string>Pin this plane just downstream of the source (z = source z - 0.001); its position follows the source and cannot be edited while locked</string>
-              </property>
-              <property name="text">
-               <string>Lock Position to Source</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QWidget" name="widget_4" native="true">
-              <layout class="QFormLayout" name="formLayout_3">
-               <property name="rowWrapPolicy">
-                <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
+                    </widget>
+                   </item>
+                   <item row="2" column="0">
+                    <widget class="QLabel" name="label_12">
+                     <property name="text">
+                      <string>Light Cone Angle</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="2" column="1">
+                    <widget class="QDoubleSpinBox" name="coneAngleSpin">
+                     <property name="minimumSize">
+                      <size>
+                       <width>40</width>
+                       <height>0</height>
+                      </size>
+                     </property>
+                     <property name="toolTip">
+                      <string>Full opening angle of the emitted ray cone about the +z axis (degrees)</string>
+                     </property>
+                     <property name="buttonSymbols">
+                      <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="3" column="0">
+                    <widget class="QLabel" name="label_9">
+                     <property name="text">
+                      <string>Source Power</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="3" column="1">
+                    <widget class="QDoubleSpinBox" name="sourcePowerSpin">
+                     <property name="minimumSize">
+                      <size>
+                       <width>40</width>
+                       <height>0</height>
+                      </size>
+                     </property>
+                     <property name="toolTip">
+                      <string>Total source power, split across the emitted rays</string>
+                     </property>
+                     <property name="buttonSymbols">
+                      <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="4" column="0">
+                    <widget class="QLabel" name="label_10">
+                     <property name="text">
+                      <string>Rays per Point</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="4" column="1">
+                    <widget class="QSpinBox" name="numRaysSpin">
+                     <property name="minimumSize">
+                      <size>
+                       <width>40</width>
+                       <height>0</height>
+                      </size>
+                     </property>
+                     <property name="toolTip">
+                      <string>Number of rays traced from each source point</string>
+                     </property>
+                     <property name="buttonSymbols">
+                      <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="5" column="0">
+                    <widget class="QLabel" name="label_11">
+                     <property name="text">
+                      <string>Position (xyz)</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="5" column="1">
+                    <widget class="QWidget" name="widget_3" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="sourceX">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>x position of the light source (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="sourceY">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>y position of the light source (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="sourceZ">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>z position of the light source (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                   <item row="6" column="0" colspan="2">
+                    <widget class="QWidget" name="widget_15" native="true">
+                     <layout class="QFormLayout" name="formLayout_5">
+                      <property name="rowWrapPolicy">
+                       <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
+                      </property>
+                      <item row="2" column="0">
+                       <widget class="QWidget" name="widget_16" native="true">
+                        <layout class="QHBoxLayout" name="horizontalLayout_7">
+                         <property name="leftMargin">
+                          <number>0</number>
+                         </property>
+                         <property name="topMargin">
+                          <number>0</number>
+                         </property>
+                         <property name="rightMargin">
+                          <number>0</number>
+                         </property>
+                         <property name="bottomMargin">
+                          <number>0</number>
+                         </property>
+                        </layout>
+                       </widget>
+                      </item>
+                      <item row="5" column="0">
+                       <widget class="QLabel" name="label_22">
+                        <property name="text">
+                         <string>Pixel Pitch</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="5" column="1">
+                       <widget class="QDoubleSpinBox" name="pixelPitchSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Physical size of one image pixel in mm; sets the footprint of the source array</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="6" column="0">
+                       <widget class="QLabel" name="label_23">
+                        <property name="text">
+                         <string>Max Grid</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="6" column="1">
+                       <widget class="QSpinBox" name="maxGridSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Downsample the source image to at most N x N emitting points</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="4" column="0">
+                       <widget class="QLabel" name="label_24">
+                        <property name="text">
+                         <string>Source Image</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="4" column="1">
+                       <widget class="QWidget" name="widget_17" native="true">
+                        <layout class="QHBoxLayout" name="horizontalLayout_8">
+                         <property name="leftMargin">
+                          <number>0</number>
+                         </property>
+                         <property name="topMargin">
+                          <number>0</number>
+                         </property>
+                         <property name="rightMargin">
+                          <number>0</number>
+                         </property>
+                         <property name="bottomMargin">
+                          <number>0</number>
+                         </property>
+                         <item>
+                          <widget class="QPushButton" name="sourceImageButton">
+                           <property name="toolTip">
+                            <string>Choose a PNG image whose pixel brightness weights the emitted rays (Point Array only)</string>
+                           </property>
+                           <property name="text">
+                            <string>Browse PNG...</string>
+                           </property>
+                          </widget>
+                         </item>
+                         <item>
+                          <widget class="QLabel" name="sourceImageLabel">
+                           <property name="text">
+                            <string>no image</string>
+                           </property>
+                          </widget>
+                         </item>
+                        </layout>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QDialogButtonBox" name="sourceButtonBox">
+                  <property name="standardButtons">
+                   <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="tab2Spacer">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Vertical</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Policy::Expanding</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>20</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="editorPagePlane">
+            <layout class="QVBoxLayout" name="verticalLayout_9">
+             <item>
+              <widget class="QWidget" name="widget_12" native="true">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
                </property>
-               <item row="0" column="0">
-                <widget class="QLabel" name="label_14">
-                 <property name="text">
-                  <string>Plane</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="0" column="1">
-                <widget class="QComboBox" name="planeSelectorCombo">
-                 <property name="toolTip">
-                  <string>Choose which measurement plane to edit and display below</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="0">
-                <widget class="QLabel" name="label_15">
-                 <property name="text">
-                  <string>Position (xyz)</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="1">
-                <widget class="QWidget" name="widget_5" native="true">
-                 <layout class="QHBoxLayout" name="horizontalLayout_2">
-                  <property name="leftMargin">
-                   <number>0</number>
+               <layout class="QVBoxLayout" name="verticalLayout_5">
+                <item>
+                 <widget class="QLabel" name="label_13">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
                   </property>
-                  <property name="topMargin">
-                   <number>0</number>
+                  <property name="text">
+                   <string>Measurement Plane Properties</string>
                   </property>
-                  <property name="rightMargin">
-                   <number>0</number>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="Line" name="line_5">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="removePlaneButton">
+                  <property name="toolTip">
+                   <string>Remove the selected measurement plane</string>
                   </property>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="planePosXSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>x position of the detector's center (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="planePosYSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>y position of the detector's center (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="planePosZSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>z position of the detector's center (mm)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-               <item row="2" column="0">
-                <widget class="QLabel" name="label_16">
-                 <property name="text">
-                  <string>Normal (xyz)</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="1">
-                <widget class="QWidget" name="widget_6" native="true">
-                 <layout class="QHBoxLayout" name="horizontalLayout_3">
-                  <property name="leftMargin">
-                   <number>0</number>
+                  <property name="text">
+                   <string>Remove Plane</string>
                   </property>
-                  <property name="topMargin">
-                   <number>0</number>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QCheckBox" name="planeLockSourceCheck">
+                  <property name="toolTip">
+                   <string>Pin this plane just downstream of the source (z = source z - 0.001); its position follows the source and cannot be edited while locked</string>
                   </property>
-                  <property name="rightMargin">
-                   <number>0</number>
+                  <property name="text">
+                   <string>Lock Position to Source</string>
                   </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QWidget" name="widget_4" native="true">
+                  <layout class="QFormLayout" name="formLayout_3">
+                   <property name="rowWrapPolicy">
+                    <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
+                   </property>
+                    <item row="1" column="0">
+                     <widget class="QLabel" name="label_15">
+                     <property name="text">
+                      <string>Position (xyz)</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="1" column="1">
+                    <widget class="QWidget" name="widget_5" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout_2">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="planePosXSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>x position of the detector's center (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="planePosYSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>y position of the detector's center (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="planePosZSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>z position of the detector's center (mm)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                   <item row="2" column="0">
+                    <widget class="QLabel" name="label_16">
+                     <property name="text">
+                      <string>Normal (xyz)</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="2" column="1">
+                    <widget class="QWidget" name="widget_6" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout_3">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="planeNormalXSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>x component of the plane normal, the direction the detector faces (unit vector)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="planeNormalYSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>y component of the plane normal, the direction the detector faces (unit vector)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="planeNormalZSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>z component of the plane normal, the direction the detector faces (unit vector)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                   <item row="3" column="0">
+                    <widget class="QLabel" name="label_19">
+                     <property name="text">
+                      <string>Resolution</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="3" column="1">
+                    <widget class="QWidget" name="widget_9" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout_6">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item>
+                       <widget class="QSpinBox" name="planeResUSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Number of detector pixels along the plane's local u direction (1 to 512)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QSpinBox" name="planeResVSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Number of detector pixels along the plane's local v direction (1 to 512)</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                   <item row="4" column="0">
+                    <widget class="QLabel" name="label_25">
+                     <property name="text">
+                      <string>Size (xy)</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="4" column="1">
+                    <widget class="QWidget" name="widget_18" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout_9">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="planeSizeXSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Physical width of the detector in mm</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="planeSizeYSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Physical height of the detector in mm</string>
+                        </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QDialogButtonBox" name="planeButtonBox">
+                  <property name="standardButtons">
+                   <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
                   </property>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="planeNormalXSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>x component of the plane normal, the direction the detector faces (unit vector)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="planeNormalYSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>y component of the plane normal, the direction the detector faces (unit vector)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="planeNormalZSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>z component of the plane normal, the direction the detector faces (unit vector)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-               <item row="3" column="0">
-                <widget class="QLabel" name="label_19">
-                 <property name="text">
-                  <string>Resolution</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="3" column="1">
-                <widget class="QWidget" name="widget_9" native="true">
-                 <layout class="QHBoxLayout" name="horizontalLayout_6">
-                  <property name="leftMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="topMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="rightMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
-                  </property>
-                  <item>
-                   <widget class="QSpinBox" name="planeResUSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>Number of detector pixels along the plane's local u direction (1 to 512)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QSpinBox" name="planeResVSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>Number of detector pixels along the plane's local v direction (1 to 512)</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-               <item row="4" column="0">
-                <widget class="QLabel" name="label_25">
-                 <property name="text">
-                  <string>Size (xy)</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="4" column="1">
-                <widget class="QWidget" name="widget_18" native="true">
-                 <layout class="QHBoxLayout" name="horizontalLayout_9">
-                  <property name="leftMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="topMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="rightMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
-                  </property>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="planeSizeXSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>Physical width of the detector in mm</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QDoubleSpinBox" name="planeSizeYSpin">
-                    <property name="minimumSize">
-                     <size>
-                      <width>40</width>
-                      <height>0</height>
-                     </size>
-                    </property>
-                    <property name="toolTip">
-                     <string>Physical height of the detector in mm</string>
-                    </property>
-                    <property name="buttonSymbols">
-                     <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </item>
-            <item>
-             <widget class="QDialogButtonBox" name="planeButtonBox">
-              <property name="standardButtons">
-               <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QWidget" name="widget_13" native="true">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <layout class="QVBoxLayout" name="verticalLayout_7">
-            <item>
-             <widget class="QLabel" name="label_20">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="text">
-               <string>Measurement Plane View</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="Line" name="line_2">
-              <property name="orientation">
-               <enum>Qt::Orientation::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QWidget" name="planeView" native="true">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="toolTip">
-               <string>Colormap of the selected plane's detected irradiance; each image is scaled to its own maximum</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QWidget" name="widget_14" native="true">
-              <layout class="QFormLayout" name="formLayout_4">
-               <property name="rowWrapPolicy">
-                <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QWidget" name="widget_13" native="true">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
                </property>
-               <item row="0" column="1">
-                <widget class="QComboBox" name="planeDisplayModeCombo">
-                 <property name="toolTip">
-                  <string>Raw histograms ray hits into pixels; Reconstruct spreads each hit with an adaptive kernel</string>
-                 </property>
-                 <item>
-                  <property name="text">
-                   <string>Raw</string>
+               <layout class="QVBoxLayout" name="verticalLayout_7">
+                <item>
+                 <widget class="QLabel" name="label_20">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
                   </property>
-                 </item>
-                 <item>
                   <property name="text">
-                   <string>Reconstruct</string>
+                   <string>Measurement Plane View</string>
                   </property>
-                 </item>
-                </widget>
-               </item>
-               <item row="0" column="0">
-                <widget class="QLabel" name="label_21">
-                 <property name="text">
-                  <string>Display Mode</string>
-                 </property>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </item>
-           </layout>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="Line" name="line_2">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QWidget" name="planeView" native="true">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="toolTip">
+                   <string>Colormap of the selected plane's detected irradiance; each image is scaled to its own maximum</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QWidget" name="widget_14" native="true">
+                  <layout class="QFormLayout" name="formLayout_4">
+                   <property name="rowWrapPolicy">
+                    <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
+                   </property>
+                   <item row="0" column="1">
+                    <widget class="QComboBox" name="planeDisplayModeCombo">
+                     <property name="toolTip">
+                      <string>Raw histograms ray hits into pixels; Reconstruct spreads each hit with an adaptive kernel</string>
+                     </property>
+                     <item>
+                      <property name="text">
+                       <string>Raw</string>
+                      </property>
+                     </item>
+                     <item>
+                      <property name="text">
+                       <string>Reconstruct</string>
+                      </property>
+                     </item>
+                    </widget>
+                   </item>
+                   <item row="0" column="0">
+                    <widget class="QLabel" name="label_21">
+                     <property name="text">
+                      <string>Display Mode</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <spacer name="tab3Spacer">
+               <property name="orientation">
+                <enum>Qt::Orientation::Vertical</enum>
+               </property>
+               <property name="sizeType">
+                <enum>QSizePolicy::Policy::Expanding</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>0</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
           </widget>
-         </item>
-         <item>
-          <spacer name="tab3Spacer">
-           <property name="orientation">
-            <enum>Qt::Orientation::Vertical</enum>
-           </property>
-           <property name="sizeType">
-            <enum>QSizePolicy::Policy::Expanding</enum>
-           </property>
-           <property name="sizeHint" stdset="0">
-            <size>
-             <width>20</width>
-             <height>0</height>
-            </size>
-           </property>
-          </spacer>
          </item>
         </layout>
        </widget>

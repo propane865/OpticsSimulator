@@ -34,7 +34,6 @@ def _doublet(make_window, repo_root):
 
 def _editor(window):
     return {
-        "selector": window.findChild(QtWidgets.QComboBox, "lensSelector"),
         "remove": window.findChild(QtWidgets.QPushButton, "removeElementButton"),
         "index": window.findChild(QtWidgets.QDoubleSpinBox, "refractiveIndexSpin"),
         "radius": window.findChild(QtWidgets.QDoubleSpinBox, "apertureRadiusSpin"),
@@ -86,7 +85,6 @@ def _trigger_measurement_plane(window):
 
 def _plane_editor(window):
     return {
-        "selector": window.findChild(QtWidgets.QComboBox, "planeSelectorCombo"),
         "remove": window.findChild(QtWidgets.QPushButton, "removePlaneButton"),
         "pos": [
             window.findChild(QtWidgets.QDoubleSpinBox, "planePosXSpin"),
@@ -144,6 +142,16 @@ def _tree_select(window, name):
     tree.setCurrentItem(item)
 
 
-def _tab_index(window, page_name):
-    tabs = window.findChild(QtWidgets.QTabWidget, "tabWidget")
-    return tabs.indexOf(tabs.findChild(QtWidgets.QWidget, page_name))
+def _editor_stack(window):
+    return window.findChild(QtWidgets.QStackedWidget, "editorStack")
+
+
+def _editor_page(window):
+    """The object name of the editor page currently on screen."""
+    return _editor_stack(window).currentWidget().objectName()
+
+
+def _show_plane_page(window):
+    _editor_stack(window).setCurrentWidget(
+        window.findChild(QtWidgets.QWidget, "editorPagePlane")
+    )

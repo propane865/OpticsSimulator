@@ -143,8 +143,8 @@ array buffers only.
     image (letterboxed `QImage` raster, viridis like the 3D mesh)
   - `project_tree.py`: `ProjectTree` for the left dock — mirrors the project as
     source / lens stack / measurement planes, and reports a `(kind, name)`
-    selection that the window routes to the matching editor, tab and 3D
-    highlight (and back, when a selector changes)
+    selection that the window routes to the matching editor page and 3D
+    highlight (and back, when an editor changes selection on its own)
   - `widgets.py`: shared PySide6 helpers (`find_child`, `configure_spin`,
     `enable_widgets`, `run_validated`)
 

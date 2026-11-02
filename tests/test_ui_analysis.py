@@ -12,7 +12,15 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtCore, QtWidgets
 
-from tests.ui_helpers import OK, _click_plane, _editor, _plane_editor, _trigger_measurement_plane, _trigger_new_element
+from tests.ui_helpers import (
+    OK,
+    _click_plane,
+    _editor,
+    _plane_editor,
+    _tree_select,
+    _trigger_measurement_plane,
+    _trigger_new_element,
+)
 from ui.editors import AnalysisEditor
 
 # -- Analysis tab: plane-to-plane image transform ---------------------------
@@ -37,7 +45,7 @@ def _add_plane_at_z(window, z):
 
 def _set_plane_z(window, name, z):
     editor = _plane_editor(window)
-    editor["selector"].setCurrentText(name)
+    _tree_select(window, name)
     editor["pos"][2].setValue(z)
     _click_plane(window, OK)
 
@@ -109,7 +117,7 @@ def test_analysis_clears_when_planes_drop_below_two(window):
     assert w["magnification"].text() != AnalysisEditor.PLACEHOLDER
 
     editor = _plane_editor(window)
-    editor["selector"].setCurrentText("plane2")
+    _tree_select(window, "plane2")
     editor["remove"].click()
     assert not w["run"].isEnabled()
     assert w["magnification"].text() == AnalysisEditor.PLACEHOLDER
@@ -385,7 +393,7 @@ def test_analysis_lock_table_tracks_element_add_and_remove(window):
     assert _lock_rows(table) == [("lens1", True), ("lens2", False)]
 
     editor = _editor(window)
-    editor["selector"].setCurrentText("lens1")
+    _tree_select(window, "lens1")
     editor["remove"].click()
     assert _lock_rows(table) == [("lens2", False)]
 

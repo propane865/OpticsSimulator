@@ -46,19 +46,21 @@ __all__ = [
 
 UI_PATH = Path(__file__).resolve().parent / "main.ui"
 
-# Tab-hover summaries; the dock's tab order matches main.ui (lenses, source,
-# planes, analysis). QTabBar tab tooltips cannot be expressed in the .ui file.
+# Tab-hover summaries; the dock's tab order matches main.ui (editor, analysis).
+# QTabBar tab tooltips cannot be expressed in the .ui file.
 _TAB_TOOLTIPS = (
-    "View and edit a single lens in the stack",
-    "Position, ray fan and source image settings for the emitter",
-    "Edit a measurement plane and view its detected image",
+    "Edit the project object selected in the Project tree",
     "Compare two plane images and optimize the layout for focus",
 )
 
-# Which tab shows a project object selected in the tree. Keyed by the tab page's
-# object name (resolved to an index in ``_load_ui``) so a Designer reorder
+# Which editor-stack page shows a project object selected in the tree. Keyed by
+# the stack page's object name (resolved in ``_load_ui``) so a Designer reorder
 # cannot silently send a selection to the wrong form.
-_TAB_BY_PAGE = {ELEMENT: "tab", SOURCE: "tab_2", PLANE: "tab_3"}
+_EDITOR_PAGE_BY_KIND = {
+    ELEMENT: "editorPageElement",
+    SOURCE: "editorPageSource",
+    PLANE: "editorPagePlane",
+}
 
 # The two docks main.ui declares, with the area each belongs in. QUiLoader hands
 # them over as children of the loaded window; they only become real docks of
@@ -94,7 +96,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._scene,
             self._set_status,
             self._refresh_trace,
-            on_elements_changed=self._on_project_changed,
+            on_items_changed=self._on_project_changed,
+            on_selection_changed=lambda: self._on_editor_selection(ELEMENT),
         )
         self._source_editor = SourceEditor(
             self, self._state, self._scene, self._set_status, self._refresh_after_source
@@ -105,7 +108,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._scene,
             self._set_status,
             self._update_plane_view,
-            on_populated=self._on_project_changed,
+            on_items_changed=self._on_project_changed,
+            on_selection_changed=lambda: self._on_editor_selection(PLANE),
         )
         self._analysis_editor = AnalysisEditor(
             self, self._state, self._scene, self._set_status, self._refresh_trace
@@ -116,7 +120,6 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._on_tree_select,
         )
         self._connect_actions()
-        self._connect_selectors()
         self._scene.refresh_source(self._state.source)
 
     # -- UI construction -----------------------------------------------------
@@ -127,8 +130,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(cast(QtWidgets.QWidget, loaded.centralWidget()))
         self.setMenuWidget(cast(QtWidgets.QWidget, loaded.menuWidget()))
         self.setStatusBar(loaded.statusBar())
-        self._tabs: QtWidgets.QTabWidget | None = None
-        self._tab_index: dict[str, int] = {}
+        self._editor_stack: QtWidgets.QStackedWidget | None = None
+        self._editor_pages: dict[str, QtWidgets.QWidget] = {}
         for name, area in _DOCK_AREAS.items():
             dock = loaded.findChild(QtWidgets.QDockWidget, name)
             if dock is None:
@@ -137,13 +140,16 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             tab_widget = dock.findChild(QtWidgets.QTabWidget, "tabWidget")
             if tab_widget is None:
                 continue
-            self._tabs = tab_widget
             for index, tip in enumerate(_TAB_TOOLTIPS):
                 tab_widget.tabBar().setTabToolTip(index, tip)
-            for kind, page in _TAB_BY_PAGE.items():
-                page_widget = tab_widget.findChild(QtWidgets.QWidget, page)
+            stack = tab_widget.findChild(QtWidgets.QStackedWidget, "editorStack")
+            if stack is None:
+                continue
+            self._editor_stack = stack
+            for kind, page in _EDITOR_PAGE_BY_KIND.items():
+                page_widget = stack.findChild(QtWidgets.QWidget, page)
                 if page_widget is not None:
-                    self._tab_index[kind] = tab_widget.indexOf(page_widget)
+                    self._editor_pages[kind] = page_widget
 
     def _embed_canvas(self, canvas: Any) -> None:
         container = find_child(self, QtWidgets.QWidget, "openGLWidget", UI_PATH.name)
@@ -169,19 +175,12 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         )
         display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
 
-    def _connect_selectors(self) -> None:
-        """Mirror selection made in the editors back into the tree and scene."""
-        lens = find_child(self, QtWidgets.QComboBox, "lensSelector", UI_PATH.name)
-        plane = find_child(self, QtWidgets.QComboBox, "planeSelectorCombo", UI_PATH.name)
-        lens.currentIndexChanged.connect(lambda _: self._on_editor_selection(ELEMENT))
-        plane.currentIndexChanged.connect(lambda _: self._on_editor_selection(PLANE))
-
     # -- project selection (tree <-> editors <-> scene) -----------------------
     def _on_tree_select(self, selection: Selection) -> None:
-        """Show the clicked project object in its editor, tab and lit in 3D."""
+        """Show the clicked project object in its editor page, lit in 3D."""
         kind, name = selection
         self._selection_kind = kind
-        self._show_tab(kind)
+        self._show_editor(kind)
         if kind == ELEMENT:
             self._element_editor.select(name)
         elif kind == PLANE:
@@ -189,9 +188,13 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._apply_scene_selection()
 
     def _on_editor_selection(self, kind: str, *_: object) -> None:
-        """Follow a selector change: move the tree highlight to the same object."""
+        """Follow a selection the editors made on their own (load, add, remove
+        fallback): move the tree highlight and editor page to that object."""
         self._selection_kind = kind
-        self._project_tree.set_current(self._selection())
+        selection = self._selection()
+        self._project_tree.set_current(selection)
+        if selection is not None:
+            self._show_editor(kind)
         self._apply_scene_selection()
 
     def _selection(self) -> Selection | None:
@@ -216,19 +219,20 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         planes = self._state.plane_names
         self._scene.select_plane(planes.index(name) if kind == PLANE and name in planes else None)
 
-    def _show_tab(self, kind: str) -> None:
-        index = self._tab_index.get(kind, -1)
-        if self._tabs is not None and index >= 0:
-            self._tabs.setCurrentIndex(index)
+    def _show_editor(self, kind: str) -> None:
+        """Switch the editor stack to the form for a kind of project object."""
+        page = self._editor_pages.get(kind)
+        if self._editor_stack is not None and page is not None:
+            self._editor_stack.setCurrentWidget(page)
 
     # -- orchestration shared by the editors --------------------------------
     def _on_project_changed(self) -> None:
         """Refill everything derived from the element and plane lists."""
         self._analysis_editor.populate()
         self._project_tree.populate()
-        # The editors own the selection and their selector lists were just
-        # rebuilt (to the first item after a load), so mirror what they show
-        # rather than whatever row the tree happened to remember.
+        # The editors own the selection and their item lists were just rebuilt
+        # (to the first item after a load), so mirror what they show rather
+        # than whatever row the tree happened to remember.
         self._project_tree.set_current(self._selection())
         self._apply_scene_selection()
 
@@ -320,8 +324,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._scene.rebuild_planes(self._state.planes, self._state.plane_results)
         self.frame_to_scene()
         if replaced_planes:
-            self._plane_editor.populate_selector()
-        self._element_editor.populate_selector()
+            self._plane_editor.refresh()
+        self._element_editor.refresh()
         self._update_plane_view()
 
         self._set_status(f"Loaded {len(elements)} element(s) from {path.name}")
@@ -340,7 +344,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
         self._scene.full_rebuild(self._state.elements, self._state.rays)
         self._scene.refresh_source(self._state.source)
-        self._element_editor.populate_selector()
+        self._element_editor.refresh()
         self._refresh_trace()
         self.frame_to_scene()
         self._update_plane_view()

@@ -7,9 +7,13 @@ remain descendants of the main window (they are looked up by object name via
 :class:`~ui.scene.SceneController`, and posts status text, so the window itself
 stays a thin composition root.
 
-The element and plane editors share a selector-driven lifecycle (enable from
+The element and plane editors share a selection-driven lifecycle (enable from
 selection, apply/remove/add round-trips) captured once in
-:class:`_SelectorEditor`; the source editor is a singleton form.
+:class:`_SelectorEditor`; the source editor is a singleton form. Their current
+selection is the project tree's: the window routes a tree click into
+:meth:`_SelectorEditor.select`, and internal selection changes (load, add,
+remove fallback) are reported back so the window can mirror them into the
+tree, the analysis panel and the 3D highlight.
 """
 
 from __future__ import annotations
@@ -69,16 +73,22 @@ _REVERT_TIP = "Reload the current values, discarding any edits"
 
 
 class _SelectorEditor:
-    """Controller skeleton for editors driven by a selection combo box.
+    """Controller skeleton for editors driven by the project-tree selection.
 
-    Subclasses provide the widget object names, the selector item names and
-    field population, and implement ``_build_current`` / ``_commit_current`` /
+    The editor owns the current index into :meth:`_item_names`; the window
+    routes a tree click into :meth:`select` (which does not report back), while
+    internal selection changes report through the callbacks so the window can
+    keep dependent widgets (the analysis tab's plane combos and element lock
+    table) and the tree highlight in sync: ``on_items_changed`` runs whenever
+    the item list was rebuilt (:meth:`refresh`), ``on_selection_changed`` runs
+    whenever the shown selection changed on its own (refresh, add, remove
+    fallback).
+
+    Subclasses provide the widget object names, the item names and field
+    population, and implement ``_build_current`` / ``_commit_current`` /
     ``_remove_selected`` / ``_build_new`` / ``_register_new`` used by the
     shared apply/remove/add templates. Subclasses should call
     :meth:`set_enabled` once their own widgets exist (forms start disabled).
-    ``on_populated`` runs at the end of every :meth:`populate_selector`, so the
-    window can keep dependent widgets (the analysis tab's plane combos and
-    element lock table) in sync with the selector's list.
     """
 
     ADD_TITLE: str
@@ -93,19 +103,20 @@ class _SelectorEditor:
         state: ProjectState,
         scene: SceneController,
         set_status: Callable[[str], None],
-        selector_name: str,
         remove_name: str,
         button_box_name: str,
         pos_prefix: str,
         normal_prefix: str,
-        on_populated: Callable[[], None] | None = None,
+        on_items_changed: Callable[[], None] | None = None,
+        on_selection_changed: Callable[[], None] | None = None,
     ) -> None:
         self._window = window
         self._state = state
         self._scene = scene
         self._set_status = set_status
-        self._on_populated = on_populated
-        self._selector = find_child(window, QtWidgets.QComboBox, selector_name)
+        self._on_items_changed = on_items_changed
+        self._on_selection_changed = on_selection_changed
+        self._index = -1
         self._remove_button = find_child(window, QtWidgets.QPushButton, remove_name)
         self._button_box = find_child(window, QtWidgets.QDialogButtonBox, button_box_name)
         self._pos_spins: tuple[QtWidgets.QDoubleSpinBox, ...] = tuple(
@@ -119,7 +130,6 @@ class _SelectorEditor:
         for spin in self._normal_spins:
             configure_spin(spin, -1.0, 1.0, 0.1, decimals=3)
 
-        self._selector.currentIndexChanged.connect(self.populate_fields)
         self._remove_button.clicked.connect(self.remove_current)
         self._button_box.accepted.connect(self.apply)
         self._button_box.rejected.connect(self.populate_fields)
@@ -129,27 +139,50 @@ class _SelectorEditor:
     def set_enabled(self, enabled: bool) -> None:
         enable_widgets(self._widgets(), enabled)
 
-    def populate_selector(self) -> None:
-        self._selector.blockSignals(True)
-        self._selector.clear()
-        self._selector.addItems(list(self._selector_names()))
-        self._selector.blockSignals(False)
-        has_items = self._selector.count() > 0
-        self.set_enabled(has_items)
-        if has_items:
+    @property
+    def has_selection(self) -> bool:
+        """Whether a project object is currently shown in the form."""
+        return 0 <= self._index < len(self._item_names())
+
+    def selected_index(self) -> int:
+        """The shown item's position, or ``-1`` when nothing is selected."""
+        return self._index if self.has_selection else -1
+
+    def selected_name(self) -> str | None:
+        """The shown item's name, or ``None`` when nothing is selected."""
+        index = self.selected_index()
+        return None if index < 0 else self._item_names()[index]
+
+    def select(self, name: str) -> None:
+        """Show ``name``; the window initiated this from the tree, so it
+        updates the dependent widgets itself and nothing is reported back."""
+        names = self._item_names()
+        self._index = names.index(name) if name in names else -1
+        self.set_enabled(self.has_selection)
+        if self.has_selection:
             self.populate_fields()
         else:
             self._on_no_selection()
-        if self._on_populated is not None:
-            self._on_populated()
 
-    def select(self, name: str) -> None:
-        self._selector.setCurrentText(name)
-        self.populate_fields()
+    def refresh(self) -> None:
+        """Re-read the item list, show its first item and report to the window.
 
-    def selected_name(self) -> str | None:
-        """The selector's current item, or ``None`` when the list is empty."""
-        return self._selector.currentText() or None
+        Selecting index 0 (like the old combo did on a rebuild) is what makes
+        a removal fall back onto the next element/plane automatically.
+        """
+        self._index = 0 if self._item_names() else -1
+        self.set_enabled(self.has_selection)
+        if self.has_selection:
+            self.populate_fields()
+        else:
+            self._on_no_selection()
+        if self._on_items_changed is not None:
+            self._on_items_changed()
+        self._notify()
+
+    def _notify(self) -> None:
+        if self._on_selection_changed is not None:
+            self._on_selection_changed()
 
     def apply(self) -> None:
         built = run_validated(
@@ -167,7 +200,7 @@ class _SelectorEditor:
         if name is None:
             return
         self._after_removal()
-        self.populate_selector()
+        self.refresh()
         self._set_status(f"Removed {name}")
 
     def add(self) -> None:
@@ -180,14 +213,14 @@ class _SelectorEditor:
         if built is None:
             return
         name = self._register_new(built)
-        self.populate_selector()
+        self.refresh()
         self.select(name)
+        self._notify()
         self._set_status(f"Added {name}")
 
     # -- hooks ------------------------------------------------------------------
     def _widgets(self) -> tuple[QtWidgets.QWidget, ...]:
         return (
-            self._selector,
             self._remove_button,
             *self._pos_spins,
             *self._normal_spins,
@@ -198,7 +231,7 @@ class _SelectorEditor:
     def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
         return ()
 
-    def _selector_names(self) -> list[str]:
+    def _item_names(self) -> list[str]:
         raise NotImplementedError
 
     def populate_fields(self, *_: object) -> None:
@@ -243,19 +276,20 @@ class ElementEditor(_SelectorEditor):
         scene: SceneController,
         set_status: Callable[[str], None],
         refresh_trace: Callable[[], None],
-        on_elements_changed: Callable[[], None] | None = None,
+        on_items_changed: Callable[[], None] | None = None,
+        on_selection_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
             window,
             state,
             scene,
             set_status,
-            "lensSelector",
             "removeElementButton",
             "lensButtonBox",
             "elementPos",
             "elementNormal",
-            on_populated=on_elements_changed,
+            on_items_changed=on_items_changed,
+            on_selection_changed=on_selection_changed,
         )
         self._refresh_trace = refresh_trace
 
@@ -279,14 +313,15 @@ class ElementEditor(_SelectorEditor):
             self._surface2_edit,
         )
 
-    def _selector_names(self) -> list[str]:
+    def _item_names(self) -> list[str]:
         return list((self._state.schema or {}).keys())
 
     def populate_fields(self, *_: object) -> None:
         schema = self._state.schema
-        if not schema:
+        name = self.selected_name()
+        if not schema or name is None:
             return
-        config = schema.get(self._selector.currentText())
+        config = schema.get(name)
         if config is None:
             return
         self._index_spin.setValue(float(config["material"]["refractive_index"]))
@@ -309,9 +344,9 @@ class ElementEditor(_SelectorEditor):
 
     def _build_current(self) -> tuple[str, dict[str, Any], Any] | None:
         schema = self._state.schema
-        if not schema:
+        name = self.selected_name()
+        if not schema or name is None:
             return None
-        name = self._selector.currentText()
         if name not in schema:
             return None
         config = copy.deepcopy(schema[name])
@@ -342,9 +377,9 @@ class ElementEditor(_SelectorEditor):
 
     def _remove_selected(self) -> str | None:
         schema = self._state.schema
-        if not schema:
+        name = self.selected_name()
+        if not schema or name is None:
             return None
-        name = self._selector.currentText()
         if name not in schema:
             return None
         self._scene.remove_element_nodes(list(schema.keys()).index(name))
@@ -524,19 +559,20 @@ class PlaneEditor(_SelectorEditor):
         scene: SceneController,
         set_status: Callable[[str], None],
         update_view: Callable[[], None],
-        on_populated: Callable[[], None] | None = None,
+        on_items_changed: Callable[[], None] | None = None,
+        on_selection_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
             window,
             state,
             scene,
             set_status,
-            "planeSelectorCombo",
             "removePlaneButton",
             "planeButtonBox",
             "planePos",
             "planeNormal",
-            on_populated=on_populated,
+            on_items_changed=on_items_changed,
+            on_selection_changed=on_selection_changed,
         )
         self._update_view = update_view
 
@@ -563,17 +599,14 @@ class PlaneEditor(_SelectorEditor):
     def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
         return (*self._resolution_spins, *self._size_spins, self._lock_source_check)
 
-    def _selector_names(self) -> list[str]:
+    def _item_names(self) -> list[str]:
         return list(self._state.plane_names)
 
     def _on_no_selection(self) -> None:
         self._update_view()
 
-    def selected_index(self) -> int:
-        return self._selector.currentIndex()
-
     def populate_fields(self, *_: object) -> None:
-        index = self._selector.currentIndex()
+        index = self.selected_index()
         planes = self._state.planes
         if index < 0 or index >= len(planes):
             self._show_lock_state(False)
@@ -602,11 +635,11 @@ class PlaneEditor(_SelectorEditor):
         self._lock_source_check.blockSignals(True)
         self._lock_source_check.setChecked(locked)
         self._lock_source_check.blockSignals(False)
-        enable_widgets(self._pos_spins, self._selector.count() > 0 and not locked)
+        enable_widgets(self._pos_spins, self.has_selection and not locked)
 
     def _on_lock_source_toggled(self, checked: bool) -> None:
         """Pin the selected plane just downstream of the source, or release it."""
-        index = self._selector.currentIndex()
+        index = self.selected_index()
         if index < 0 or index >= len(self._state.planes):
             return
         pinned = self._state.set_plane_locked(index, checked)
@@ -622,7 +655,7 @@ class PlaneEditor(_SelectorEditor):
             self._set_status(f"Unlocked {self._state.plane_names[index]} from source")
 
     def _build_current(self) -> tuple[int, MeasurementPlane] | None:
-        index = self._selector.currentIndex()
+        index = self.selected_index()
         planes = self._state.planes
         if index < 0 or index >= len(planes):
             return None
@@ -649,7 +682,7 @@ class PlaneEditor(_SelectorEditor):
         self._set_status(f"Updated properties for {self._state.plane_names[index]}")
 
     def _remove_selected(self) -> str | None:
-        index = self._selector.currentIndex()
+        index = self.selected_index()
         if index < 0 or index >= len(self._state.planes):
             return None
         name = self._state.plane_names[index]

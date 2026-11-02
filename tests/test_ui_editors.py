@@ -22,28 +22,31 @@ from tests.ui_helpers import (
     _mesh_count,
     _plane_editor,
     _source_editor,
+    _tree,
+    _tree_names,
+    _tree_select,
     _trigger_measurement_plane,
     _trigger_new_element,
 )
 from ui.plane_view import PlaneView, _AspectLabel, _fit_rect
+from ui.project_tree import ProjectTree
 
 
 def test_property_editor_disabled_without_stack(window):
     editor = _editor(window)
-    assert not editor["selector"].isEnabled()
     assert not editor["remove"].isEnabled()
     assert not editor["pos"][0].isEnabled()
     assert not editor["normal"][0].isEnabled()
     assert not editor["buttons"].isEnabled()
 
 
-def test_load_stack_populates_lens_selector(window, repo_root):
+def test_load_stack_populates_lens_editor(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
-    assert editor["selector"].isEnabled()
-    items = [editor["selector"].itemText(i) for i in range(editor["selector"].count())]
-    assert items == ["lens1", "lens2"]
+    assert editor["remove"].isEnabled()
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2"]
+    assert window._element_editor.selected_name() == "lens1"
     assert editor["index"].value() == pytest.approx(1.5)
     assert editor["radius"].value() == pytest.approx(0.75)
     assert editor["radius2"].value() == pytest.approx(0.75)
@@ -55,7 +58,7 @@ def test_switching_lens_repopulates_fields(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
-    editor["selector"].setCurrentText("lens2")
+    _tree_select(window, "lens2")
     assert editor["s1"].text() == "2.8 - sqrt(4 - (u**2) - (v**2))"
     assert editor["s2"].text() == "-1.3 + sqrt(4 - (u**2) - (v**2))"
 
@@ -133,9 +136,9 @@ def test_lens_position_repopulates_on_switch(window, repo_root):
     editor["pos"][1].setValue(2.5)
     _click(window, OK)
 
-    editor["selector"].setCurrentText("lens2")
+    _tree_select(window, "lens2")
     assert editor["pos"][1].value() == pytest.approx(0.0)
-    editor["selector"].setCurrentText("lens1")
+    _tree_select(window, "lens1")
     assert editor["pos"][1].value() == pytest.approx(2.5)
 
 
@@ -184,10 +187,9 @@ def test_new_element_action_adds_to_stack(window, repo_root):
 
     assert len(window.elements) == 3
     editor = _editor(window)
-    items = [editor["selector"].itemText(i) for i in range(editor["selector"].count())]
-    assert items == ["lens1", "lens2", "lens3"]
-    assert editor["selector"].currentText() == "lens3"
-    assert editor["selector"].isEnabled()
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2", "lens3"]
+    assert window._element_editor.selected_name() == "lens3"
+    assert editor["buttons"].isEnabled()
     assert _mesh_count(window.canvas.view) > meshes_before
     assert "Added lens3" in window.statusBar().currentMessage()
 
@@ -197,8 +199,8 @@ def test_new_element_on_empty_stack(window):
 
     assert len(window.elements) == 1
     editor = _editor(window)
-    assert editor["selector"].currentText() == "lens1"
-    assert editor["selector"].isEnabled()
+    assert window._element_editor.selected_name() == "lens1"
+    assert editor["buttons"].isEnabled()
     assert "Added lens1" in window.statusBar().currentMessage()
 
 
@@ -207,8 +209,7 @@ def test_new_element_names_increment(window):
     _trigger_new_element(window)
 
     assert len(window.elements) == 2
-    items = [_editor(window)["selector"].itemText(i) for i in range(_editor(window)["selector"].count())]
-    assert items == ["lens1", "lens2"]
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2"]
 
 
 def test_new_element_default_geometry(window):
@@ -248,12 +249,11 @@ def test_remove_element_button(window, repo_root):
 
     editor = _editor(window)
     assert editor["remove"].isEnabled()
-    editor["selector"].setCurrentText("lens1")
+    _tree_select(window, "lens1")
     editor["remove"].click()
 
     assert len(window.elements) == 1
-    items = [editor["selector"].itemText(i) for i in range(editor["selector"].count())]
-    assert items == ["lens2"]
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens2"]
     assert _mesh_count(window.canvas.view) < meshes_before
     assert "Removed lens1" in window.statusBar().currentMessage()
 
@@ -262,12 +262,11 @@ def test_remove_selected_element_keeps_others(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
-    editor["selector"].setCurrentText("lens2")
+    _tree_select(window, "lens2")
     editor["remove"].click()
 
     assert len(window.elements) == 1
-    items = [editor["selector"].itemText(i) for i in range(editor["selector"].count())]
-    assert items == ["lens1"]
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1"]
     assert str(window.elements[0].surface1.z_expr) == "-1 + sqrt(9 - (u**2) - (v**2))"
 
 
@@ -275,13 +274,13 @@ def test_remove_last_element_disables_editor(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
-    editor["selector"].setCurrentText("lens1")
+    _tree_select(window, "lens1")
     editor["remove"].click()
-    editor["selector"].setCurrentText("lens2")
+    _tree_select(window, "lens2")
     editor["remove"].click()
 
     assert len(window.elements) == 0
-    assert editor["selector"].count() == 0
+    assert window._element_editor.selected_index() == -1
     assert not editor["remove"].isEnabled()
     assert "Removed lens2" in window.statusBar().currentMessage()
 
@@ -462,19 +461,19 @@ def test_measurement_plane_remeasures_on_source_change(window, repo_root):
 
 def test_plane_editor_disabled_without_planes(window):
     editor = _plane_editor(window)
-    assert not editor["selector"].isEnabled()
     assert not editor["remove"].isEnabled()
     assert not editor["resolution"][0].isEnabled()
     assert not editor["size"][0].isEnabled()
     assert not editor["buttons"].isEnabled()
 
 
-def test_add_plane_populates_selector_and_fields(window):
+def test_add_plane_populates_form(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
-    assert editor["selector"].isEnabled()
-    assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane1"]
+    assert editor["remove"].isEnabled()
+    assert _tree_names(_tree(window), ProjectTree.PLANES_LABEL) == ["plane1"]
+    assert window._plane_editor.selected_index() == 0
     assert editor["pos"][2].value() == pytest.approx(-30.0)
     assert editor["normal"][2].value() == pytest.approx(1.0)
     assert [spin.value() for spin in editor["resolution"]] == [64, 64]
@@ -520,13 +519,13 @@ def test_plane_resolution_repopulates_on_switch(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
-    editor["selector"].setCurrentText("plane1")
+    _tree_select(window, "plane1")
     editor["resolution"][0].setValue(8)
     _click_plane(window, OK)
 
-    editor["selector"].setCurrentText("plane2")
+    _tree_select(window, "plane2")
     assert editor["resolution"][0].value() == 64
-    editor["selector"].setCurrentText("plane1")
+    _tree_select(window, "plane1")
     assert editor["resolution"][0].value() == 8
 
 
@@ -581,9 +580,9 @@ def test_plane_size_repopulates_on_switch(window):
     editor["size"][0].setValue(8.0)
     _click_plane(window, OK)
 
-    editor["selector"].setCurrentText("plane1")
+    _tree_select(window, "plane1")
     assert editor["size"][0].value() == pytest.approx(40.0)
-    editor["selector"].setCurrentText("plane2")
+    _tree_select(window, "plane2")
     assert editor["size"][0].value() == pytest.approx(8.0)
 
 
@@ -612,15 +611,15 @@ def test_plane_cancel_reverts_edits(window):
     assert window.planes[0].o[2] == pytest.approx(original)
 
 
-def test_plane_selector_switches_fields(window):
+def test_plane_tree_selection_switches_fields(window):
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
-    assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane1", "plane2"]
-    editor["selector"].setCurrentText("plane1")
+    assert _tree_names(_tree(window), ProjectTree.PLANES_LABEL) == ["plane1", "plane2"]
+    _tree_select(window, "plane1")
     assert editor["pos"][2].value() == pytest.approx(-30.0)
-    editor["selector"].setCurrentText("plane2")
+    _tree_select(window, "plane2")
     assert editor["pos"][2].value() == pytest.approx(-31.0)
 
 
@@ -631,8 +630,8 @@ def test_remove_plane_button(window):
     editor["remove"].click()
 
     assert len(window.planes) == 0
-    assert editor["selector"].count() == 0
-    assert not editor["selector"].isEnabled()
+    assert window._plane_editor.selected_index() == -1
+    assert not editor["remove"].isEnabled()
     assert "Removed plane1" in window.statusBar().currentMessage()
 
 
@@ -641,11 +640,11 @@ def test_remove_selected_plane_keeps_others(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
-    editor["selector"].setCurrentText("plane1")
+    _tree_select(window, "plane1")
     editor["remove"].click()
 
     assert len(window.planes) == 1
-    assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane2"]
+    assert _tree_names(_tree(window), ProjectTree.PLANES_LABEL) == ["plane2"]
     assert window.planes[0].o[2] == pytest.approx(-31.0)
 
 
@@ -683,7 +682,7 @@ def test_locked_plane_follows_source(window, repo_root):
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
     editor = _plane_editor(window)
-    editor["selector"].setCurrentText("plane1")
+    _tree_select(window, "plane1")
     editor["lock"].setChecked(True)
 
     source = _source_editor(window)
@@ -708,15 +707,15 @@ def test_lock_checkbox_syncs_on_plane_switch(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
-    assert editor["selector"].currentText() == "plane2"
+    assert window._plane_editor.selected_index() == 1
     editor["lock"].setChecked(True)
 
-    editor["selector"].setCurrentText("plane1")
+    _tree_select(window, "plane1")
     assert not editor["lock"].isChecked()
     assert editor["pos"][0].isEnabled()
     assert window.planes[0].o[2] == pytest.approx(-30.0)
 
-    editor["selector"].setCurrentText("plane2")
+    _tree_select(window, "plane2")
     assert editor["lock"].isChecked()
     assert not editor["pos"][0].isEnabled()
     assert window.planes[1].o[2] == pytest.approx(window.source.position[2] - 0.001)
@@ -784,20 +783,20 @@ def test_plane_view_updates_after_apply(window):
     assert _plane_view_size(window) == (32, 16)
 
 
-def test_plane_view_follows_selector(window):
+def test_plane_view_follows_selection(window):
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
-    editor["selector"].setCurrentText("plane1")
+    _tree_select(window, "plane1")
     editor["resolution"][0].setValue(8)
     editor["resolution"][1].setValue(4)
     _click_plane(window, OK)
 
     assert _plane_view_size(window) == (8, 4)
-    editor["selector"].setCurrentText("plane2")
+    _tree_select(window, "plane2")
     assert _plane_view_size(window) == (64, 64)
-    editor["selector"].setCurrentText("plane1")
+    _tree_select(window, "plane1")
     assert _plane_view_size(window) == (8, 4)
 
 

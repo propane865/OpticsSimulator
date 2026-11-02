@@ -16,8 +16,8 @@ from tests.ui_helpers import (  # noqa: E402
     _click,
     _click_plane,
     _editor,
+    _editor_page,
     _plane_editor,
-    _tab_index,
     _tree,
     _tree_item,
     _tree_names,
@@ -143,64 +143,44 @@ def test_tree_selection_edits_that_lens(window, repo_root):
 
     _tree_select(window, "lens2")
 
-    assert editor["selector"].currentText() == "lens2"
+    assert window._element_editor.selected_name() == "lens2"
     config = window._state.schema["lens2"]
     assert editor["index"].value() == pytest.approx(config["material"]["refractive_index"])
     assert editor["s1"].text() == str(config["surface1"]["z"])
 
 
-def test_tree_selection_opens_the_lens_tab(window, repo_root):
+def test_tree_selection_shows_the_lens_editor(window, repo_root):
     window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
-    tabs = window.findChild(QtWidgets.QTabWidget, "tabWidget")
-    tabs.setCurrentIndex(_tab_index(window, "tab_4"))
+    _tree_select(window, ProjectTree.SOURCE_LABEL)
+    assert _editor_page(window) == "editorPageSource"
 
     _tree_select(window, "lens1")
 
-    assert tabs.currentIndex() == _tab_index(window, "tab")
+    assert _editor_page(window) == "editorPageElement"
 
 
 def test_tree_selection_edits_and_shows_that_plane(window):
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
     editor = _plane_editor(window)
-    editor["selector"].setCurrentText("plane2")
+    _tree_select(window, "plane2")
     editor["pos"][2].setValue(-7.0)
     _click_plane(window, OK)
 
     _tree_select(window, "plane1")
 
-    assert editor["selector"].currentText() == "plane1"
+    assert window._plane_editor.selected_index() == 0
     assert editor["pos"][2].value() == pytest.approx(window._state.planes[0].o[2])
 
 
-def test_tree_selection_opens_the_measurement_and_source_tabs(window):
+def test_tree_selection_shows_the_plane_and_source_editors(window):
     _trigger_measurement_plane(window)
-    tabs = window.findChild(QtWidgets.QTabWidget, "tabWidget")
 
     _tree_select(window, "plane1")
-    assert tabs.currentIndex() == _tab_index(window, "tab_3")
+    assert _editor_page(window) == "editorPagePlane"
 
     _tree_select(window, ProjectTree.SOURCE_LABEL)
-    assert tabs.currentIndex() == _tab_index(window, "tab_2")
-
-
-def test_lens_selector_moves_the_tree_row(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
-    tree = _tree(window)
-
-    _editor(window)["selector"].setCurrentText("lens2")
-
-    assert tree.currentItem().text(0) == "lens2"
-
-
-def test_plane_selector_moves_the_tree_row(window):
-    _trigger_measurement_plane(window)
-    _trigger_measurement_plane(window)
-    tree = _tree(window)
-
-    _plane_editor(window)["selector"].setCurrentText("plane2")
-
-    assert tree.currentItem().text(0) == "plane2"
+    assert _editor_page(window) == "editorPageSource"
 
 
 def test_source_selection_leaves_nothing_lit(window, repo_root):
@@ -289,7 +269,7 @@ def test_reload_relights_the_lens_the_editor_shows(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     # A full rebuild hands back fresh (unlit) meshes: the highlight is re-asserted
-    # on the lens the Lens tab actually shows, never left on stale node lists.
+    # on the lens the lens editor actually shows, never left on stale node lists.
     assert _tree(window).currentItem().text(0) == "lens1"
     assert window._scene._selected_element == 0
     assert _element_colors(window, 0) == pytest.approx(_lit_element_colors(window, 0))
