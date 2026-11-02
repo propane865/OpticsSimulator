@@ -106,7 +106,7 @@ class PlaneView:
 
     def __init__(self, container: QtWidgets.QWidget) -> None:
         self._label = _AspectLabel(container)
-        self._label.setMinimumSize(512, 512)
+        self._label.setMinimumSize(256, 256)
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._label)

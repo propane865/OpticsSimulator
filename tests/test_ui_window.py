@@ -52,6 +52,32 @@ def test_file_menu_is_populated(window):
     assert any(a.objectName() == "actionOpen" for a in file_menu.actions())
 
 
+def test_dock_forms_stay_resizable(window):
+    dock = window.findChild(QtWidgets.QDockWidget, "dockWidget")
+    assert dock is not None
+    assert dock.minimumSize().width() == 0
+    assert dock.minimumSize().height() == 0
+
+    forms = window.findChildren(QtWidgets.QFormLayout)
+    assert forms
+    wrap = QtWidgets.QFormLayout.RowWrapPolicy.DontWrapRows
+    assert all(form.rowWrapPolicy() == wrap for form in forms)
+
+    spins = window.findChildren(QtWidgets.QAbstractSpinBox)
+    assert spins
+    assert all(spin.minimumSize().width() <= 40 for spin in spins)
+
+    image = window.findChild(QtWidgets.QLabel, "planeImageLabel")
+    assert image is not None
+    assert image.minimumSize().width() <= 256
+
+    lock = window.findChild(QtWidgets.QCheckBox, "analysisLockImageCheck")
+    suboptimal = window.findChild(QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck")
+    assert lock is not None and suboptimal is not None
+    assert lock.parentWidget() is suboptimal.parentWidget()
+    assert isinstance(lock.parentWidget().layout(), QtWidgets.QVBoxLayout)
+
+
 def test_window_shows_with_scene(qt_app, make_window, make_element):
     elem = make_element("sqrt(1 - (x**2) - (y**2))", "0")
     canvas = make_display([elem], demo.default_rays())
