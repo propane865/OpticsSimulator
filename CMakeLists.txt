@@ -38,7 +38,8 @@ add_library(optics_core OBJECT
   native/measurement/measurement.cpp
   native/measurement/reconstruct.cpp
   native/optimizing/fit.cpp
-  native/optimizing/optimizer_objective.cpp
+  native/optimizing/fidelity_order.cpp
+  native/optimizing/objective.cpp
   native/optimizing/optimizer_de.cpp
   native/optimizing/optimizer_legacy.cpp
   native/optimizing/optimizer_pipeline.cpp)
