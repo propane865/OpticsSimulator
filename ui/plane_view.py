@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from optics.measurement_plane import MeasurementResult
 from rendering.colormaps import (
@@ -24,6 +24,10 @@ from rendering.colormaps import (
 )
 
 __all__ = ["PlaneView"]
+
+# Resolution-independent size reported by :class:`_AspectLabel`; the label is
+# Expanding so this only anchors the preferred size, never the displayed one.
+_SIZE_HINT = 256
 
 
 def _result_rgba(result: MeasurementResult) -> np.ndarray:
@@ -70,6 +74,13 @@ class _AspectLabel(QtWidgets.QLabel):
     rectangle of :attr:`_aspect` and centered in the widget, so the displayed
     image follows the measurement plane's geometry instead of the arbitrary
     aspect of whatever rectangle the surrounding layout allocates.
+
+    :meth:`sizeHint` and :meth:`minimumSizeHint` are deliberately independent
+    of the attached pixmap's pixel dimensions. A plain ``QLabel`` derives them
+    from the pixmap, which would make the surrounding layout reserve an
+    amount of space proportional to the detector resolution and shrink the
+    displayed image for low-resolution planes; returning a fixed hint keeps
+    the allocated rectangle constant so the letterboxed image fills it.
     """
 
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
@@ -80,6 +91,12 @@ class _AspectLabel(QtWidgets.QLabel):
     def set_aspect(self, aspect: float) -> None:
         if aspect > 0.0 and math.isfinite(aspect):
             self._aspect = float(aspect)
+
+    def sizeHint(self) -> QtCore.QSize:
+        return QtCore.QSize(_SIZE_HINT, _SIZE_HINT)
+
+    def minimumSizeHint(self) -> QtCore.QSize:
+        return QtCore.QSize(_SIZE_HINT, _SIZE_HINT)
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
@@ -106,7 +123,11 @@ class PlaneView:
 
     def __init__(self, container: QtWidgets.QWidget) -> None:
         self._label = _AspectLabel(container)
-        self._label.setMinimumSize(256, 256)
+        self._label.setMinimumSize(_SIZE_HINT, _SIZE_HINT)
+        self._label.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._label)

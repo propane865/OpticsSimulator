@@ -955,3 +955,54 @@ def test_plane_view_aspect_square_under_compound_tilt(qt_app):
     )
     assert _plane_view_aspect(container, plane) == pytest.approx(1.0)
     container.close()
+
+
+def _solid_pixmap(color, width, height):
+    pixmap = QtGui.QPixmap(width, height)
+    pixmap.fill(color)
+    return pixmap
+
+
+def test_aspect_label_size_hint_ignores_pixmap_resolution(qt_app):
+    # The regression: a plain QLabel sizes to its pixmap, so a higher plane
+    # resolution inflates the hint and the surrounding layout shrinks the
+    # displayed image. _AspectLabel must report a resolution-independent hint.
+    label = _AspectLabel()
+    label.setPixmap(_solid_pixmap(QtGui.QColor(10, 20, 30), 8, 8))
+    small = label.sizeHint()
+    label.setPixmap(_solid_pixmap(QtGui.QColor(10, 20, 30), 512, 512))
+    large = label.sizeHint()
+    assert small == large
+
+    plain = QtWidgets.QLabel()
+    plain.setPixmap(_solid_pixmap(QtGui.QColor(0, 0, 0), 8, 8))
+    plain_small = plain.sizeHint()
+    plain.setPixmap(_solid_pixmap(QtGui.QColor(0, 0, 0), 512, 512))
+    assert plain_small != plain.sizeHint()
+
+
+def _standalone_plane_label(container, resolution):
+    plane = MeasurementPlane(
+        origin=(0.0, 0.0, 0.0),
+        normal=(0.0, 0.0, 1.0),
+        u_range=(-5.0, 5.0),
+        v_range=(-5.0, 5.0),
+        resolution=resolution,
+    )
+    PlaneView(container).show_result(plane.new_result())
+    return container.findChild(QtWidgets.QLabel, "planeImageLabel")
+
+
+def test_plane_view_expanding_and_resolution_independent_hint(qt_app):
+    low_container = QtWidgets.QWidget()
+    high_container = QtWidgets.QWidget()
+    try:
+        low = _standalone_plane_label(low_container, (8, 8))
+        high = _standalone_plane_label(high_container, (512, 512))
+        expanding = QtWidgets.QSizePolicy.Policy.Expanding
+        assert low.sizePolicy().horizontalPolicy() == expanding
+        assert low.sizePolicy().verticalPolicy() == expanding
+        assert low.sizeHint() == high.sizeHint()
+    finally:
+        low_container.close()
+        high_container.close()
