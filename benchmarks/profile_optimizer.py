@@ -1,6 +1,6 @@
 """Profile best-focus layout optimization (headless, stdlib-only).
 
-Drives the problem ``tests/test_optimizer.py`` pins convergence for -- the
+Drives the problem ``tests/optimizer/`` pins convergence for -- the
 bundled doublet with the point source moved to ``z = 150`` -- and reports where
 one ``optics.optimizer.optimize_layout`` call spends its time:
 

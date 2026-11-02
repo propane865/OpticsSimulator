@@ -1,10 +1,12 @@
 // Coarse-to-fine pipeline driver (see the header comment on ``pipeline_run``)
 // and the public ``optimize_layout`` entry point that selects a driver. Each
-// stage is a function of its own: ``run_coarse_search`` runs a coarse DE that fills
-// a diverse archive (and can end the run early on a validated full-fidelity
-// focus), ``refine_and_validate`` re-traces the promoted subset at a medium
-// budget and runs ``validate_candidates`` -- the only place success can occur.
-// Shared machinery lives in the ``optimizing/`` detail headers.
+// stage is a function of its own: ``run_coarse_search`` runs a coarse DE that
+// fills a diverse archive (and can end the run early on a validated full-fidelity
+// focus); otherwise ``promote_candidates`` -> ``evaluate_medium_fidelity`` ->
+// ``select_finalists`` -> ``validate_candidates`` re-rank a promoted subset at a
+// medium budget and validate the best at the whole fan -- the only place success
+// can occur -- before ``polish_finalists`` and ``finalize_outcome``. Shared
+// machinery lives in the ``optimizing/`` detail headers.
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
