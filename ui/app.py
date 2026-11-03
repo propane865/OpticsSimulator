@@ -118,6 +118,10 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             find_child(self, QtWidgets.QTreeWidget, "projectTree", UI_PATH.name),
             self._state,
             self._on_tree_select,
+            on_element_moved=self._on_element_moved,
+            on_submodule_created=self._on_submodule_created,
+            on_submodule_renamed=self._on_submodule_renamed,
+            on_submodule_removed=self._on_submodule_removed,
         )
         self._connect_actions()
         self._scene.refresh_source(self._state.source)
@@ -225,6 +229,29 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         if self._editor_stack is not None and page is not None:
             self._editor_stack.setCurrentWidget(page)
 
+    # -- submodule grouping (project tree) -------------------------------------
+    # Grouping is organizational only: it never invalidates the cached system,
+    # so a move refreshes the tree without re-tracing.
+    def _on_element_moved(self, name: str, submodule: str | None) -> None:
+        self._state.set_element_submodule(name, submodule)
+        self._on_project_changed()
+        self._set_status(
+            f"Moved {name} to {submodule}" if submodule else f"Removed {name} from its submodule"
+        )
+
+    def _on_submodule_created(self, name: str) -> None:
+        self._set_status(f"Created {name}")
+
+    def _on_submodule_renamed(self, old: str, new: str) -> None:
+        self._state.rename_submodule(old, new)
+        self._on_project_changed()
+        self._set_status(f"Renamed submodule {old} to {new}")
+
+    def _on_submodule_removed(self, name: str) -> None:
+        self._state.remove_submodule(name)
+        self._on_project_changed()
+        self._set_status(f"Removed submodule {name}")
+
     # -- orchestration shared by the editors --------------------------------
     def _on_project_changed(self) -> None:
         """Refill everything derived from the element and plane lists."""
@@ -323,6 +350,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._scene.refresh_source(self._state.source)
         self._scene.rebuild_planes(self._state.planes, self._state.plane_results)
         self.frame_to_scene()
+        # A load replaces every element, so session-only empty submodules from
+        # the previous project must not haunt the fresh tree.
+        self._project_tree.clear_pending_submodules()
         if replaced_planes:
             self._plane_editor.refresh()
         self._element_editor.refresh()

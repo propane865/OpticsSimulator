@@ -59,6 +59,10 @@ def unique_name(base: str, used: Iterable[str], *, prefix: str = "plane") -> str
 _ELEMENT_GEOMETRY_FIELDS = ("x", "y", "z", "u_range", "v_range", "aperture")
 _ELEMENT_TRANSFORM_KEYS = ("position", "orientation")
 
+# Organizational key on an element config naming its submodule (project-tree
+# grouping only); optics code ignores it and the JSON round-trip keeps it.
+SUBMODULE_KEY = "submodule"
+
 
 def _only_index_changed(old_material: dict, new_material: dict) -> bool:
     if set(old_material) != set(new_material):
@@ -101,7 +105,7 @@ def classify_element_edit(
     other_changed = old_material != new_material and not _only_index_changed(
         old_material, new_material
     )
-    tracked = {"surface1", "surface2", "material", *_ELEMENT_TRANSFORM_KEYS}
+    tracked = {"surface1", "surface2", "material", *_ELEMENT_TRANSFORM_KEYS, SUBMODULE_KEY}
     for key in set(old) | set(new):
         if key in tracked:
             continue
@@ -144,6 +148,65 @@ def remove_element(state: ProjectState, name: str) -> None:
     del state._schema[name]
     state._elements.pop(index)
     state._system = None
+
+
+# -- submodule (project-tree grouping) operations ------------------------------
+# A submodule is a name on an element config; it exists exactly as long as it
+# has members, so nothing here touches the stack, the cached system or the
+# scene -- grouping is purely organizational and never retriggers a trace.
+
+
+def submodule_names(state: ProjectState) -> list[str]:
+    """Distinct submodule names over the stack, in first-occurrence order."""
+    names: list[str] = []
+    for config in (state._schema or {}).values():
+        name = config.get(SUBMODULE_KEY) if isinstance(config, dict) else None
+        if name and str(name) not in names:
+            names.append(str(name))
+    return names
+
+
+def new_submodule_name(state: ProjectState) -> str:
+    return unique_name("", submodule_names(state), prefix="submodule")
+
+
+def element_submodule(state: ProjectState, name: str) -> str | None:
+    """The submodule ``name`` belongs to, or ``None`` when ungrouped."""
+    config = (state._schema or {}).get(name)
+    value = config.get(SUBMODULE_KEY) if isinstance(config, dict) else None
+    return None if value in (None, "") else str(value)
+
+
+def set_element_submodule(state: ProjectState, name: str, submodule: str | None) -> None:
+    config = (state._schema or {}).get(name)
+    if not isinstance(config, dict):
+        return
+    if submodule:
+        config[SUBMODULE_KEY] = str(submodule)
+    else:
+        config.pop(SUBMODULE_KEY, None)
+
+
+def rename_submodule(state: ProjectState, old: str, new: str) -> None:
+    """Renumber every member of ``old`` to ``new``.
+
+    Submodules are identified by name, so renaming onto an existing submodule
+    merges the two groups.
+    """
+    if not old or not new or old == new:
+        return
+    for config in (state._schema or {}).values():
+        if isinstance(config, dict) and config.get(SUBMODULE_KEY) == old:
+            config[SUBMODULE_KEY] = new
+
+
+def remove_submodule(state: ProjectState, name: str) -> None:
+    """Ungroup every member of ``name``; the submodule itself then vanishes."""
+    if not name:
+        return
+    for config in (state._schema or {}).values():
+        if isinstance(config, dict) and config.get(SUBMODULE_KEY) == name:
+            config.pop(SUBMODULE_KEY, None)
 
 
 def import_elements(

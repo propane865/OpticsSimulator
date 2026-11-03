@@ -118,21 +118,33 @@ def _tree(window):
 
 
 def _tree_item(tree, name):
-    """The row labelled ``name``, whether a group, a leaf or the source."""
-    root = tree.invisibleRootItem()
-    for row in range(root.childCount()):
-        item = root.child(row)
-        if item.text(0) == name:
-            return item
-        for sub in range(item.childCount()):
-            if item.child(sub).text(0) == name:
-                return item.child(sub)
-    raise AssertionError(f"{name!r} missing from the project tree")
+    """The row labelled ``name`` at any depth: group, submodule, leaf or source."""
+
+    def walk(parent):
+        for row in range(parent.childCount()):
+            item = parent.child(row)
+            if item.text(0) == name:
+                return item
+            found = walk(item)
+            if found is not None:
+                return found
+        return None
+
+    found = walk(tree.invisibleRootItem())
+    if found is None:
+        raise AssertionError(f"{name!r} missing from the project tree")
+    return found
 
 
 def _tree_names(tree, group_label):
     group = _tree_item(tree, group_label)
     return [group.child(i).text(0) for i in range(group.childCount())]
+
+
+def _tree_submodule_members(tree, label):
+    """The lens names nested under the submodule node ``label``."""
+    sub = _tree_item(tree, label)
+    return [sub.child(i).text(0) for i in range(sub.childCount())]
 
 
 def _tree_select(window, name):

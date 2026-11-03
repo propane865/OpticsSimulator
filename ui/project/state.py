@@ -135,6 +135,25 @@ class ProjectState:
     def import_elements(self, elements_config: dict[str, Any], *, radius: float = 0.0) -> list[str]:
         return element_ops.import_elements(self, elements_config, radius=radius)
 
+    # -- submodule (tree grouping) operations ---------------------------------
+    def submodule_names(self) -> list[str]:
+        return element_ops.submodule_names(self)
+
+    def new_submodule_name(self) -> str:
+        return element_ops.new_submodule_name(self)
+
+    def element_submodule(self, name: str) -> str | None:
+        return element_ops.element_submodule(self, name)
+
+    def set_element_submodule(self, name: str, submodule: str | None) -> None:
+        element_ops.set_element_submodule(self, name, submodule)
+
+    def rename_submodule(self, old: str, new: str) -> None:
+        element_ops.rename_submodule(self, old, new)
+
+    def remove_submodule(self, name: str) -> None:
+        element_ops.remove_submodule(self, name)
+
     # -- source / rays -------------------------------------------------------
     def set_source(self, source: PointSource, rays: list[Ray]) -> None:
         self._source = source

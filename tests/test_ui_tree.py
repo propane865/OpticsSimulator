@@ -1,5 +1,6 @@
 """Project-tree dock tests: population, selection routing and 3D highlight."""
 
+import json
 import os
 
 import pytest
@@ -22,6 +23,7 @@ from tests.ui_helpers import (  # noqa: E402
     _tree_item,
     _tree_names,
     _tree_select,
+    _tree_submodule_members,
     _trigger_measurement_plane,
     _trigger_new_element,
 )
@@ -274,3 +276,156 @@ def test_reload_relights_the_lens_the_editor_shows(window, repo_root):
     assert window._scene._selected_element == 0
     assert _element_colors(window, 0) == pytest.approx(_lit_element_colors(window, 0))
     assert _element_colors(window, 1) == pytest.approx(_base_element_colors(window, 1))
+
+
+# -- submodule grouping ----------------------------------------------------------
+
+
+def test_tree_nests_submodules_by_first_member(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _trigger_new_element(window)
+
+    window._project_tree.move_element("lens2", "submodule1")
+
+    tree = _tree(window)
+    assert _tree_names(tree, ProjectTree.ELEMENTS_LABEL) == ["lens1", "submodule1", "lens3"]
+    assert _tree_submodule_members(tree, "submodule1") == ["lens2"]
+    assert _tree_item(tree, "submodule1").isExpanded()
+
+
+def test_only_elements_drag_and_only_containers_drop(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _trigger_measurement_plane(window)
+
+    tree = _tree(window)
+    drag = QtCore.Qt.ItemFlag.ItemIsDragEnabled
+    drop = QtCore.Qt.ItemFlag.ItemIsDropEnabled
+    assert _tree_item(tree, "lens1").flags() & drag
+    assert not _tree_item(tree, ProjectTree.SOURCE_LABEL).flags() & drag
+    assert not _tree_item(tree, "plane1").flags() & drag
+    assert not _tree_item(tree, ProjectTree.ELEMENTS_LABEL).flags() & drag
+    assert _tree_item(tree, ProjectTree.ELEMENTS_LABEL).flags() & drop
+
+
+def test_drop_target_resolves_groups_and_leaves(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window._project_tree.move_element("lens2", "submodule1")
+
+    tree = _tree(window)
+    drop = window._project_tree.drop_target
+    assert drop(_tree_item(tree, ProjectTree.ELEMENTS_LABEL)) == (True, None)
+    assert drop(_tree_item(tree, "submodule1")) == (True, "submodule1")
+    assert drop(_tree_item(tree, "lens1")) == (True, None)
+    assert drop(_tree_item(tree, "lens2")) == (True, "submodule1")
+    assert drop(_tree_item(tree, ProjectTree.SOURCE_LABEL)) == (False, None)
+    assert drop(_tree_item(tree, ProjectTree.PLANES_LABEL)) == (False, None)
+    assert drop(None) == (False, None)
+    assert not _tree_item(tree, "submodule1").flags() & QtCore.Qt.ItemFlag.ItemIsSelectable
+
+
+def test_move_element_groups_without_retracing(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    system = window._state.system
+
+    window._project_tree.move_element("lens2", "submodule1")
+
+    assert window._state.schema["lens2"]["submodule"] == "submodule1"
+    assert window._state.system is system  # grouping never invalidates the stack
+    assert _tree_submodule_members(_tree(window), "submodule1") == ["lens2"]
+
+
+def test_move_in_out_and_empty_submodule_vanishes(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    tree_ctrl = window._project_tree
+
+    tree_ctrl.move_element("lens2", "submodule1")
+    tree_ctrl.move_element("lens1", "submodule1")  # a drop on a member adopts its group
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["submodule1"]
+    assert _tree_submodule_members(_tree(window), "submodule1") == ["lens1", "lens2"]
+
+    tree_ctrl.move_element("lens2", None)  # a drop on the Elements group ungroups
+    assert "submodule" not in window._state.schema["lens2"]
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["submodule1", "lens2"]
+
+    tree_ctrl.move_element("lens1", None)  # last member gone: the group is gone too
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2"]
+    with pytest.raises(AssertionError):
+        _tree_submodule_members(_tree(window), "submodule1")
+
+
+def test_selection_inside_a_submodule_routes_and_lights(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window._project_tree.move_element("lens2", "submodule1")
+
+    _tree_select(window, "lens2")
+
+    assert window._element_editor.selected_name() == "lens2"
+    assert _tree(window).currentItem().text(0) == "lens2"
+    assert _tree_item(_tree(window), "submodule1").isExpanded()
+    assert window._scene._selected_element == 1
+
+
+def test_collapsed_submodule_stays_collapsed_across_rebuilds(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window._project_tree.move_element("lens2", "submodule1")
+    tree = _tree(window)
+    assert _tree_item(tree, "submodule1").isExpanded()
+
+    _tree_item(tree, "submodule1").setExpanded(False)
+    window._project_tree.populate()
+
+    assert not _tree_item(tree, "submodule1").isExpanded()
+    window._project_tree.set_current(("element", "lens2"))
+    assert _tree_item(tree, "submodule1").isExpanded()
+
+
+def test_created_submodule_stays_empty_until_it_gets_a_member(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    tree_ctrl = window._project_tree
+    tree_ctrl._create_submodule()
+
+    tree = _tree(window)
+    assert _tree_names(tree, ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2", "submodule1"]
+    assert _tree_submodule_members(tree, "submodule1") == []
+
+    tree_ctrl.move_element("lens2", "submodule1")
+    window._project_tree.populate()  # a member makes it survive rebuilds for real
+    assert _tree_submodule_members(_tree(window), "submodule1") == ["lens2"]
+
+    tree_ctrl._create_submodule()  # "submodule2" is still memberless
+    assert "submodule2" in _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL)
+    window._project_tree.clear_pending_submodules()  # e.g. after loading a project
+    names = _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL)
+    assert "submodule2" not in names
+    assert "submodule1" in names  # this one is backed by its member config
+
+
+def test_rename_and_remove_submodule(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window._project_tree.move_element("lens2", "submodule1")
+
+    window._on_submodule_renamed("submodule1", "barrel")
+
+    assert window._state.element_submodule("lens2") == "barrel"
+    assert _tree_submodule_members(_tree(window), "barrel") == ["lens2"]
+
+    window._on_submodule_removed("barrel")
+
+    assert window._state.element_submodule("lens2") is None
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2"]
+
+
+def test_submodule_grouping_round_trips_through_the_document(window, repo_root, tmp_path):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window._project_tree.move_element("lens2", "submodule1")
+
+    path = window.save_stack(tmp_path / "grouped.json")
+
+    document = json.loads(path.read_text())
+    assert document["elements"]["lens2"]["submodule"] == "submodule1"
+
+    window._project_tree.move_element("lens2", None)  # wipe the live grouping
+    window.load_stack(path)
+
+    assert window._state.element_submodule("lens2") == "submodule1"
+    assert _tree_submodule_members(_tree(window), "submodule1") == ["lens2"]

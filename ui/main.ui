@@ -1570,10 +1570,10 @@
    <widget class="QWidget" name="dockWidgetContents_2">
     <layout class="QVBoxLayout" name="verticalLayout_17">
      <item>
-      <widget class="QTreeWidget" name="projectTree">
-       <property name="toolTip">
-        <string>Select the light source, a lens or a measurement plane to edit it</string>
-       </property>
+       <widget class="QTreeWidget" name="projectTree">
+        <property name="toolTip">
+         <string>Select the light source, a lens or a measurement plane to edit it; drag lenses onto a submodule to group them</string>
+        </property>
        <property name="headerHidden">
         <bool>true</bool>
        </property>

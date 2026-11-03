@@ -144,7 +144,12 @@ array buffers only.
   - `project_tree.py`: `ProjectTree` for the left dock — mirrors the project as
     source / lens stack / measurement planes, and reports a `(kind, name)`
     selection that the window routes to the matching editor page and 3D
-    highlight (and back, when an editor changes selection on its own)
+    highlight (and back, when an editor changes selection on its own). Lenses
+    can be grouped into *submodules* (a nested category under Elements): drag
+    a lens onto a submodule node, onto another lens (adopt its group) or onto
+    Elements to ungroup; the Elements group's context menu creates, renames
+    and removes submodules. The assignment is a `submodule` key on the member
+    configs, so it persists in the project JSON and never retraces
   - `widgets.py`: shared PySide6 helpers (`find_child`, `configure_spin`,
     `enable_widgets`, `run_validated`)
 
