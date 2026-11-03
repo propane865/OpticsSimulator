@@ -9,7 +9,7 @@ in sync.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import numpy as np
@@ -144,6 +144,15 @@ class ProjectState:
 
     def element_submodule(self, name: str) -> str | None:
         return element_ops.element_submodule(self, name)
+
+    def submodule_member_names(self, name: str) -> list[str]:
+        return element_ops.submodule_member_names(self, name)
+
+    def submodule_position(self, name: str) -> list[float] | None:
+        return element_ops.submodule_position(self, name)
+
+    def move_submodule(self, name: str, delta: Sequence[float]) -> list[tuple[int, RefractiveElement]]:
+        return element_ops.move_submodule(self, name, delta)
 
     def set_element_submodule(self, name: str, submodule: str | None) -> None:
         element_ops.set_element_submodule(self, name, submodule)

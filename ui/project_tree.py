@@ -18,7 +18,9 @@ Elements group itself (ungroup) routes through the window's callback; every
 other drop is rejected with a no-drop cursor. Submodule lifecycle (create /
 rename / remove) lives in a context menu on the Elements group and the
 submodule nodes; an empty submodule exists only for the session, since
-persistence derives submodules from their members.
+persistence derives submodules from their members. A submodule node is itself
+selectable (unlike the category groups): its ``(submodule, name)`` selection
+opens the submodule properties page, which moves the whole group.
 """
 
 from __future__ import annotations
@@ -30,12 +32,13 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from .model import ProjectState, unique_name
 
-__all__ = ["ELEMENT", "PLANE", "SOURCE", "ProjectTree", "Selection"]
+__all__ = ["ELEMENT", "PLANE", "SOURCE", "SUBMODULE", "ProjectTree", "Selection"]
 
-# The three kinds of selectable project object.
+# The four kinds of selectable project object.
 SOURCE = "source"
 ELEMENT = "element"
 PLANE = "plane"
+SUBMODULE = "submodule"
 
 # A selection is a (kind, name) pair; ``name`` is empty for the singleton source.
 Selection = tuple[str, str]
@@ -135,13 +138,13 @@ class ProjectTree:
                 continue
             sub = subs.get(submodule)
             if sub is None:
-                sub = self._container(submodule)
+                sub = self._submodule_container(submodule)
                 subs[submodule] = sub
                 group.addChild(sub)
             sub.addChild(self._item(ELEMENT, name, name))
         self._pending_submodules -= set(subs)
         for label in sorted(self._pending_submodules):
-            subs[label] = self._container(label)
+            subs[label] = self._submodule_container(label)
             group.addChild(subs[label])
         self._submodule_items = list(subs.values())
         return group
@@ -155,10 +158,24 @@ class ProjectTree:
     @staticmethod
     def _container(label: str) -> QtWidgets.QTreeWidgetItem:
         item = QtWidgets.QTreeWidgetItem([label])
-        # Containers expand/collapse and (Elements and its submodules, checked
-        # by the drop filter) accept element drops; a selection always names a
-        # project object, so they carry no selectable flags or payload.
+        # Category groups expand/collapse and (Elements only, checked by the drop
+        # filter) accept element drops; they name no project object, so they
+        # carry no selectable flags or payload and can never be selected.
         item.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsDropEnabled)
+        return item
+
+    @staticmethod
+    def _submodule_container(label: str) -> QtWidgets.QTreeWidgetItem:
+        item = QtWidgets.QTreeWidgetItem([label])
+        # A submodule is a project object the editors can show: unlike a category
+        # group it is selectable (its ``(submodule, name)`` payload opens the
+        # submodule properties page) and it accepts element drops.
+        item.setData(0, QtCore.Qt.ItemDataRole.UserRole, (SUBMODULE, label))
+        item.setFlags(
+            QtCore.Qt.ItemFlag.ItemIsEnabled
+            | QtCore.Qt.ItemFlag.ItemIsSelectable
+            | QtCore.Qt.ItemFlag.ItemIsDropEnabled
+        )
         return item
 
     @staticmethod
@@ -171,7 +188,13 @@ class ProjectTree:
         return item
 
     def _is_submodule(self, item: QtWidgets.QTreeWidgetItem | None) -> bool:
-        return item is not None and item.parent() is self._elements_item
+        """Whether ``item`` is a submodule node.
+
+        Keyed off the payload, not the parent: a loose lens leaf is a child of
+        the Elements group too, so parenthood alone cannot tell the two apart.
+        """
+        key = self._key(item)
+        return key is not None and key[0] == SUBMODULE
 
     def clear_pending_submodules(self) -> None:
         """Forget session-only empty submodules; a full project load did that."""
@@ -180,6 +203,14 @@ class ProjectTree:
             self.populate()
 
     # -- selection -------------------------------------------------------------
+    def current_selection(self) -> Selection | None:
+        """The project object the tree is highlighting now (``None`` if none).
+
+        Read-only: the tree mirrors the editors' selection, so the window can
+        also read it back to tell *which* node an edit was made on.
+        """
+        return self._key(self._tree.currentItem())
+
     def set_current(self, selection: Selection | None) -> None:
         """Highlight ``selection`` without echoing it back through ``on_select``."""
         item = self._find(selection)
@@ -269,13 +300,16 @@ class ProjectTree:
     def drop_target(self, item: QtWidgets.QTreeWidgetItem | None) -> tuple[bool, str | None]:
         """Whether an element may be dropped on ``item``, and which submodule
         that drop would assign (``None`` means ungroup to the top level)."""
+        # Submodule payloads resolve before the element rule below: now that a
+        # submodule node carries a selection payload too, treating it as
+        # "non-element payload" would reject a drop on the group it names.
         key = self._key(item)
         if key is not None:
+            if key[0] == SUBMODULE:
+                return (True, key[1])
             if key[0] != ELEMENT:
                 return (False, None)
             return (True, self._state.element_submodule(key[1]))
-        if item is not None and self._is_submodule(item):
-            return (True, str(item.text(0)))
         if item is not None and item is self._elements_item:
             return (True, None)
         return (False, None)

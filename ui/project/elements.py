@@ -9,7 +9,7 @@ optical-model mutation policy the UI consults to decide what must be rebuilt.
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from optics.config import element_position, refractive_element_from_config
@@ -152,8 +152,11 @@ def remove_element(state: ProjectState, name: str) -> None:
 
 # -- submodule (project-tree grouping) operations ------------------------------
 # A submodule is a name on an element config; it exists exactly as long as it
-# has members, so nothing here touches the stack, the cached system or the
-# scene -- grouping is purely organizational and never retriggers a trace.
+# has members. Grouping (assign/rename/remove) is purely organizational: nothing
+# there touches the stack, the cached system or the scene, so it never
+# retriggers a trace. Moving a group (:func:`move_submodule`) is the exception:
+# it is a transform change on every member, so it rebuilds those elements and
+# invalidates the cached system like any other lens edit does.
 
 
 def submodule_names(state: ProjectState) -> list[str]:
@@ -207,6 +210,55 @@ def remove_submodule(state: ProjectState, name: str) -> None:
     for config in (state._schema or {}).values():
         if isinstance(config, dict) and config.get(SUBMODULE_KEY) == name:
             config.pop(SUBMODULE_KEY, None)
+
+
+def submodule_member_names(state: ProjectState, name: str) -> list[str]:
+    """The members of ``name``, in stack order."""
+    if not name:
+        return []
+    return [
+        element_name
+        for element_name, config in (state._schema or {}).items()
+        if isinstance(config, dict) and config.get(SUBMODULE_KEY) == name
+    ]
+
+
+def submodule_position(state: ProjectState, name: str) -> list[float] | None:
+    """The submodule's anchor: the position of its first member.
+
+    A submodule has no origin of its own, so its properties page places it by
+    the element that also places its tree node. ``None`` when the group has no
+    members (a session-only empty submodule has nothing to move).
+    """
+    members = submodule_member_names(state, name)
+    if not members:
+        return None
+    config = (state._schema or {})[members[0]]
+    return element_position(config)
+
+
+def move_submodule(
+    state: ProjectState, name: str, delta: Sequence[float]
+) -> list[tuple[int, RefractiveElement]]:
+    """Translate every member of ``name`` by ``delta``, preserving their offsets.
+
+    Returns the ``(stack index, element)`` pairs whose visuals must be rebuilt,
+    and drops the cached system only when something moved: unlike grouping, a
+    move is a transform change every trace has to see.
+    """
+    dx, dy, dz = (float(component) for component in delta)
+    moved: list[tuple[int, RefractiveElement]] = []
+    for index, config in enumerate((state._schema or {}).values()):
+        if not isinstance(config, dict) or config.get(SUBMODULE_KEY) != name:
+            continue
+        x, y, z = element_position(config)
+        config["position"] = [x + dx, y + dy, z + dz]
+        element = refractive_element_from_config(config)
+        state._elements[index] = element
+        moved.append((index, element))
+    if moved:
+        state._system = None
+    return moved
 
 
 def import_elements(

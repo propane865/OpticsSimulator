@@ -132,11 +132,11 @@ array buffers only.
     `optics.project`)
   - `scene.py`: `SceneController` — vispy view + node bookkeeping for elements,
     rays, the source marker and measurement planes, plus the selection
-    highlight (a tinted lens, a rim-tinted plane)
-  - `editors.py`: `ElementEditor`/`SourceEditor`/`PlaneEditor` controllers over
-    the dock widgets (populate/apply/add/remove) and `AnalysisEditor`
-    driving the Optimize Layout panel (element z-lock table, image-plane
-    lock, progress and result log)
+    highlight (tinted lenses, a rim-tinted plane)
+  - `editors.py`: `ElementEditor`/`SourceEditor`/`PlaneEditor`/`SubmoduleEditor`
+    controllers over the dock widgets (populate/apply/add/remove) and
+    `AnalysisEditor` driving the Optimize Layout panel (element z-lock table,
+    image-plane lock, progress and result log)
   - `optimize.py`: `LayoutOptimizer` worker thread running
     `optimize_layout` and marshalling results back onto the UI thread
   - `plane_view.py`: 2D colormap view of a measurement plane's detector
@@ -149,7 +149,10 @@ array buffers only.
     a lens onto a submodule node, onto another lens (adopt its group) or onto
     Elements to ungroup; the Elements group's context menu creates, renames
     and removes submodules. The assignment is a `submodule` key on the member
-    configs, so it persists in the project JSON and never retraces
+    configs, so it persists in the project JSON and never retraces. Selecting a
+    submodule instead opens its properties page, whose position is that of the
+    group's first member: applying it translates every member by the same
+    offset, so they keep their spacing while the trace re-runs
   - `widgets.py`: shared PySide6 helpers (`find_child`, `configure_spin`,
     `enable_widgets`, `run_validated`)
 

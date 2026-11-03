@@ -1,7 +1,7 @@
 """Shared controller skeleton for selection-driven editors.
 
-The element and plane editors share a selection-driven lifecycle (enable from
-selection, apply/remove/add round-trips) captured once in
+The element, plane and submodule editors share a selection-driven lifecycle
+(enable from selection, apply/remove/add round-trips) captured once in
 :class:`_SelectorEditor`. The editor owns the current index into
 :meth:`_item_names`; the window routes a tree click into :meth:`select` (which
 does not report back), while internal selection changes report through the
@@ -38,7 +38,9 @@ class _SelectorEditor:
     Subclasses provide the widget object names, the item names and field
     population, and implement ``_build_current`` / ``_commit_current`` /
     ``_remove_selected`` / ``_build_new`` / ``_register_new`` used by the
-    shared apply/remove/add templates. Subclasses should call
+    shared apply/remove/add templates. A form without a remove button or without
+    orientation fields (the submodule page) passes ``None`` for the matching
+    name, and its ``add``/``remove_current`` stay inert. Subclasses should call
     :meth:`set_enabled` once their own widgets exist (forms start disabled).
     """
 
@@ -54,10 +56,10 @@ class _SelectorEditor:
         state: ProjectState,
         scene: SceneController,
         set_status: Callable[[str], None],
-        remove_name: str,
+        remove_name: str | None,
         button_box_name: str,
         pos_prefix: str,
-        normal_prefix: str,
+        normal_prefix: str | None,
         on_items_changed: Callable[[], None] | None = None,
         on_selection_changed: Callable[[], None] | None = None,
     ) -> None:
@@ -68,20 +70,28 @@ class _SelectorEditor:
         self._on_items_changed = on_items_changed
         self._on_selection_changed = on_selection_changed
         self._index = -1
-        self._remove_button = find_child(window, QtWidgets.QPushButton, remove_name)
+        self._remove_button = (
+            None if remove_name is None else find_child(window, QtWidgets.QPushButton, remove_name)
+        )
         self._button_box = find_child(window, QtWidgets.QDialogButtonBox, button_box_name)
         self._pos_spins: tuple[QtWidgets.QDoubleSpinBox, ...] = tuple(
             find_child(window, QtWidgets.QDoubleSpinBox, f"{pos_prefix}{axis}Spin") for axis in "XYZ"
         )
-        self._normal_spins: tuple[QtWidgets.QDoubleSpinBox, ...] = tuple(
-            find_child(window, QtWidgets.QDoubleSpinBox, f"{normal_prefix}{axis}Spin") for axis in "XYZ"
+        self._normal_spins: tuple[QtWidgets.QDoubleSpinBox, ...] = (
+            ()
+            if normal_prefix is None
+            else tuple(
+                find_child(window, QtWidgets.QDoubleSpinBox, f"{normal_prefix}{axis}Spin")
+                for axis in "XYZ"
+            )
         )
         for spin in self._pos_spins:
             configure_spin(spin, -1000.0, 1000.0, 0.1)
         for spin in self._normal_spins:
             configure_spin(spin, -1.0, 1.0, 0.1, decimals=3)
 
-        self._remove_button.clicked.connect(self.remove_current)
+        if self._remove_button is not None:
+            self._remove_button.clicked.connect(self.remove_current)
         self._button_box.accepted.connect(self.apply)
         self._button_box.rejected.connect(self.populate_fields)
         configure_button_box(self._button_box, self.APPLY_TIP, _REVERT_TIP)
@@ -171,8 +181,9 @@ class _SelectorEditor:
 
     # -- hooks ------------------------------------------------------------------
     def _widgets(self) -> tuple[QtWidgets.QWidget, ...]:
+        remove_button = () if self._remove_button is None else (self._remove_button,)
         return (
-            self._remove_button,
+            *remove_button,
             *self._pos_spins,
             *self._normal_spins,
             self._button_box,

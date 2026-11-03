@@ -7,7 +7,7 @@ editors can request redraws without juggling vispy node objects.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any
 
 import rendering.visualize as visualize
@@ -52,7 +52,7 @@ class SceneController:
         self._plane_nodes: list[list[Any]] = []
         self._plane_keys: list[tuple] = []
         self._plane_templates: list[visualize.MeshTemplate] = []
-        self._selected_element: int | None = None
+        self._selected_elements: tuple[int, ...] = ()
         self._selected_plane: int | None = None
 
     @property
@@ -60,15 +60,23 @@ class SceneController:
         return self._canvas
 
     # -- selection highlight -------------------------------------------------
-    def select_element(self, index: int | None) -> None:
-        """Tint the element the editors are showing (``None`` clears the tint)."""
-        if index is not None and not 0 <= index < len(self._element_nodes):
-            index = None
-        if index == self._selected_element:
+    def select_elements(self, indices: Iterable[int] | None) -> None:
+        """Tint the elements the editors are showing (empty clears the tint).
+
+        A set of indices, so selecting a submodule lights every member while a
+        single lens is just the one-element case.
+        """
+        selected = tuple(sorted({int(index) for index in indices or ()}))
+        selected = tuple(index for index in selected if 0 <= index < len(self._element_nodes))
+        if selected == self._selected_elements:
             return
-        self._tint_element(self._selected_element, False)
-        self._selected_element = index
-        self._tint_element(index, True)
+        self._tint_elements(self._selected_elements, False)
+        self._selected_elements = selected
+        self._tint_elements(selected, True)
+
+    def _tint_elements(self, indices: Iterable[int], highlighted: bool) -> None:
+        for index in indices:
+            self._tint_element(index, highlighted)
 
     def select_plane(self, index: int | None) -> None:
         """Rim-tint the selected measurement plane (``None`` clears it)."""
@@ -106,7 +114,7 @@ class SceneController:
         self._plane_templates = []
         # Freshly built nodes carry their own colors: forget a selection whose
         # nodes no longer exist.
-        self._selected_element = None
+        self._selected_elements = ()
         self._selected_plane = None
         _, self._element_nodes, self._ray_nodes = visualize.build_scene(
             self._view, elements, rays, ray_length=ray_length
@@ -163,17 +171,18 @@ class SceneController:
         visualize.remove_nodes(self._element_nodes[index])
         self._element_nodes[index] = visualize.build_element_nodes(self._view, element)
         # An applied edit swaps in untinted meshes: keep the edited element lit.
-        if index == self._selected_element:
+        if index in self._selected_elements:
             self._tint_element(index, True)
 
     def remove_element_nodes(self, index: int) -> None:
         visualize.remove_nodes(self._element_nodes.pop(index))
-        selected = self._selected_element
-        if index == selected:
-            self._selected_element = None
-        elif selected is not None and index < selected:
-            # The stack shifted up: the tinted node moved with it.
-            self._selected_element = selected - 1
+        # The removed element loses its tint, and every selected element behind
+        # it shifts up with the stack.
+        self._selected_elements = tuple(
+            candidate - 1 if candidate > index else candidate
+            for candidate in self._selected_elements
+            if candidate != index
+        )
 
     # -- measurement planes --------------------------------------------------
     def rebuild_planes(

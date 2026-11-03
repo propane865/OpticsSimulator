@@ -113,6 +113,26 @@ def _click_plane(window, role):
     _plane_editor(window)["buttons"].button(role).click()
 
 
+def _submodule_editor(window):
+    return {
+        "pos": [
+            window.findChild(QtWidgets.QDoubleSpinBox, "submodulePosXSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "submodulePosYSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "submodulePosZSpin"),
+        ],
+        "buttons": window.findChild(QtWidgets.QDialogButtonBox, "submoduleButtonBox"),
+    }
+
+
+def _click_submodule(window, role):
+    _submodule_editor(window)["buttons"].button(role).click()
+
+
+def _group_lens(window, lens_name, submodule):
+    """Group ``lens_name`` under ``submodule`` the way a tree drop does."""
+    window._project_tree.move_element(lens_name, submodule)
+
+
 def _tree(window):
     return window.findChild(QtWidgets.QTreeWidget, "projectTree")
 

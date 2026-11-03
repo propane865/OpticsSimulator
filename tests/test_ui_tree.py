@@ -18,7 +18,9 @@ from tests.ui_helpers import (  # noqa: E402
     _click_plane,
     _editor,
     _editor_page,
+    _group_lens,
     _plane_editor,
+    _submodule_editor,
     _tree,
     _tree_item,
     _tree_names,
@@ -191,7 +193,7 @@ def test_source_selection_leaves_nothing_lit(window, repo_root):
 
     _tree_select(window, ProjectTree.SOURCE_LABEL)
 
-    assert window._scene._selected_element is None
+    assert window._scene._selected_elements == ()
     assert window._scene._selected_plane is None
 
 
@@ -260,7 +262,7 @@ def test_removal_moves_the_highlight_to_the_lens_now_shown(window, repo_root):
 
     # The lens editor falls back to the remaining lens2, so that is what lights.
     assert _tree(window).currentItem().text(0) == "lens2"
-    assert window._scene._selected_element == 0
+    assert window._scene._selected_elements == (0,)
     assert _element_colors(window, 0) == pytest.approx(_lit_element_colors(window, 0))
 
 
@@ -273,7 +275,7 @@ def test_reload_relights_the_lens_the_editor_shows(window, repo_root):
     # A full rebuild hands back fresh (unlit) meshes: the highlight is re-asserted
     # on the lens the lens editor actually shows, never left on stale node lists.
     assert _tree(window).currentItem().text(0) == "lens1"
-    assert window._scene._selected_element == 0
+    assert window._scene._selected_elements == (0,)
     assert _element_colors(window, 0) == pytest.approx(_lit_element_colors(window, 0))
     assert _element_colors(window, 1) == pytest.approx(_base_element_colors(window, 1))
 
@@ -320,7 +322,10 @@ def test_drop_target_resolves_groups_and_leaves(window, repo_root):
     assert drop(_tree_item(tree, ProjectTree.SOURCE_LABEL)) == (False, None)
     assert drop(_tree_item(tree, ProjectTree.PLANES_LABEL)) == (False, None)
     assert drop(None) == (False, None)
-    assert not _tree_item(tree, "submodule1").flags() & QtCore.Qt.ItemFlag.ItemIsSelectable
+    # A submodule node is a selectable project object (its properties page) and
+    # still a drop target for the lenses it groups.
+    assert _tree_item(tree, "submodule1").flags() & QtCore.Qt.ItemFlag.ItemIsSelectable
+    assert not _tree_item(tree, "submodule1").flags() & QtCore.Qt.ItemFlag.ItemIsDragEnabled
 
 
 def test_move_element_groups_without_retracing(window, repo_root):
@@ -362,7 +367,7 @@ def test_selection_inside_a_submodule_routes_and_lights(window, repo_root):
     assert window._element_editor.selected_name() == "lens2"
     assert _tree(window).currentItem().text(0) == "lens2"
     assert _tree_item(_tree(window), "submodule1").isExpanded()
-    assert window._scene._selected_element == 1
+    assert window._scene._selected_elements == (1,)
 
 
 def test_collapsed_submodule_stays_collapsed_across_rebuilds(window, repo_root):
@@ -429,3 +434,93 @@ def test_submodule_grouping_round_trips_through_the_document(window, repo_root, 
 
     assert window._state.element_submodule("lens2") == "submodule1"
     assert _tree_submodule_members(_tree(window), "submodule1") == ["lens2"]
+
+
+# -- submodule properties page ---------------------------------------------------
+
+
+def test_submodule_selection_shows_the_submodule_editor(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _tree_select(window, "lens2")
+    _editor(window)["pos"][2].setValue(-4.0)
+    _click(window, OK)
+    _group_lens(window, "lens2", "submodule1")
+
+    _tree_select(window, "submodule1")
+
+    assert _editor_page(window) == "editorPageSubmodule"
+    assert window._submodule_editor.selected_name() == "submodule1"
+    assert _submodule_editor(window)["pos"][2].value() == pytest.approx(-4.0)
+
+
+def test_submodule_selection_lights_every_member(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _trigger_new_element(window)
+    _group_lens(window, "lens1", "submodule1")
+    _group_lens(window, "lens2", "submodule1")
+
+    _tree_select(window, "submodule1")
+
+    assert window._scene._selected_elements == (0, 1)
+    for index in (0, 1):
+        assert _element_colors(window, index) == pytest.approx(_lit_element_colors(window, index))
+    assert _element_colors(window, 2) == pytest.approx(_base_element_colors(window, 2))
+
+    _tree_select(window, "lens3")  # a single lens is the one-element case
+    assert window._scene._selected_elements == (2,)
+
+
+def test_empty_submodule_has_nothing_to_move(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window._project_tree._create_submodule()
+
+    _tree_select(window, "submodule1")
+
+    assert _editor_page(window) == "editorPageSubmodule"
+    assert window._submodule_editor.selected_name() is None
+    assert not _submodule_editor(window)["pos"][0].isEnabled()
+
+
+def test_renaming_the_shown_submodule_keeps_it_open(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _group_lens(window, "lens2", "submodule1")
+    _tree_select(window, "submodule1")
+
+    window._on_submodule_renamed("submodule1", "barrel")
+
+    assert window._submodule_editor.selected_name() == "barrel"
+    assert _tree(window).currentItem().text(0) == "barrel"
+    assert _editor_page(window) == "editorPageSubmodule"
+
+
+def test_removing_the_shown_submodule_blanks_the_form(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _group_lens(window, "lens2", "submodule1")
+    _tree_select(window, "submodule1")
+
+    window._on_submodule_removed("submodule1")
+
+    assert window._submodule_editor.selected_name() is None
+    assert window._scene._selected_elements == ()
+    assert not _submodule_editor(window)["pos"][0].isEnabled()
+
+
+def test_grouping_edits_reanchor_the_shown_submodule(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    lens = _editor(window)
+    _tree_select(window, "lens1")
+    lens["pos"][1].setValue(1.5)
+    _click(window, OK)
+    _tree_select(window, "lens2")
+    lens["pos"][2].setValue(-4.0)
+    _click(window, OK)
+    _group_lens(window, "lens1", "submodule1")
+    _group_lens(window, "lens2", "submodule1")
+    _tree_select(window, "submodule1")
+    fields = _submodule_editor(window)["pos"]
+    assert fields[1].value() == pytest.approx(1.5)  # anchored on lens1
+
+    window._project_tree.move_element("lens1", None)  # lens2 becomes the first member
+
+    assert fields[1].value() == pytest.approx(0.0)
+    assert fields[2].value() == pytest.approx(-4.0)

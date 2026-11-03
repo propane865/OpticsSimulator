@@ -31,10 +31,10 @@ from optics.project import (
 from optics.source import PointSource
 
 from . import imagecodec
-from .editors import AnalysisEditor, ElementEditor, PlaneEditor, SourceEditor
+from .editors import AnalysisEditor, ElementEditor, PlaneEditor, SourceEditor, SubmoduleEditor
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
 from .plane_view import PlaneView
-from .project_tree import ELEMENT, PLANE, SOURCE, ProjectTree, Selection
+from .project_tree import ELEMENT, PLANE, SOURCE, SUBMODULE, ProjectTree, Selection
 from .scene import RAY_LENGTH, SceneController, make_display
 from .widgets import find_child, run_validated
 
@@ -60,6 +60,7 @@ _EDITOR_PAGE_BY_KIND = {
     ELEMENT: "editorPageElement",
     SOURCE: "editorPageSource",
     PLANE: "editorPagePlane",
+    SUBMODULE: "editorPageSubmodule",
 }
 
 # The two docks main.ui declares, with the area each belongs in. QUiLoader hands
@@ -101,6 +102,15 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         )
         self._source_editor = SourceEditor(
             self, self._state, self._scene, self._set_status, self._refresh_after_source
+        )
+        self._submodule_editor = SubmoduleEditor(
+            self,
+            self._state,
+            self._scene,
+            self._set_status,
+            self._refresh_trace,
+            on_items_changed=self._on_project_changed,
+            on_selection_changed=lambda: self._on_editor_selection(SUBMODULE),
         )
         self._plane_editor = PlaneEditor(
             self,
@@ -189,6 +199,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._element_editor.select(name)
         elif kind == PLANE:
             self._plane_editor.select(name)
+        elif kind == SUBMODULE:
+            self._submodule_editor.select(name)
         self._apply_scene_selection()
 
     def _on_editor_selection(self, kind: str, *_: object) -> None:
@@ -211,6 +223,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             names = self._state.plane_names
             index = self._plane_editor.selected_index()
             return (PLANE, names[index]) if 0 <= index < len(names) else None
+        if kind == SUBMODULE:
+            name = self._submodule_editor.selected_name()
+            return None if name is None else (SUBMODULE, name)
         return None if kind is None else (SOURCE, "")
 
     def _apply_scene_selection(self) -> None:
@@ -218,10 +233,22 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         selection = self._selection()
         kind = None if selection is None else selection[0]
         name = "" if selection is None else selection[1]
-        names = list(self._state.schema or {})
-        self._scene.select_element(names.index(name) if kind == ELEMENT and name in names else None)
+        self._scene.select_elements(self._selected_element_indices(kind, name))
         planes = self._state.plane_names
         self._scene.select_plane(planes.index(name) if kind == PLANE and name in planes else None)
+
+    def _selected_element_indices(self, kind: str | None, name: str) -> tuple[int, ...]:
+        """The stack rows to tint: one lens, or every member of a submodule."""
+        names = list(self._state.schema or {})
+        if kind == ELEMENT:
+            return (names.index(name),) if name in names else ()
+        if kind == SUBMODULE:
+            return tuple(
+                names.index(member)
+                for member in self._state.submodule_member_names(name)
+                if member in names
+            )
+        return ()
 
     def _show_editor(self, kind: str) -> None:
         """Switch the editor stack to the form for a kind of project object."""
@@ -231,9 +258,20 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     # -- submodule grouping (project tree) -------------------------------------
     # Grouping is organizational only: it never invalidates the cached system,
-    # so a move refreshes the tree without re-tracing.
+    # so a move refreshes the tree without re-tracing. Moving a group from its
+    # properties page is a different edit (see ``SubmoduleEditor``): it does
+    # transform every member, so that path retraces.
+    def _showing_submodule(self) -> bool:
+        """Whether the tree is highlighting a submodule node right now."""
+        current = self._project_tree.current_selection()
+        return current is not None and current[0] == SUBMODULE
+
     def _on_element_moved(self, name: str, submodule: str | None) -> None:
         self._state.set_element_submodule(name, submodule)
+        if self._showing_submodule():
+            # Membership changed, so the group on screen may have a new anchor,
+            # new members or none at all.
+            self._submodule_editor.populate_fields()
         self._on_project_changed()
         self._set_status(
             f"Moved {name} to {submodule}" if submodule else f"Removed {name} from its submodule"
@@ -243,12 +281,18 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._set_status(f"Created {name}")
 
     def _on_submodule_renamed(self, old: str, new: str) -> None:
+        following = self._project_tree.current_selection() == (SUBMODULE, old)
         self._state.rename_submodule(old, new)
+        if following:
+            self._submodule_editor.select(new)  # follow the group it was showing
         self._on_project_changed()
         self._set_status(f"Renamed submodule {old} to {new}")
 
     def _on_submodule_removed(self, name: str) -> None:
+        following = self._project_tree.current_selection() == (SUBMODULE, name)
         self._state.remove_submodule(name)
+        if following:
+            self._submodule_editor.select("")  # the group is gone: empty the form
         self._on_project_changed()
         self._set_status(f"Removed submodule {name}")
 
@@ -355,6 +399,10 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._project_tree.clear_pending_submodules()
         if replaced_planes:
             self._plane_editor.refresh()
+        # The submodule form is refreshed first so the lens editor keeps the
+        # last word on the selection, while the (hidden) group fields are reset
+        # to the loaded project instead of the previous one.
+        self._submodule_editor.refresh()
         self._element_editor.refresh()
         self._update_plane_view()
 

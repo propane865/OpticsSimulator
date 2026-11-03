@@ -135,7 +135,7 @@
                    <property name="rowWrapPolicy">
                     <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
                    </property>
-                    <item row="4" column="0">
+                   <item row="4" column="0">
                     <widget class="QLabel" name="label_2">
                      <property name="text">
                       <string>Refractive Index</string>
@@ -421,6 +421,147 @@
                   </property>
                  </spacer>
                 </item>
+               </layout>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="editorPageSubmodule">
+            <layout class="QVBoxLayout" name="verticalLayout_19">
+             <item>
+              <widget class="QWidget" name="widget_28" native="true">
+               <layout class="QVBoxLayout" name="verticalLayout_18">
+                <item>
+                 <widget class="QLabel" name="label_6">
+                  <property name="text">
+                   <string>Submodule Properties</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="Line" name="line_8">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QWidget" name="widget_29" native="true">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <layout class="QFormLayout" name="formLayout_8">
+                   <property name="rowWrapPolicy">
+                    <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
+                   </property>
+                   <item row="2" column="0">
+                    <widget class="QLabel" name="label_40">
+                     <property name="text">
+                      <string>Position</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="2" column="1">
+                    <widget class="QWidget" name="widget_30" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout_11">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                       <item>
+                        <widget class="QDoubleSpinBox" name="submodulePosXSpin">
+                         <property name="minimumSize">
+                          <size>
+                           <width>40</width>
+                           <height>0</height>
+                          </size>
+                         </property>
+                         <property name="toolTip">
+                          <string>x coordinate of the submodule's first element (mm); applying translates every member by the same offset</string>
+                         </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                        <widget class="QDoubleSpinBox" name="submodulePosYSpin">
+                         <property name="minimumSize">
+                          <size>
+                           <width>40</width>
+                           <height>0</height>
+                          </size>
+                         </property>
+                         <property name="toolTip">
+                          <string>y coordinate of the submodule's first element (mm); applying translates every member by the same offset</string>
+                         </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                        <widget class="QDoubleSpinBox" name="submodulePosZSpin">
+                         <property name="minimumSize">
+                          <size>
+                           <width>40</width>
+                           <height>0</height>
+                          </size>
+                         </property>
+                         <property name="toolTip">
+                          <string>z coordinate of the submodule's first element (mm); applying translates every member by the same offset</string>
+                         </property>
+                        <property name="buttonSymbols">
+                         <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                 <item>
+                  <widget class="QDialogButtonBox" name="submoduleButtonBox">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="standardButtons">
+                    <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="verticalSpacer">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Vertical</enum>
+                   </property>
+                   <property name="sizeType">
+                    <enum>QSizePolicy::Policy::Expanding</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>20</width>
+                     <height>0</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
                </layout>
               </widget>
              </item>
@@ -826,8 +967,8 @@
                    <property name="rowWrapPolicy">
                     <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
                    </property>
-                    <item row="1" column="0">
-                     <widget class="QLabel" name="label_15">
+                   <item row="1" column="0">
+                    <widget class="QLabel" name="label_15">
                      <property name="text">
                       <string>Position (xyz)</string>
                      </property>
@@ -1570,10 +1711,10 @@
    <widget class="QWidget" name="dockWidgetContents_2">
     <layout class="QVBoxLayout" name="verticalLayout_17">
      <item>
-       <widget class="QTreeWidget" name="projectTree">
-        <property name="toolTip">
-         <string>Select the light source, a lens or a measurement plane to edit it; drag lenses onto a submodule to group them</string>
-        </property>
+      <widget class="QTreeWidget" name="projectTree">
+       <property name="toolTip">
+        <string>Select the light source, a lens or a measurement plane to edit it; drag lenses onto a submodule to group them, and select a submodule to move all its lenses together</string>
+       </property>
        <property name="headerHidden">
         <bool>true</bool>
        </property>
