@@ -524,3 +524,64 @@ def test_grouping_edits_reanchor_the_shown_submodule(window, repo_root):
 
     assert fields[1].value() == pytest.approx(0.0)
     assert fields[2].value() == pytest.approx(-4.0)
+
+
+# -- duplicate element (context menu) --------------------------------------------
+
+
+def _menu_labels(window, item):
+    """The action labels the context menu offers for the node ``item``."""
+    return [action.text() for action in window._project_tree._context_menu(item).actions()]
+
+
+def test_element_context_menu_offers_duplicate(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    assert _menu_labels(window, _tree_item(_tree(window), "lens1")) == ["Duplicate"]
+
+
+def test_non_element_menus_do_not_offer_duplicate(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    tree = _tree(window)
+
+    assert _menu_labels(window, _tree_item(tree, ProjectTree.ELEMENTS_LABEL)) == ["New Submodule"]
+    assert window._project_tree._context_menu(_tree_item(tree, ProjectTree.SOURCE_LABEL)).isEmpty()
+
+    _group_lens(window, "lens2", "submodule1")
+    labels = _menu_labels(window, _tree_item(_tree(window), "submodule1"))
+    assert "Duplicate" not in labels
+    assert labels == ["Rename Submodule...", "Remove Submodule"]
+
+
+def test_duplicate_inserts_after_the_original_and_selects_it(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    window._project_tree._duplicate_element("lens1")
+
+    assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens3", "lens2"]
+    assert window._element_editor.selected_name() == "lens3"
+    assert _tree(window).currentItem().text(0) == "lens3"
+    assert _editor_page(window) == "editorPageElement"
+    assert window._scene._selected_elements == (1,)
+    assert len(window._scene._element_nodes) == 3
+    assert _element_colors(window, 1) == pytest.approx(_lit_element_colors(window, 1))
+
+
+def test_duplicate_context_menu_wires_the_editor(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    assert window._project_tree._on_element_duplicate == window._element_editor.duplicate
+
+
+def test_element_name_resolves_only_lens_leaves(window, repo_root):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    tree_ctrl = window._project_tree
+    tree = _tree(window)
+
+    assert tree_ctrl._element_name(_tree_item(tree, "lens1")) == "lens1"
+    assert tree_ctrl._element_name(_tree_item(tree, ProjectTree.ELEMENTS_LABEL)) is None
+    assert tree_ctrl._element_name(_tree_item(tree, ProjectTree.SOURCE_LABEL)) is None
+
+    _group_lens(window, "lens2", "submodule1")
+    assert tree_ctrl._element_name(_tree_item(_tree(window), "submodule1")) is None
+

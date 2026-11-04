@@ -142,6 +142,54 @@ def replace_element(state: ProjectState, name: str, config: dict[str, Any], elem
     return index
 
 
+def _aperture_radius(config: dict[str, Any]) -> float:
+    aperture = (config.get("surface1") or {}).get("aperture") or {}
+    radius = aperture.get("radius")
+    if radius is None:
+        radius = ((config.get("surface2") or {}).get("aperture") or {}).get("radius")
+    if radius is None:
+        radius = DEFAULT_ELEMENT_CONFIG["surface1"]["aperture"]["radius"]
+    return float(radius)
+
+
+def _duplicate_gap(config: dict[str, Any]) -> float:
+    """Downstream offset for a duplicate: a gap scaled by the element's own
+    aperture, so the copy clears the original (mirrors the import cascade)."""
+    return max(2.0 * _aperture_radius(config), 1.0)
+
+
+def duplicate_element(
+    state: ProjectState, name: str
+) -> tuple[str, int, RefractiveElement]:
+    """Copy element ``name`` into a new lens placed just downstream of it.
+
+    The copy is inserted immediately after the original in stack order and
+    offset along ``-Z`` (by :func:`_duplicate_gap`) so both stay visible and are
+    hit in sequence, mirroring the ``import_elements`` cascade. Any submodule
+    grouping rides along on the copied config. Returns the new element's
+    ``(name, stack index, element)``; raises ``KeyError`` when ``name`` is
+    unknown, so an editor routes a stale selection through its validation dialog
+    instead of mutating the stack.
+    """
+    if state._schema is None or name not in state._schema:
+        raise KeyError(name)
+    index = list(state._schema.keys()).index(name)
+    new_config = copy.deepcopy(state._schema[name])
+    position = element_position(new_config)
+    position[2] -= _duplicate_gap(state._schema[name])
+    new_config["position"] = position
+    new_name = unique_name("", (state._schema or {}).keys(), prefix="lens")
+    element = refractive_element_from_config(new_config)
+    # Insert after the original: a project dict is order-preserving, so
+    # rebuilding it with the pair at ``index + 1`` is what keeps stack order.
+    items = list(state._schema.items())
+    items.insert(index + 1, (new_name, new_config))
+    state._schema = dict(items)
+    state._elements.insert(index + 1, element)
+    state._system = None
+    return new_name, index + 1, element
+
+
 def remove_element(state: ProjectState, name: str) -> None:
     assert state._schema is not None
     index = list(state._schema.keys()).index(name)

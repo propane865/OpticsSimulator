@@ -132,6 +132,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             on_submodule_created=self._on_submodule_created,
             on_submodule_renamed=self._on_submodule_renamed,
             on_submodule_removed=self._on_submodule_removed,
+            on_element_duplicate=self._element_editor.duplicate,
         )
         self._connect_actions()
         self._scene.refresh_source(self._state.source)

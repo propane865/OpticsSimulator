@@ -16,7 +16,7 @@ from optics.config import (
 
 from ..model import DEFAULT_ELEMENT_CONFIG, ProjectState, classify_element_edit
 from ..scene import SceneController
-from ..widgets import configure_spin, find_child
+from ..widgets import configure_spin, find_child, run_validated
 from .base import _SelectorEditor
 
 _DEFAULT_APERTURE_RADIUS = float(DEFAULT_ELEMENT_CONFIG["surface1"]["aperture"]["radius"])
@@ -27,6 +27,8 @@ class ElementEditor(_SelectorEditor):
 
     ADD_TITLE = "Invalid Element Properties"
     ADD_MESSAGE = "Could not add optical element"
+    DUPLICATE_TITLE = "Invalid Element Properties"
+    DUPLICATE_MESSAGE = "Could not duplicate optical element"
     APPLY_TITLE = "Invalid Lens Properties"
     APPLY_MESSAGE = "Could not apply lens properties"
     APPLY_TIP = "Apply the edited properties and retrace"
@@ -162,3 +164,27 @@ class ElementEditor(_SelectorEditor):
         self._scene.add_element_nodes(element)
         self._refresh_trace()
         return name
+
+    def duplicate(self, name: str) -> None:
+        """Copy ``name`` into a new lens and select the copy.
+
+        Routed from the project tree's context menu. The copy is built and the
+        state mutated under ``run_validated``, so a stale selection (or a bad
+        config) leaves the stack and scene untouched behind a warning; on
+        success the copy is inserted, retraced and selected like ``add`` does.
+        """
+        built = run_validated(
+            self._window,
+            lambda: self._state.duplicate_element(name),
+            title=self.DUPLICATE_TITLE,
+            message=self.DUPLICATE_MESSAGE,
+        )
+        if built is None:
+            return
+        new_name, index, element = built
+        self._scene.insert_element_nodes(index, element)
+        self._refresh_trace()
+        self.refresh()
+        self.select(new_name)
+        self._notify()
+        self._set_status(f"Duplicated {name} as {new_name}")

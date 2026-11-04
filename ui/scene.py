@@ -167,6 +167,18 @@ class SceneController:
     def add_element_nodes(self, element: RefractiveElement) -> None:
         self._element_nodes.append(visualize.build_element_nodes(self._view, element))
 
+    def insert_element_nodes(self, index: int, element: RefractiveElement) -> None:
+        """Attach a new element's visuals at ``index``, as a duplicate does.
+
+        Every element from ``index`` up shifts one row with the stack, so the
+        selection tint follows it (the newly inserted row is not yet selected).
+        """
+        self._element_nodes.insert(index, visualize.build_element_nodes(self._view, element))
+        self._selected_elements = tuple(
+            candidate + 1 if candidate >= index else candidate
+            for candidate in self._selected_elements
+        )
+
     def replace_element_nodes(self, index: int, element: RefractiveElement) -> None:
         visualize.remove_nodes(self._element_nodes[index])
         self._element_nodes[index] = visualize.build_element_nodes(self._view, element)

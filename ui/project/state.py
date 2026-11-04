@@ -132,6 +132,9 @@ class ProjectState:
     def remove_element(self, name: str) -> None:
         element_ops.remove_element(self, name)
 
+    def duplicate_element(self, name: str) -> tuple[str, int, RefractiveElement]:
+        return element_ops.duplicate_element(self, name)
+
     def import_elements(self, elements_config: dict[str, Any], *, radius: float = 0.0) -> list[str]:
         return element_ops.import_elements(self, elements_config, radius=radius)
 

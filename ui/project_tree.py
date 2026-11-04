@@ -17,7 +17,8 @@ submodule node, on another element (adopt that element's group), or on the
 Elements group itself (ungroup) routes through the window's callback; every
 other drop is rejected with a no-drop cursor. Submodule lifecycle (create /
 rename / remove) lives in a context menu on the Elements group and the
-submodule nodes; an empty submodule exists only for the session, since
+submodule nodes, and an element leaf's menu offers Duplicate; an empty submodule
+exists only for the session, since
 persistence derives submodules from their members. A submodule node is itself
 selectable (unlike the category groups): its ``(submodule, name)`` selection
 opens the submodule properties page, which moves the whole group.
@@ -64,6 +65,7 @@ class ProjectTree:
         on_submodule_created: Callable[[str], None] | None = None,
         on_submodule_renamed: Callable[[str, str], None] | None = None,
         on_submodule_removed: Callable[[str], None] | None = None,
+        on_element_duplicate: Callable[[str], None] | None = None,
     ) -> None:
         self._tree = tree
         self._state = state
@@ -72,6 +74,7 @@ class ProjectTree:
         self._on_submodule_created = on_submodule_created
         self._on_submodule_renamed = on_submodule_renamed
         self._on_submodule_removed = on_submodule_removed
+        self._on_element_duplicate = on_element_duplicate
         self._elements_item: QtWidgets.QTreeWidgetItem | None = None
         self._submodule_items: list[QtWidgets.QTreeWidgetItem] = []
         # User-collapsed submodules, kept across the rebuild in populate().
@@ -359,22 +362,48 @@ class ProjectTree:
             event.acceptProposedAction()
         return True
 
-    # -- submodule lifecycle (context menu) -------------------------------------
+    # -- element + submodule lifecycle (context menu) --------------------------
     def _on_context_menu(self, pos: QtCore.QPoint) -> None:
+        menu = self._context_menu(self._tree.itemAt(pos))
+        if menu is not None and not menu.isEmpty():
+            menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    def _context_menu(self, item: QtWidgets.QTreeWidgetItem | None) -> QtWidgets.QMenu:
+        """The menu for the node under the cursor (empty when it names none).
+
+        Split out from the requested handler so the per-node actions can be
+        asserted without popping a modal menu.
+        """
         menu = QtWidgets.QMenu(self._tree)
-        item = self._tree.itemAt(pos)
         if item is self._elements_item:
             menu.addAction("New Submodule").triggered.connect(self._create_submodule)
-        elif item is not None and self._is_submodule(item):
-            name = item.text(0)
+        elif self._is_submodule(item):
+            name = item.text(0) if item is not None else ""
             menu.addAction("Rename Submodule...").triggered.connect(
                 lambda _checked=False, _name=name: self._rename_submodule(_name)
             )
             menu.addAction("Remove Submodule").triggered.connect(
                 lambda _checked=False, _name=name: self._remove_submodule(_name)
             )
-        if not menu.isEmpty():
-            menu.exec(self._tree.viewport().mapToGlobal(pos))
+        else:
+            element = self._element_name(item)
+            if element is not None:
+                menu.addAction("Duplicate").triggered.connect(
+                    lambda _checked=False, _name=element: self._duplicate_element(_name)
+                )
+        return menu
+
+    @staticmethod
+    def _element_name(item: QtWidgets.QTreeWidgetItem | None) -> str | None:
+        """The lens name an element leaf points at, or ``None`` for any other
+        node (the source, a plane, a submodule or a category group)."""
+        key = ProjectTree._key(item)
+        return None if key is None or key[0] != ELEMENT else key[1]
+
+    def _duplicate_element(self, name: str) -> None:
+        """Duplicate the right-clicked lens; the window owns the mutation."""
+        if self._on_element_duplicate is not None:
+            self._on_element_duplicate(name)
 
     def _create_submodule(self) -> None:
         used = set(self._state.submodule_names()) | self._pending_submodules
