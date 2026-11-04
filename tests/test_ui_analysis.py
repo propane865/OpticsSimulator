@@ -450,6 +450,78 @@ def test_analysis_lock_table_locked_while_optimizing(window, qt_app, monkeypatch
     assert table.isEnabled()
 
 
+# -- Analysis tab: submodule groups -------------------------------------------
+
+
+def _group_submodule(window, name, *members):
+    """Assign members to a submodule and re-sync the analysis tab."""
+    for member in members:
+        window._state.set_element_submodule(member, name)
+    window._analysis_editor.populate()
+
+
+def _optimize_request_sets(window, monkeypatch, qt_app):
+    """Run one Optimize Layout and return the ``(free, groups)`` sets passed."""
+    captured: dict[str, object] = {}
+    stub = _stub_optimize(1.0, 5.0)
+
+    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+        captured["free"] = list(kwargs.get("free_element_names") or [])
+        captured["groups"] = [
+            (label, list(members)) for label, members in (kwargs.get("free_groups") or [])
+        ]
+        return stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+
+    monkeypatch.setattr("ui.optimize.optimize_layout", spy)
+    window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()
+    _wait_until(lambda: "Optimized in 123 evaluations" in window.statusBar().currentMessage(), qt_app)
+    return captured["free"], captured["groups"]
+
+
+def test_analysis_lock_table_collapses_submodule_members(window):
+    _add_element_and_two_planes(window)
+    _trigger_new_element(window)
+    _group_submodule(window, "sub1", "lens1", "lens2")
+    # The members disappear from the table; the submodule takes one row.
+    assert _lock_rows(_lock_table(window)) == [("sub1", False)]
+
+
+def test_analysis_submodule_lock_holds_the_whole_group(window):
+    _add_element_and_two_planes(window)
+    _trigger_new_element(window)
+    _group_submodule(window, "sub1", "lens1", "lens2")
+    table = _lock_table(window)
+    button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
+
+    _set_lock(table, "sub1", True)
+    assert not button.isEnabled()
+    assert "Unlock at least one element" in button.toolTip()
+
+    _set_lock(table, "sub1", False)
+    assert button.isEnabled()
+
+
+def test_analysis_optimize_sends_submodule_as_one_group(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    _trigger_new_element(window)
+    _group_submodule(window, "sub1", "lens1", "lens2")
+    free, groups = _optimize_request_sets(window, monkeypatch, qt_app)
+    assert free == []
+    assert groups == [("sub1", ["lens1", "lens2"])]
+    log = _log_browser(window).toPlainText()
+    assert "Free units: sub1 (2 lenses)" in log
+
+
+def test_analysis_optimize_mixes_groups_and_standalone_elements(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    _trigger_new_element(window)
+    _trigger_new_element(window)
+    _group_submodule(window, "sub1", "lens2", "lens3")
+    free, groups = _optimize_request_sets(window, monkeypatch, qt_app)
+    assert free == ["lens1"]
+    assert groups == [("sub1", ["lens2", "lens3"])]
+
+
 # -- Optimization log (the analysis results text browser) ---------------------
 
 
@@ -474,7 +546,7 @@ def test_analysis_optimize_streams_progress_and_summary(window, qt_app, monkeypa
 
     log = _log_browser(window).toPlainText()
     assert "Layout optimization started" in log
-    assert "Free elements:" in log
+    assert "Free units:" in log
     assert log.count("generation") == 3  # one line per streamed DE tick
     assert "refinement" in log  # the post-DE tick (generation -1) renders as refinement
     assert "Optimized in 123 evaluations" in log  # end-of-run summary

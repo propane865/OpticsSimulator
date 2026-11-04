@@ -19,8 +19,10 @@ class OptimizationError(RuntimeError):
 class OptimizationResult:
     """Outcome of :func:`optimize_layout`.
 
-    ``best_z`` lists the optimized z values in parameter order (free element
-    z's in stack order, then the image-plane z). ``elements_config`` and
+    ``best_z`` lists the optimized z values in parameter order (one per free
+    translation unit -- a free element, or a rigid group's anchor (most
+    upstream member) z -- in stack order, then the image-plane z). Group
+    members keep the group's delta in ``elements_config``. ``elements_config`` and
     ``image_plane_config`` are the layouts to apply: the elements mapping is a
     deep copy of the input schema with updated ``position`` z's; the plane
     config keeps every field except the origin z. ``spot_radius_mm`` is the

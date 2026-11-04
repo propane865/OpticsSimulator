@@ -34,7 +34,9 @@ OptimizeProblem::OptimizeProblem(const optics::native::TraceStack& stack,
                                  py::array_t<double> v_min, py::array_t<double> v_max,
                                  py::array_t<double> s_u, py::array_t<double> s_v,
                                  py::array_t<double> t_u, py::array_t<double> t_v,
-                                 py::array_t<std::int32_t> groups, std::int64_t dest_plane)
+                                  py::array_t<std::int32_t> groups, std::int64_t dest_plane,
+                                  py::array_t<std::int64_t> slot_of_element,
+                                  py::array_t<double> tail_span)
     : stack_(stack), x_init_(std::move(x_init)), lo_(std::move(lo)), hi_(std::move(hi)),
       gaps_(std::move(gaps)), origins_(std::move(origins)), dirs_(std::move(dirs)),
       powers_(std::move(powers)), po_(std::move(po)), pn_(std::move(pn)),
@@ -66,6 +68,38 @@ OptimizeProblem::OptimizeProblem(const optics::native::TraceStack& stack,
                 "free_indices: duplicate element index");
         free_slots_.push_back(u);
     }
+    // Optional rigid grouping: the element -> parameter slot map (free_indices
+    // then name each parameter's anchor) and the per-parameter tail spans.
+    if (slot_of_element.size() > 0) {
+        const py::buffer_info slot_info = slot_of_element.request();
+        require(slot_info.ndim == 1 &&
+                    static_cast<std::size_t>(slot_info.size) == stack_.size(),
+                "slot_of_element: expected one entry per stack element");
+        require(is_contiguous(slot_info), "slot_of_element: array must be contiguous");
+        const std::int64_t* slots = static_cast<const std::int64_t*>(slot_info.ptr);
+        slot_of_element_.assign(slots, slots + stack_.size());
+        std::vector<char> seen(free_slots_.size(), 0);
+        for (const std::int64_t slot : slot_of_element_) {
+            require(slot == -1 ||
+                        (slot >= 0 && static_cast<std::size_t>(slot) < free_slots_.size()),
+                    "slot_of_element: slot index out of range");
+            if (slot >= 0) {
+                seen[static_cast<std::size_t>(slot)] = 1;
+            }
+        }
+        require(std::find(seen.begin(), seen.end(), 0) == seen.end(),
+                "slot_of_element: every parameter must move at least one element");
+    }
+    if (tail_span.size() > 0) {
+        const ConstDoubles spans = read_doubles(tail_span, 1, "tail_span");
+        require(spans.size == free_slots_.size(),
+                "tail_span: expected one entry per free parameter");
+        for (std::size_t i = 0; i < spans.size; ++i) {
+            require(std::isfinite(spans.data[i]) && spans.data[i] >= 0.0,
+                    "tail_span: expected finite non-negative spans");
+        }
+        tail_span_.assign(spans.data, spans.data + spans.size);
+    }
     rays_ = read_ray_batch(origins_, dirs_, powers_);
     require(rays_.count >= 4, "ray fan must contain at least 4 rays");
     planes_ = read_planes(po_, pn_, u_min_, u_max_, v_min_, v_max_, s_u_, s_v_, t_u_, t_v_);
@@ -89,6 +123,8 @@ OptimizeProblem::OptimizeProblem(const optics::native::TraceStack& stack,
 void OptimizeProblem::fill_spec(optics::native::OptimizerSpec& spec) const {
     spec.stack = &stack_;
     spec.free_indices = free_slots_;
+    spec.slot_of_element = slot_of_element_;
+    spec.tail_span = tail_span_;
     spec.x_init.assign(x0_.data, x0_.data + x0_.size);
     spec.lo.assign(lower_.data, lower_.data + lower_.size);
     spec.hi.assign(upper_.data, upper_.data + upper_.size);

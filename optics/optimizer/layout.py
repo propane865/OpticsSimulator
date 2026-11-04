@@ -8,6 +8,7 @@ reads as validate -> build -> solve -> interpret.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -48,6 +49,101 @@ def _image_window(z_image: float, z_tail: float) -> tuple[float, float]:
     return z_image - downstream, z_image + _IMAGE_WINDOW
 
 
+@dataclass(frozen=True)
+class TranslationUnit:
+    """One optimizer parameter: a single free element, or a rigid group whose
+    members all translate by the anchor's delta (a submodule).
+
+    ``indices`` are stack indices in decreasing-z order; the anchor is the
+    first member, whose z is the parameter value. ``tail_span`` is the anchor-
+    to-last-member z distance (0 for a singleton), and ``display`` is the name
+    window-bound reports use.
+    """
+
+    label: str
+    is_group: bool
+    names: tuple[str, ...]
+    indices: tuple[int, ...]
+    anchor_z: float
+    tail_span: float
+
+    @property
+    def display(self) -> str:
+        return f"submodule {self.label}" if self.is_group else self.label
+
+
+def stack_units(
+    *,
+    free: Sequence[str],
+    groups: Sequence[tuple[str, Sequence[str]]],
+    names: Sequence[str],
+    base_z: Sequence[float],
+) -> list[TranslationUnit]:
+    """Collapse the free set into translation units, in stack order.
+
+    Group members must exist, be distinct across groups, be absent from the
+    standalone free list and occupy a contiguous stack span (a rigid unit may
+    not straddle elements it would have to jump over). Groups may arrive in any
+    order; the returned units lead with their anchor (most upstream member)
+    and follow decreasing z.
+    """
+    index_of = {name: i for i, name in enumerate(names)}
+    units: list[TranslationUnit] = []
+    grouped: set[str] = set()
+    for label, members in groups:
+        if not members:
+            raise ValueError(f"free group {label!r} has no members")
+        if len(set(members)) != len(members):
+            raise ValueError(f"free group {label!r} contains duplicate members")
+        for member in members:
+            if member not in index_of:
+                raise ValueError(f"unknown element {member!r} in free group {label!r}")
+            if member in grouped:
+                raise ValueError(f"element {member!r} appears in two free groups")
+            grouped.add(member)
+        ordered = sorted((index_of[member], member) for member in members)
+        indices = tuple(i for i, _ in ordered)
+        if indices[-1] - indices[0] != len(indices) - 1:
+            raise ValueError(
+                f"free group {label!r} members must be adjacent in the stack"
+            )
+        units.append(
+            TranslationUnit(
+                label=str(label),
+                is_group=True,
+                names=tuple(name for _, name in ordered),
+                indices=indices,
+                anchor_z=base_z[indices[0]],
+                tail_span=base_z[indices[0]] - base_z[indices[-1]],
+            )
+        )
+    for name in free:
+        if name in grouped:
+            raise ValueError(f"element {name!r} is free both alone and as a group member")
+        i = index_of[name]
+        units.append(
+            TranslationUnit(
+                label=name,
+                is_group=False,
+                names=(name,),
+                indices=(i,),
+                anchor_z=base_z[i],
+                tail_span=0.0,
+            )
+        )
+    units.sort(key=lambda unit: unit.indices[0])
+    return units
+
+
+def unit_slot_map(units: Sequence[TranslationUnit], n_elements: int) -> list[int]:
+    """Per-stack-element parameter slot (-1 for a fixed element)."""
+    slots = [-1] * n_elements
+    for slot, unit in enumerate(units):
+        for i in unit.indices:
+            slots[i] = slot
+    return slots
+
+
 def _window_limited(
     best: np.ndarray, lo: Sequence[float], hi: Sequence[float], names: Sequence[str]
 ) -> tuple[str, ...]:
@@ -74,37 +170,44 @@ def _window_limited(
 
 def build_windows(
     *,
-    free: Sequence[str],
-    indices: Sequence[int],
+    units: Sequence[TranslationUnit],
     base_z: Sequence[float],
     z_image: float,
     element_bounds: Mapping[str, tuple[float, float]] | None,
     image_bounds: tuple[float, float] | None,
     gap: float,
 ) -> tuple[list[float], list[float]]:
-    """Per-parameter search windows for the free z's and the image plane.
+    """Per-parameter search windows for the free units and the image plane.
 
     Windows are clipped against fixed stack neighbors so the light hits the
-    elements in stack order. Consecutive *free* pairs are kept ordered by the
-    native stacking-gap penalty.
+    elements in stack order. Consecutive *free* units are kept ordered by the
+    native stacking-gap penalty. A rigid group's window constrains its anchor:
+    per-element bounds are shifted by the member's offset below the anchor
+    (every member moves with it) and intersected, and the neighbor clips run
+    from the group's outermost members, so no member can pass a fixed
+    neighbor.
     """
     lo: list[float] = []
     hi: list[float] = []
     bounds_given = element_bounds or {}
-    for param, name in enumerate(free):
-        i = indices[param]
-        z = base_z[i]
-        if name in bounds_given:
-            b_lo, b_hi = bounds_given[name]
-            b_lo, b_hi = float(min(b_lo, b_hi)), float(max(b_lo, b_hi))
-        else:
-            b_lo, b_hi = z - _DEFAULT_WINDOW, z + _DEFAULT_WINDOW
-        if i > 0 and (i - 1) not in indices:
-            b_hi = min(b_hi, base_z[i - 1] - gap)
-        if i + 1 < len(base_z) and (i + 1) not in indices:
-            b_lo = max(b_lo, base_z[i + 1] + gap)
+    free_indices = {i for unit in units for i in unit.indices}
+    for unit in units:
+        anchor, tail = unit.indices[0], unit.indices[-1]
+        z = base_z[anchor]
+        b_lo, b_hi = z - _DEFAULT_WINDOW, z + _DEFAULT_WINDOW
+        for name in unit.names:
+            if name in bounds_given:
+                m_lo, m_hi = bounds_given[name]
+                m_lo, m_hi = float(min(m_lo, m_hi)), float(max(m_lo, m_hi))
+                offset = z - base_z[unit.indices[unit.names.index(name)]]
+                b_lo, b_hi = max(b_lo, m_lo + offset), min(b_hi, m_hi + offset)
+        if anchor > 0 and (anchor - 1) not in free_indices:
+            b_hi = min(b_hi, base_z[anchor - 1] - gap)
+        if tail + 1 < len(base_z) and (tail + 1) not in free_indices:
+            b_lo = max(b_lo, base_z[tail + 1] + gap + unit.tail_span)
         if not b_hi > b_lo:
-            raise ValueError(f"element {name!r} has no feasible z window")
+            kind = "submodule" if unit.is_group else "element"
+            raise ValueError(f"{kind} {unit.label!r} has no feasible z window")
         lo.append(b_lo)
         hi.append(b_hi)
     tail = len(base_z) - 1
@@ -112,9 +215,10 @@ def build_windows(
         p_lo, p_hi = float(min(image_bounds)), float(max(image_bounds))
     else:
         p_lo, p_hi = _image_window(z_image, base_z[tail])
-    if tail not in indices:
+    if tail not in free_indices:
         # A fixed stack tail hard-clips the plane below it; when the tail is
-        # free the consecutive-parameter gap penalty keeps the order.
+        # free the consecutive-parameter gap penalty keeps the order (against
+        # the last unit's tail span, which the native kernel enforces).
         p_hi = min(p_hi, base_z[tail] - gap)
     if p_hi < p_lo:
         raise ValueError("image plane has no feasible z window")
@@ -166,7 +270,7 @@ def object_point_groups(origins: np.ndarray) -> np.ndarray:
 
 def build_native_problem(
     system: OpticalSystem,
-    indices: list[int],
+    units: Sequence[TranslationUnit],
     x_init: np.ndarray,
     lo: Sequence[float],
     hi: Sequence[float],
@@ -181,12 +285,19 @@ def build_native_problem(
     """The native ``OptimizeProblem`` over the persistent stack.
 
     The optimizer walks the persistent native stack directly; the variant
-    elements it sweeps share this system's compiled surfaces.
+    elements it sweeps share this system's compiled surfaces. Each unit's
+    anchor names its parameter in ``free_indices``; the ``slot_of_element``
+    map hands the same translation to every member of a rigid group, and
+    ``tail_span`` tells the kernel how far each group reaches downstream of
+    its anchor so the stacking gaps run group-edge to group-edge.
     """
+    free_indices = [unit.indices[0] for unit in units]
+    slot_of_element = unit_slot_map(units, len(system._stack))
+    tail_span = [unit.tail_span for unit in units]
     po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns([source_plane, image_plane])
     return _native.OptimizeProblem(
         system._stack,
-        indices,
+        free_indices,
         x_init,
         np.asarray(lo, dtype=float),
         np.asarray(hi, dtype=float),
@@ -206,4 +317,6 @@ def build_native_problem(
         t_v,
         groups,
         dest_plane=1,
+        slot_of_element=np.asarray(slot_of_element, dtype=np.int64),
+        tail_span=np.asarray(tail_span, dtype=float),
     )

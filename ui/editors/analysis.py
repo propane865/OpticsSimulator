@@ -36,7 +36,11 @@ class AnalysisEditor:
     reports the magnification that focused layout delivers; checking an
     element's "Locked?" box in the lock table holds its z at the current value
     (it is dropped from the optimizer's free set), and checking "Lock Image
-    Plane" pins the image plane's z so only the elements are searched. The
+    Plane" pins the image plane's z so only the elements are searched. Elements
+    that belong to a submodule are not listed individually: the submodule gets
+    one row, and the optimizer moves it as a rigid unit -- its position is
+    searched, the members' relative spacing is not. Locking the submodule row
+    holds every member. The
     search runs on a worker thread (the native loop never touches Qt); the
     winning layout is committed through the normal element/plane replace paths
     when it arrives on the UI thread. ``optimize_layout`` only returns a layout
@@ -48,7 +52,10 @@ class AnalysisEditor:
     """
 
     PLACEHOLDER = "—"
-    OPTIMIZE_TOOLTIP = "Sweep the z of every unlocked element (and the image plane unless locked) for sharpest focus"
+    OPTIMIZE_TOOLTIP = (
+        "Sweep the z of every unlocked element and submodule, as a unit "
+        "(and the image plane unless locked) for sharpest focus"
+    )
 
     _LABEL_NAMES: tuple[tuple[str, str], ...] = (
         ("magnification", "analysisMagnificationLabel"),
@@ -112,8 +119,9 @@ class AnalysisEditor:
         Combo selections are preserved by name; the image plane defaults to a
         plane different from the source so the default selection is analyzable.
         Fewer than two planes disables the controls and clears any results. The
-        lock table mirrors the element stack (also refreshed whenever the
-        element list changes), keeping each element's lock by name.
+        lock table mirrors the element stack's translation units (also
+        refreshed whenever the element list changes), keeping each element's
+        or submodule's lock by name.
         """
         names = list(self._state.plane_names)
         source_sel = self._source_combo.currentText()
@@ -139,27 +147,55 @@ class AnalysisEditor:
         self._update_run_enabled()
 
     # -- element lock table ----------------------------------------------------
+    def _lock_rows(self) -> list[tuple[str, tuple[str, ...]]]:
+        """Lock-table rows: ``(row name, member element names)``, stack order.
+
+        Elements inside a submodule collapse into one row named after the
+        submodule (locking it holds every member); ungrouped elements get their
+        own row whose member list is just the element.
+        """
+        rows: list[tuple[str, tuple[str, ...]]] = []
+        emitted: set[str] = set()
+        for name in (self._state.schema or {}):
+            group = self._state.element_submodule(name)
+            if group:
+                if group in emitted:
+                    continue
+                emitted.add(group)
+                rows.append((group, tuple(self._state.submodule_member_names(group))))
+            else:
+                rows.append((name, (name,)))
+        return rows
+
     def _populate_lock_table(self) -> None:
         """Refill the lock table from the element stack, keeping locks by name.
 
-        One row per stack element in stack order, the element name in column 0
-        and a checkable "Locked?" cell in column 1. The ``self._locked`` set is
-        the one source of truth (the table only mirrors it and feeds it through
-        :meth:`_on_lock_changed`), so adding or removing a lens never relocks
-        the remaining ones; names that left the stack are dropped.
+        One row per translation unit in stack order (submodules appear once,
+        by their name -- never by their member elements), the row name in
+        column 0 and a checkable "Locked?" cell in column 1. The
+        ``self._locked`` set is the one source of truth (the table only mirrors
+        it and feeds it through :meth:`_on_lock_changed`), so adding or
+        removing a lens never relocks the remaining ones; names that left the
+        rows are dropped.
         """
-        names = list((self._state.schema or {}).keys())
-        self._locked &= set(names)
+        rows = self._lock_rows()
+        self._locked &= {key for key, _ in rows}
         self._lock_table.blockSignals(True)
-        self._lock_table.setRowCount(len(names))
-        for row, name in enumerate(names):
-            label = QtWidgets.QTableWidgetItem(name)
+        self._lock_table.setRowCount(len(rows))
+        for row, (key, members) in enumerate(rows):
+            label = QtWidgets.QTableWidgetItem(key)
             label.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable)
             self._lock_table.setItem(row, 0, label)
             lock = QtWidgets.QTableWidgetItem("")
             lock.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-            lock.setToolTip("Hold this element's z fixed while the layout is optimized")
-            lock.setCheckState(QtCore.Qt.CheckState.Checked if name in self._locked else QtCore.Qt.CheckState.Unchecked)
+            if len(members) > 1:
+                lock.setToolTip(
+                    "Hold this submodule and all its elements at their z "
+                    "while the layout is optimized"
+                )
+            else:
+                lock.setToolTip("Hold this element's z fixed while the layout is optimized")
+            lock.setCheckState(QtCore.Qt.CheckState.Checked if key in self._locked else QtCore.Qt.CheckState.Unchecked)
             self._lock_table.setItem(row, 1, lock)
         self._lock_table.blockSignals(False)
 
@@ -175,9 +211,19 @@ class AnalysisEditor:
         else:
             self._locked.discard(name_item.text())
 
-    def _free_element_names(self) -> list[str]:
-        """Unlocked stack elements, in stack order (the optimizer's free set)."""
-        return [name for name in (self._state.schema or {}) if name not in self._locked]
+    def _free_request(self) -> tuple[list[str], list[tuple[str, list[str]]]]:
+        """Unlocked units for the optimizer: standalone elements and rigid
+        submodule groups, each in stack order."""
+        free: list[str] = []
+        groups: list[tuple[str, list[str]]] = []
+        for key, members in self._lock_rows():
+            if key in self._locked:
+                continue
+            if len(members) == 1 and members[0] == key:
+                free.append(key)
+            else:
+                groups.append((key, list(members)))
+        return free, groups
 
     def run(self) -> None:
         """Compute and display the source -> image plane transform."""
@@ -213,11 +259,12 @@ class AnalysisEditor:
 
     def _update_run_enabled(self, *_: object) -> None:
         # Analyze works on any (even empty) stack; optimizing needs elements and
-        # at least one of them unlocked (a fully locked stack has nothing to do).
+        # at least one unlocked unit (a fully locked stack has nothing to do).
         selection = self._valid_selection()
         self._run_button.setEnabled(selection and not self._optimizing)
         schema = self._state.schema
-        has_free = bool(self._free_element_names())
+        free, groups = self._free_request()
+        has_free = bool(free or groups)
         self._optimize_button.setEnabled(selection and schema is not None and has_free and not self._optimizing)
         if schema and not has_free:
             self._optimize_button.setToolTip("Unlock at least one element to optimize")
@@ -237,7 +284,8 @@ class AnalysisEditor:
         boundary between the Qt widgets and :class:`~ui.optimize.LayoutOptimizer`
         (it does surface the "why not" status for a missing stack or a fully
         locked set). The schema and ray fan are snapshotted so the worker owns no
-        shared mutable UI state.
+        shared mutable UI state. ``unit_labels`` mirrors the optimizer's
+        parameter order (units by anchor, stack order) for the result log.
         """
         if self._optimizing or not self._valid_selection():
             return None
@@ -245,8 +293,8 @@ class AnalysisEditor:
         if not schema:
             self._set_status("Load an optical stack before optimizing")
             return None
-        free = self._free_element_names()
-        if not free:
+        free, groups = self._free_request()
+        if not free and not groups:
             self._set_status("Unlock at least one element to optimize")
             return None
         planes = self._state.planes
@@ -261,8 +309,14 @@ class AnalysisEditor:
         if self._lock_image_check.isChecked():
             z_image = float(image_plane.o[2])
             image_bounds = (z_image, z_image)
+        order = {name: i for i, name in enumerate(schema_snapshot)}
+        units: list[tuple[int, str]] = [(order[name], name) for name in free]
+        units += [(min(order[m] for m in members), f"submodule {label}") for label, members in groups]
+        units.sort()
         return {
             "free": free,
+            "groups": groups,
+            "unit_labels": [label for _, label in units],
             "schema_snapshot": schema_snapshot,
             "source_plane": source_plane,
             "image_plane": image_plane,
@@ -274,18 +328,23 @@ class AnalysisEditor:
         }
 
     def _on_optimize(self) -> None:
-        """Sweep the unlocked elements' z (and the image plane's) on a worker thread."""
+        """Sweep the unlocked units' z (and the image plane's) on a worker thread."""
         request = self._build_optimization_request()
         if request is None:
             return
         free = request["free"]
+        groups = request["groups"]
         image_bounds = request["image_bounds"]
         # Fresh log for this run: clear any previous run, then a header so the
         # streaming generation lines below have context.
-        self._last_free = free
+        self._last_free = request["unit_labels"]
+        units_log = list(free) + [
+            f"{label} ({len(members)} {'lens' if len(members) == 1 else 'lenses'})"
+            for label, members in groups
+        ]
         self._results_browser.clear()
         self._results_browser.append("Layout optimization started")
-        self._results_browser.append(f"Free elements: {', '.join(free)}")
+        self._results_browser.append(f"Free units: {', '.join(units_log)}")
         self._results_browser.append(f"Image plane: {'locked' if image_bounds else 'free'}")
         self._results_browser.append("")
         self._set_optimizing(True)
@@ -298,6 +357,7 @@ class AnalysisEditor:
             request["dirs"],
             request["powers"],
             free_element_names=free,
+            free_groups=groups,
             image_bounds=image_bounds,
             optimization=request["optimization"],
         )

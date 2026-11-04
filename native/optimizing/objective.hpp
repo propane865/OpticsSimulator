@@ -143,6 +143,9 @@ class LayoutObjective {
     std::vector<double> umin_, umax_, vmin_, vmax_, su_, sv_, tu_, tv_;
     PlaneBatchView planes_view_{};
     std::vector<std::size_t> free_slot_;
+    // Normalized per-parameter tail span (d_-1 entries, zeros when the spec
+    // carries none): the anchor-to-tail z extent of each rigid group.
+    std::vector<double> tail_span_;
     std::size_t n_rays_;
     std::map<std::size_t, RayLevel> levels_;
     std::vector<double> us_, vs_, pws_;

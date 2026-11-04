@@ -1,6 +1,7 @@
 // The focus measure and its reduced-fidelity sampler: the pooled/per-object-
-// point spot radius, and the deterministic group-aware ray order that keeps a
-// reduced level measuring whole object points.
+// point spot radius, the deterministic group-aware ray order that keeps a
+// reduced level measuring whole object points, and the rigid-group geometry
+// penalties (stacking gaps run group-tail to group-head).
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -11,10 +12,15 @@
 
 #include "check.hpp"
 
+#include "../optimizing/objective.hpp"
+#include "test_element.hpp"
+
 namespace {
 
 using optics::native::fidelity_ray_order;
+using optics::native::OptimizerSpec;
 using optics::native::spot_radius;
+using optics::native::detail::LayoutObjective;
 
 void test_spot_radius_pools_per_object_point() {
     // Two object points, imaged 10 mm apart as tight spots of radius 0.1 and
@@ -114,9 +120,78 @@ void test_fidelity_ray_order_is_group_aware() {
     CHECK(fidelity_ray_order(std::vector<std::int32_t>(n, 0).data(), 1, n, 8, 4) == ungrouped);
 }
 
+// A two-plate stack whose elements share one rigid parameter (slot 0, anchor
+// z = 0, tail span 6 mm) plus a trailing destination-plane parameter. Rays and
+// planes are only placeholders here: the geometry penalties never trace.
+class GroupedFixture {
+  public:
+    GroupedFixture() {
+        stack = fixture::make_stack({fixture::make_plate_ptr(1.5, 5.0, -1.0, 1.0, 0.0, 8, true),
+                                     fixture::make_plate_ptr(1.5, 5.0, -1.0, 1.0, -6.0, 8, true)});
+        po = {0.0, 0.0, 11.0, 0.0, 0.0, -20.0};
+        pn = {0.0, 0.0, 1.0, 0.0, 0.0, 1.0};
+        umin = {-40.0, -40.0};
+        umax = {40.0, 40.0};
+        vmin = {-40.0, -40.0};
+        vmax = {40.0, 40.0};
+        su = {1.0, 1.0};
+        sv = {0.0, 0.0};
+        tu = {0.0, 0.0};
+        tv = {1.0, 1.0};
+        spec.stack = &stack;
+        spec.free_indices = {0};
+        spec.x_init = {0.0, -20.0};
+        spec.lo = {-5.0, -25.0};
+        spec.hi = {5.0, -15.0};
+        spec.gaps = {1.0};
+        spec.w_order = 1000.0;
+        spec.planes = {po.data(),  pn.data(),  umin.data(), umax.data(), vmin.data(),
+                       vmax.data(), su.data(),  sv.data(),  tu.data(),   tv.data(),
+                       2};
+    }
+
+    OptimizerSpec spec;
+
+  private:
+    fixture::TraceStack stack;
+    std::vector<double> po, pn, umin, umax, vmin, vmax, su, sv, tu, tv;
+};
+
+void test_grouped_gaps_run_tail_to_head() {
+    // Element 1 joins element 0's parameter: the constraint between the group
+    // and the plane reads x0 - tail_span - x1 >= gap, so a plane 6.5 mm below
+    // the *anchor* is really only 0.5 mm below the group's tail and violates
+    // the 1 mm gap.
+    GroupedFixture f;
+    f.spec.slot_of_element = {0, 0};
+    f.spec.tail_span = {6.0};
+    const LayoutObjective obj(f.spec);
+    const double tight[2] = {0.0, -6.5};
+    const double loose[2] = {0.0, -8.0};
+    CHECK(close(obj.gap_penalty(tight), 1000.0 * 0.25, 1e-9));
+    CHECK(close(obj.gap_penalty(loose), 0.0, 1e-12));
+    CHECK(!obj.swept_order_ok(tight));
+    CHECK(obj.swept_order_ok(loose));
+}
+
+void test_ungrouped_gaps_keep_the_single_element_rule() {
+    // Without grouping (the legacy bijection) the same numbers keep the plain
+    // x0 - x1 >= gap rule -- a 6.5 mm parameter spacing is fine.
+    GroupedFixture f;
+    const LayoutObjective obj(f.spec);
+    const double tight[2] = {0.0, -6.5};
+    const double loose[2] = {0.0, -8.0};
+    CHECK(close(obj.gap_penalty(tight), 0.0, 1e-12));
+    CHECK(close(obj.gap_penalty(loose), 0.0, 1e-12));
+    CHECK(obj.swept_order_ok(tight));
+    CHECK(obj.swept_order_ok(loose));
+}
+
 }  // namespace
 
 void test_optimizer_objective() {
     test_spot_radius_pools_per_object_point();
     test_fidelity_ray_order_is_group_aware();
+    test_grouped_gaps_run_tail_to_head();
+    test_ungrouped_gaps_keep_the_single_element_rule();
 }

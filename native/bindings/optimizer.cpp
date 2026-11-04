@@ -24,12 +24,14 @@ void register_optimizer(py::module_& m) {
                       py::array_t<double>, py::array_t<double>, py::array_t<double>,
                       py::array_t<double>, py::array_t<double>, py::array_t<double>,
                       py::array_t<double>, py::array_t<double>, py::array_t<std::int32_t>,
-                      std::int64_t>(),
+                      std::int64_t, py::array_t<std::int64_t>, py::array_t<double>>(),
              py::arg("stack"), py::arg("free_indices"), py::arg("x_init"), py::arg("lo"),
              py::arg("hi"), py::arg("gaps"), py::arg("origins"), py::arg("dirs"), py::arg("powers"),
              py::arg("po"), py::arg("pn"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"),
              py::arg("v_max"), py::arg("s_u"), py::arg("s_v"), py::arg("t_u"), py::arg("t_v"),
-             py::arg("groups"), py::arg("dest_plane"), py::keep_alive<1, 2>());
+             py::arg("groups"), py::arg("dest_plane"),
+             py::arg("slot_of_element") = py::array_t<std::int64_t>(),
+             py::arg("tail_span") = py::array_t<double>(), py::keep_alive<1, 2>());
     py::class_<OptimizerSettings>(m, "OptimizerSettings")
         .def(py::init<>())
         .def_readwrite("eps", &OptimizerSettings::eps)

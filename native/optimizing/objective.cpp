@@ -44,8 +44,20 @@ LayoutObjective::LayoutObjective(const OptimizerSpec& spec) : spec_(spec), d_(sp
     planes_view_.t_v = tv_.data();
     planes_view_.count = 2;
     free_slot_.assign(spec.stack->size(), kNoSlot);
-    for (std::size_t j = 0; j < spec.free_indices.size(); ++j) {
-        free_slot_[spec.free_indices[j]] = j;
+    if (spec.slot_of_element.empty() ||
+        spec.slot_of_element.size() != spec.stack->size()) {
+        for (std::size_t j = 0; j < spec.free_indices.size(); ++j) {
+            free_slot_[spec.free_indices[j]] = j;
+        }
+    } else {
+        // Rigid grouping: several elements may share one slot and translate
+        // by the anchor's delta together (see ``trace_at``).
+        for (std::size_t i = 0; i < spec.stack->size(); ++i) {
+            const std::int64_t slot = spec.slot_of_element[i];
+            if (slot >= 0) {
+                free_slot_[i] = static_cast<std::size_t>(slot);
+            }
+        }
     }
     us_.resize(2 * n_rays_);
     vs_.resize(2 * n_rays_);
@@ -58,15 +70,21 @@ LayoutObjective::LayoutObjective(const OptimizerSpec& spec) : spec_(spec), d_(sp
     floor_.assign(n_rays_, 1);
     group_hits_.assign(std::max<std::size_t>(spec.n_groups, 1), 0);
     x_full_.assign(d_, 0.0);
+    tail_span_.assign(d_ > 0 ? d_ - 1 : 0, 0.0);
+    for (std::size_t i = 0; i < tail_span_.size() && i < spec.tail_span.size(); ++i) {
+        tail_span_[i] = spec.tail_span[i];
+    }
 }
 
 // Stacking-gap violation energy: zero exactly when the parameter order and
-// minimum spacing hold. Kept separate from the anchor so acceptance can require
-// gap-free geometry without caring about the flat-direction pull.
+// minimum spacing hold. Parameters may move rigid groups: the constraint runs
+// between the upstream group's tail (anchor z minus its tail span) and the
+// downstream parameter's anchor. Kept separate from the anchor so acceptance
+// can require gap-free geometry without caring about the flat-direction pull.
 double LayoutObjective::gap_penalty(const double* x) const {
     double pen = 0.0;
     for (std::size_t i = 1; i < d_; ++i) {
-        const double gap = x[i - 1] - x[i];
+        const double gap = x[i - 1] - tail_span_[i - 1] - x[i];
         if (gap < spec_.gaps[i - 1]) {
             const double t = spec_.gaps[i - 1] - gap;
             pen += spec_.w_order * t * t;
@@ -81,7 +99,7 @@ double LayoutObjective::gap_penalty(const double* x) const {
 bool LayoutObjective::swept_order_ok(const double* x) const {
     const std::size_t n = dim();
     for (std::size_t i = 1; i < n; ++i) {
-        if (x[i - 1] - x[i] < spec_.gaps[i - 1]) {
+        if (x[i - 1] - tail_span_[i - 1] - x[i] < spec_.gaps[i - 1]) {
             return false;
         }
     }
@@ -132,7 +150,7 @@ void LayoutObjective::focus_plane(std::vector<double>& xf, Stats& best, std::siz
                                   bool expensive) {
     double lo = spec_.lo[d_ - 1];
     double hi = spec_.hi[d_ - 1];
-    const double cap = xf[d_ - 2] - spec_.gaps[d_ - 2];
+    const double cap = xf[d_ - 2] - tail_span_[d_ - 2] - spec_.gaps[d_ - 2];
     hi = std::min(hi, cap);
     if (!(hi > lo) || evals_ >= spec_.max_evals) {
         xf[d_ - 1] = lo;

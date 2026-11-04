@@ -8,12 +8,19 @@ import pytest
 
 from optics.measurement_plane import MeasurementPlane
 from optics.optimizer import OptimizationError, optimize_layout
+from optics.optimizer.layout import (
+    TranslationUnit,
+    build_windows,
+    stack_units,
+    unit_slot_map,
+)
 from tests.optimizer._common import (
     _BOUNDS,
     _FAR_FOCUS,
     _FAST,
     _IMAGE_BOUNDS,
     _far_focus_problem,
+    _plane_at,
     _problem,
     _spot_radius,
     _system,
@@ -132,3 +139,100 @@ def test_window_limited_reports_the_bound_the_winner_hit():
             image_bounds=(-65.0, -35.0),
             optimization=replace(_FAR_FOCUS, allow_suboptimal=False),
         )
+
+
+# -- translation units (rigid groups / submodules) ----------------------------
+
+
+def test_stack_units_orders_by_anchor_and_computes_spans():
+    base = [10.0, 4.0, -2.0, -8.0]
+    names = ["a", "b", "c", "d"]
+    # The group arrives out of stack order (members listed c, b) and after the
+    # standalone unit: it must still lead by its anchor (b at index 1).
+    units = stack_units(
+        free=["d"], groups=[("sub", ["c", "b"])], names=names, base_z=base
+    )
+    assert [u.label for u in units] == ["sub", "d"]
+    sub = units[0]
+    assert sub.indices == (1, 2)
+    assert sub.names == ("b", "c")  # members sorted into stack order
+    assert sub.tail_span == pytest.approx(6.0)  # anchor z=4 down to member z=-2
+    assert sub.anchor_z == 4.0
+    assert unit_slot_map(units, 4) == [-1, 0, 0, 1]  # a and the plane stay fixed
+
+
+def test_build_windows_runs_from_the_group_edges():
+    # A group spanning 4 -> -2 (tail span 6) with a fixed element at 10 above
+    # its anchor and one at -8 below its tail: the anchor window clips against
+    # the *anchor* above and the *tail* below (the member's fixed neighbor).
+    units = [
+        TranslationUnit(
+            label="sub", is_group=True, names=("b", "c"), indices=(1, 2),
+            anchor_z=4.0, tail_span=6.0,
+        )
+    ]
+    lo, hi = build_windows(
+        units=units, base_z=[10.0, 4.0, -2.0, -8.0], z_image=-20.0,
+        element_bounds=None, image_bounds=None, gap=1.0,
+    )
+    assert hi[0] == pytest.approx(9.0)   # anchor neighbor 10 - gap
+    assert lo[0] == pytest.approx(-1.0)  # tail neighbor -8 + gap + span 6
+
+
+def test_free_group_moves_rigidly_with_the_anchor():
+    # The whole doublet searched as one rigid unit (the module fixture's tight
+    # focus contract relaxed to suboptimal: one shared shift cannot match two
+    # free lenses). The committed layout re-traces to the reported native
+    # merit -- a member left behind in the trace would report a blur far off
+    # the committed layout's own spot radius.
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    spec = replace(_FAST, allow_suboptimal=True)
+    result = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        free_element_names=[],
+        free_groups=[("sub", ["lens1", "lens2"])],
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=spec,
+    )
+    # One unit plus the plane: the members never contribute separate parameters.
+    assert len(result.best_z) == 2
+    pos1 = result.elements_config["lens1"]["position"][2]
+    pos2 = result.elements_config["lens2"]["position"][2]
+    assert pos1 == pytest.approx(result.best_z[0])
+    assert abs(pos1 - 18.0) > 1.0  # the group moved (and took the tail with it)
+    # Every member took the anchor's delta: the 30.5 mm design spacing is
+    # preserved to the last bit.
+    assert pos1 - pos2 == pytest.approx(18.0 - (-12.5), rel=1e-12)
+    image = _plane_at(p2, result.best_z[-1])
+    raw = _spot_radius(_system(result.elements_config), image, *source.emit_arrays(), p1)
+    assert 0.0 < result.spot_radius_mm <= raw * (1.0 + 1e-9)
+    if result.transform.n_used == result.transform.n_total:
+        assert result.spot_radius_mm == pytest.approx(raw, rel=1e-6)
+
+
+def test_default_free_set_uses_one_parameter_per_group():
+    # With free_element_names defaulted and the doublet grouped, the search is
+    # two-dimensional (group anchor + plane), not three: the lens members drop
+    # out of the standalone free set instead of being reported as grouped twice.
+    schema, source, p1, p2 = _problem()
+    origins, dirs, powers = source.emit_arrays()
+    spec = replace(_FAST, allow_suboptimal=True, max_evals=200)
+    result = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        free_groups=[("sub", ["lens1", "lens2"])],
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=spec,
+    )
+    assert len(result.best_z) == 2
+    assert result.status in {"ok", "no-focus-found"}

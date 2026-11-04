@@ -17,12 +17,14 @@ from ..project import plane_from_config, plane_to_config
 from ..system import OpticalSystem
 from .config import LensOptimization, build_native_settings
 from .layout import (
+    TranslationUnit,
     _stack_z_positions,
     _window_limited,
     build_native_problem,
     build_windows,
     focus_reference,
     object_point_groups,
+    stack_units,
 )
 from .result import OptimizationError, OptimizationResult
 
@@ -36,6 +38,7 @@ def optimize_layout(
     powers: np.ndarray,
     *,
     free_element_names: Sequence[str] | None = None,
+    free_groups: Sequence[tuple[str, Sequence[str]]] | None = None,
     element_bounds: Mapping[str, tuple[float, float]] | None = None,
     image_bounds: tuple[float, float] | None = None,
     optimization: LensOptimization | None = None,
@@ -59,11 +62,20 @@ def optimize_layout(
     otherwise ``LensOptimization.autofocus_image_plane`` profiles the image
     plane's z out of the global search, evaluating each candidate layout at
     its own best-focus plane z.
+
+    ``free_groups`` declares rigid units -- e.g. a project submodule -- that
+    move along z together: each entry is ``(label, member element names)``,
+    and a group contributes one parameter (its most upstream member's z) that
+    translates every member by the same delta, preserving the members'
+    relative spacing. Group members must be adjacent in the stack and must
+    not appear in ``free_element_names``; when the free set is defaulted,
+    grouped elements simply leave the standalone list. A member's z is then
+    never searched on its own: only the group's position is optimized.
     Raises :class:`ValueError` for an invalid problem (no elements, identical
-    planes, fewer than four base correspondences, or a degenerate parameter
-    window) and :class:`OptimizationError` when no layout meeting the focus
-    acceptance criteria of ``optimization`` is found -- a returned result is
-    always a validated focused layout, unless
+    planes, fewer than four base correspondences, a degenerate parameter
+    window, or a malformed group) and :class:`OptimizationError` when no
+    layout meeting the focus acceptance criteria of ``optimization`` is found
+    -- a returned result is always a validated focused layout, unless
     ``LensOptimization.allow_suboptimal`` is set, in which case a budget-
     exhausted unfocused best-effort layout is returned with status
     ``no-focus-found``. Either way, when the best layout sits on a search-window
@@ -92,12 +104,30 @@ def optimize_layout(
     names = list(elements_schema.keys())
     if not names:
         raise ValueError("optimization needs at least one element")
-    free = list(names) if free_element_names is None else list(free_element_names)
+
+    # Rigid units (submodules) are validated first: a grouped element is free
+    # as a unit, never standalone, so the default free set skips group members.
+    group_list: list[tuple[str, list[str]]] = [
+        (str(label), [str(m) for m in members]) for label, members in (free_groups or ())
+    ]
+    grouped: set[str] = set()
+    for label, members in group_list:
+        if len(set(members)) != len(members):
+            raise ValueError(f"free group {label!r} contains duplicate members")
+        for member in members:
+            if member not in elements_schema:
+                raise ValueError(f"unknown element {member!r} in free group {label!r}")
+            if member in grouped:
+                raise ValueError(f"element {member!r} appears in two free groups")
+            grouped.add(member)
+    free = (
+        [name for name in names if name not in grouped]
+        if free_element_names is None
+        else list(free_element_names)
+    )
     for name in free:
         if name not in elements_schema:
             raise ValueError(f"unknown element {name!r} in free set")
-    if len(free) == 0:
-        raise ValueError("at least one element must be free")
     if len(set(free)) != len(free):
         raise ValueError("free_element_names contains duplicates")
 
@@ -108,13 +138,15 @@ def optimize_layout(
 
     base_z = _stack_z_positions(elements_schema)
     z_image = float(image_plane.o[2])
-    indices = [names.index(name) for name in free]
-    if sorted(indices) != indices:
+    standalone = [names.index(name) for name in free]
+    if sorted(standalone) != standalone:
         raise ValueError("free_element_names must follow stack order")
+    units = stack_units(free=free, groups=group_list, names=names, base_z=base_z)
+    if not units:
+        raise ValueError("at least one element must be free")
 
     lo, hi = build_windows(
-        free=free,
-        indices=indices,
+        units=units,
         base_z=base_z,
         z_image=z_image,
         element_bounds=element_bounds,
@@ -122,7 +154,7 @@ def optimize_layout(
         gap=float(layout.min_gap),
     )
 
-    x_init = np.asarray([base_z[i] for i in indices] + [z_image], dtype=float)
+    x_init = np.asarray([unit.anchor_z for unit in units] + [z_image], dtype=float)
     x_init = np.clip(x_init, lo, hi)
     d = x_init.shape[0]
     gaps = np.full(max(d - 1, 0), float(layout.min_gap), dtype=float)
@@ -144,7 +176,7 @@ def optimize_layout(
     # a direct native-call convenience, never a silent influence on this
     # wrapper.
     problem = build_native_problem(
-        system, indices, x_init, lo, hi, gaps,
+        system, units, x_init, lo, hi, gaps,
         origins, dirs, powers, source_plane, image_plane, groups,
     )
     settings = build_native_settings(layout, blur_ref=blur_ref, pipeline_on=pipeline_on)
@@ -154,7 +186,7 @@ def optimize_layout(
         elements_schema=elements_schema,
         source_plane=source_plane,
         image_plane=image_plane,
-        free=free,
+        units=units,
         lo=lo,
         hi=hi,
         layout=layout,
@@ -172,7 +204,7 @@ def _result_from_outcome(
     elements_schema: Mapping[str, Any],
     source_plane: MeasurementPlane,
     image_plane: MeasurementPlane,
-    free: Sequence[str],
+    units: Sequence[TranslationUnit],
     lo: Sequence[float],
     hi: Sequence[float],
     layout: LensOptimization,
@@ -190,7 +222,7 @@ def _result_from_outcome(
     # searched range, which is a different problem from an exhausted budget.
     window_limited: tuple[str, ...] = ()
     if status != "ok":
-        window_limited = _window_limited(best, lo, hi, [*free, "image plane"])
+        window_limited = _window_limited(best, lo, hi, [*[u.display for u in units], "image plane"])
     if status != "ok" and not (status == "no-focus-found" and layout.allow_suboptimal):
         # The native solver only reports ``ok`` for a layout that passed every
         # focus acceptance check; anything else is a failure, never a result,
@@ -219,11 +251,15 @@ def _result_from_outcome(
         )
 
     updated: dict[str, Any] = copy.deepcopy(dict(elements_schema))
-    for param, name in enumerate(free):
-        entry = updated[name]
-        position = element_position(entry)
-        position[2] = float(best[param])
-        entry["position"] = position
+    for param, unit in enumerate(units):
+        # The unit moved by ``best[param] - anchor_z``; a rigid group hands
+        # that same delta to every member, preserving their relative spacing.
+        delta = float(best[param]) - unit.anchor_z
+        for k, name in enumerate(unit.names):
+            entry = updated[name]
+            position = element_position(entry)
+            position[2] = float(best[param]) if k == 0 else position[2] + delta
+            entry["position"] = position
     plane_config = plane_to_config("image plane", image_plane)
     plane_config.pop("name")  # result configs carry no display name
     plane_config["origin"][2] = float(best[-1])

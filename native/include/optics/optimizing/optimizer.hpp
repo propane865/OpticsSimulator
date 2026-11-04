@@ -53,12 +53,23 @@ struct OptimizerSpec {
     const TraceStack* stack = nullptr;
     // Stack element indices that translate, in parameter order (expected
     // front-to-back, i.e. decreasing z); parameter d-1 is the destination
-    // plane origin z.
+    // plane origin z. With ``slot_of_element`` set this is each parameter's
+    // anchor element; otherwise it is the full one-parameter-one-element map.
     std::vector<std::size_t> free_indices;
+    // Optional rigid grouping (empty = legacy bijection derived from
+    // ``free_indices``). One entry per stack element: the parameter that
+    // translates it, or -1 for a fixed element. Several elements sharing one
+    // slot move rigidly together -- each member takes the anchor's delta.
+    std::vector<std::int64_t> slot_of_element;
+    // Optional per-parameter tail span (empty = all zero): the z distance from
+    // a parameter's anchor (its most upstream member) to its most downstream
+    // member. Consecutive-parameter gaps are enforced between group tails and
+    // heads, so the constraint reads x[i] - tail_span[i] - x[i+1] >= gaps[i].
+    std::vector<double> tail_span;
     std::vector<double> x_init;  // d values: current lens z's, then plane z
     std::vector<double> lo, hi;  // per-parameter box (size d)
     // d-1 entries: consecutive parameters must keep x[i] - x[i+1] >= gaps[i]
-    // (enforced as a smooth penalty, not by clipping).
+    // (enforced as a smooth penalty, not by clipping; adjusted per tail_span).
     std::vector<double> gaps;
     std::size_t dest_plane = 1;  // plane whose origin z is the last parameter
     RayBatchView rays{nullptr, nullptr, nullptr, 0};

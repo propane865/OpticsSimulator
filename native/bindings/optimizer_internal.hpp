@@ -32,7 +32,9 @@ class OptimizeProblem {
                     py::array_t<double> u_min, py::array_t<double> u_max, py::array_t<double> v_min,
                     py::array_t<double> v_max, py::array_t<double> s_u, py::array_t<double> s_v,
                     py::array_t<double> t_u, py::array_t<double> t_v,
-                    py::array_t<std::int32_t> groups, std::int64_t dest_plane);
+                    py::array_t<std::int32_t> groups, std::int64_t dest_plane,
+                    py::array_t<std::int64_t> slot_of_element = py::array_t<std::int64_t>(),
+                    py::array_t<double> tail_span = py::array_t<double>());
 
     // The problem-side half of the kernel spec (the borrowed views, sized and
     // validated at construction).
@@ -51,6 +53,9 @@ class OptimizeProblem {
     std::size_t n_groups_ = 0;
     std::size_t dest_plane_ = 1;
     std::vector<std::size_t> free_slots_;
+    // Optional rigid grouping (validated copies; empty = legacy bijection).
+    std::vector<std::int64_t> slot_of_element_;
+    std::vector<double> tail_span_;
 };
 
 // Every tuning knob, default-initialized from the kernel spec's own defaults

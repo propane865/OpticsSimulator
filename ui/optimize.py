@@ -64,6 +64,7 @@ class LayoutOptimizer(QtCore.QObject):
         powers: np.ndarray,
         *,
         free_element_names: list[str],
+        free_groups: list[tuple[str, list[str]]] | None = None,
         image_bounds: tuple[float, float] | None,
         optimization: LensOptimization,
     ) -> None:
@@ -81,6 +82,7 @@ class LayoutOptimizer(QtCore.QObject):
                     dirs,
                     powers,
                     free_element_names=free_element_names,
+                    free_groups=free_groups,
                     image_bounds=image_bounds,
                     optimization=optimization,
                     # Emit on the in-flight signals object; PySide queues the

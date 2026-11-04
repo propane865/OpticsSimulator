@@ -243,6 +243,8 @@ class OptimizeProblem:
         t_v: np.ndarray,
         groups: np.ndarray,
         dest_plane: int,
+        slot_of_element: np.ndarray | None = ...,
+        tail_span: np.ndarray | None = ...,
     ) -> None: ...
 class OptimizerSettings:
     """Tuning knobs for :func:`optimize_layout`, default-initialized from the
