@@ -44,7 +44,8 @@ def test_source_from_config_rejects_point_array_without_image():
         source_from_config({"source_type": "point_array"})
 
 
-def test_point_array_source_round_trip(memory_codec):
+@pytest.mark.usefixtures("memory_codec")
+def test_point_array_source_round_trip():
     grid = np.array([[0.0, 1.0], [2.0, 0.0]])
     source = PointSource(
         position=[0.0, 0.0, 3.0], power=1.5, num_rays=4,

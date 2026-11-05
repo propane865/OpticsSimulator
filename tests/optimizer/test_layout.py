@@ -28,7 +28,7 @@ from tests.optimizer._common import (
 
 
 def test_bounds_and_configs(optimized):
-    schema, source, p1, p2, base, ref, result = optimized
+    _schema, _source, _p1, _p2, _base, _ref, result = optimized
     (l1, l2, plane_z) = result.best_z
     assert _BOUNDS["lens1"][0] <= l1 <= _BOUNDS["lens1"][1]
     assert _BOUNDS["lens2"][0] <= l2 <= _BOUNDS["lens2"][1]

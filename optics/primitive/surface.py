@@ -178,7 +178,7 @@ class Surface:
         shape = U.shape
         us = np.ascontiguousarray(U.reshape(-1), dtype=float)
         vs = np.ascontiguousarray(V.reshape(-1), dtype=float)
-        return self._eval_grid(us, vs).reshape(shape + (3,))
+        return self._eval_grid(us, vs).reshape((*shape, 3))
 
     def derivatives_local(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
         """Return the ``du``/``dv`` tangent vectors at ``(u, v)`` (local space).
@@ -217,10 +217,6 @@ class Surface:
             np.ascontiguousarray(us.reshape(-1)), np.ascontiguousarray(vs.reshape(-1))
         )
         return mask.reshape(us.shape)
-
-    def contains_parameters(self, u: float, v: float) -> bool:
-        """Whether (u,v) is in the surface domain."""
-        return bool(self.native_surface.in_domain(float(u), float(v)))
 
     def accepts_parameters(self, u: float, v: float) -> bool:
         """Includes aperture restrictions."""

@@ -12,8 +12,8 @@ from .project.state import ProjectState
 
 __all__ = [
     "DEFAULT_ELEMENT_CONFIG",
+    "PlaneRow",
     "ProjectState",
     "classify_element_edit",
     "unique_name",
-    "PlaneRow",
 ]

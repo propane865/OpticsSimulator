@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tests.golden_cases import build_all  # noqa: E402
+from tests.golden_cases import build_all
 
 
 def main() -> None:

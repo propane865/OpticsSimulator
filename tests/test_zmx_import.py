@@ -243,7 +243,7 @@ def test_reject_mirror(tmp_path: Path) -> None:
     path = _modern_case(
         tmp_path, _surf(1, curv=0.02, disz=5.0, glass="MIRROR 0 0 MIRROR")
     )
-    with pytest.raises(UnsupportedZmxError, match="[Mm]irror"):
+    with pytest.raises(UnsupportedZmxError, match=r"[Mm]irror"):
         load_zmx_elements(path)
 
 
@@ -253,7 +253,7 @@ def test_reject_aspheric_coefficients(tmp_path: Path) -> None:
         _surf(1, curv=0.02, disz=5.0, glass=N_BK7, parm=1.0e-4)
         + _surf(2, curv=-0.02, disz=10.0),
     )
-    with pytest.raises(UnsupportedZmxError, match="[Aa]spheric"):
+    with pytest.raises(UnsupportedZmxError, match=r"[Aa]spheric"):
         load_zmx_elements(path)
 
 
@@ -298,7 +298,7 @@ def test_reject_glass_after_final_surface(tmp_path: Path) -> None:
 
 def test_reject_no_glass(tmp_path: Path) -> None:
     path = _modern_case(tmp_path, _surf(1, curv=0.02, disz=5.0))
-    with pytest.raises(UnsupportedZmxError, match="[Nn]o refracting glass"):
+    with pytest.raises(UnsupportedZmxError, match=r"[Nn]o refracting glass"):
         load_zmx_elements(path)
 
 

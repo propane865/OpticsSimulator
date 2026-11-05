@@ -496,8 +496,13 @@ def main(argv: "list[str] | None" = None) -> int:
         bc.finish_cold(t0)
         return 0
 
-    knobs = dict(seed=args.seed, population=args.population, generations=args.generations,
-                 max_evals=args.evals, nm_iterations=args.nm)
+    knobs = {
+        "seed": args.seed,
+        "population": args.population,
+        "generations": args.generations,
+        "max_evals": args.evals,
+        "nm_iterations": args.nm,
+    }
     presets: list[tuple[str, dict[str, int]]] = [("fast", knobs)]
     if args.ui_default:
         presets.append(("ui", dict(UI_KNOBS)))

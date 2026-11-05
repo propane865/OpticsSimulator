@@ -17,7 +17,6 @@ from tests.ui_helpers import (
     _click,
     _click_plane,
     _click_source,
-    _doublet,
     _editor,
     _mesh_count,
     _plane_editor,
@@ -118,14 +117,14 @@ def test_load_stack_rebuilds_scene(window, repo_root):
     view = window.canvas.view
     assert _mesh_count(view) == 1
 
-    elements = window.load_stack(repo_root / "tests" / "test_stack.json")
+    elements = window.load_stack(repo_root / "tests" / "data" / "test_stack.json")
     assert len(elements) == 2
     assert _mesh_count(view) >= 7
     assert "test_stack.json" in window.statusBar().currentMessage()
 
 
-def test_camera_frames_loaded_scene(make_window, repo_root):
-    window = _doublet(make_window, repo_root)
+def test_camera_frames_loaded_scene(doublet_window):
+    window = doublet_window
     camera = window.canvas.view.camera
 
     # The millimetre stack, its source and its planes must fit; vispy's own
@@ -135,8 +134,8 @@ def test_camera_frames_loaded_scene(make_window, repo_root):
     assert abs(camera.center[2]) < 20.0
 
 
-def test_camera_reset_restores_framed_view(make_window, repo_root):
-    window = _doublet(make_window, repo_root)
+def test_camera_reset_restores_framed_view(doublet_window):
+    window = doublet_window
     camera = window.canvas.view.camera
     framed = camera.scale_factor
 
@@ -146,8 +145,8 @@ def test_camera_reset_restores_framed_view(make_window, repo_root):
     assert camera.scale_factor == pytest.approx(framed)
 
 
-def test_element_edit_keeps_camera_framing(make_window, repo_root):
-    window = _doublet(make_window, repo_root)
+def test_element_edit_keeps_camera_framing(doublet_window):
+    window = doublet_window
     camera = window.canvas.view.camera
     framed = camera.scale_factor
 
@@ -166,7 +165,7 @@ def test_load_stack_invalid_json_raises(window, tmp_path):
 
 def test_open_action_triggers_load(window, repo_root, monkeypatch):
     view = window.canvas.view
-    schema_path = repo_root / "tests" / "test_stack.json"
+    schema_path = repo_root / "tests" / "data" / "test_stack.json"
     monkeypatch.setattr(
         QtWidgets.QFileDialog,
         "getOpenFileName",
@@ -191,8 +190,8 @@ def _patch_save_dialog(monkeypatch, out_path):
     )
 
 
-def test_save_as_action_writes_file(window, repo_root, tmp_path, monkeypatch):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_save_as_action_writes_file(stack_window, repo_root, tmp_path, monkeypatch):
+    window = stack_window
 
     out_path = tmp_path / "saved_stack.json"
     _patch_save_dialog(monkeypatch, out_path)
@@ -201,7 +200,7 @@ def test_save_as_action_writes_file(window, repo_root, tmp_path, monkeypatch):
 
     assert out_path.exists()
     saved = json.loads(out_path.read_text(encoding="utf-8"))
-    expected = json.loads((repo_root / "tests" / "test_stack.json").read_text(encoding="utf-8"))
+    expected = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
     assert saved["version"] == 1
     assert saved["elements"] == expected
     assert saved["source"]["num_rays"] == 16
@@ -209,8 +208,8 @@ def test_save_as_action_writes_file(window, repo_root, tmp_path, monkeypatch):
     assert "Saved" in window.statusBar().currentMessage()
 
 
-def test_save_as_appends_json_extension(window, repo_root, tmp_path, monkeypatch):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_save_as_appends_json_extension(stack_window, tmp_path, monkeypatch):
+    window = stack_window
 
     out_path = tmp_path / "stack_no_ext"
     _patch_save_dialog(monkeypatch, out_path)
@@ -220,8 +219,8 @@ def test_save_as_appends_json_extension(window, repo_root, tmp_path, monkeypatch
     assert out_path.with_suffix(".json").exists()
 
 
-def test_save_as_round_trip_preserves_edits(window, make_window, repo_root, tmp_path, monkeypatch):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_save_as_round_trip_preserves_edits(stack_window, make_window, tmp_path, monkeypatch):
+    window = stack_window
 
     editor = _editor(window)
     editor["index"].setValue(1.8)
@@ -239,10 +238,8 @@ def test_save_as_round_trip_preserves_edits(window, make_window, repo_root, tmp_
     assert elements[0].material.refractive_index == pytest.approx(1.8)
 
 
-def test_save_load_round_trip_preserves_source_and_planes(
-    window, make_window, repo_root, tmp_path, monkeypatch
-):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_save_load_round_trip_preserves_source_and_planes(stack_window, make_window, tmp_path, monkeypatch):
+    window = stack_window
 
     source_editor = _source_editor(window)
     source_editor["rays"].setValue(8)
@@ -268,10 +265,8 @@ def test_save_load_round_trip_preserves_source_and_planes(
     assert _tree_names(_tree(window2), ProjectTree.PLANES_LABEL) == ["plane1"]
 
 
-def test_save_load_round_trip_preserves_position_and_resolution(
-    window, make_window, repo_root, tmp_path, monkeypatch
-):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_save_load_round_trip_preserves_position_and_resolution(stack_window, make_window, tmp_path, monkeypatch):
+    window = stack_window
 
     editor = _editor(window)
     editor["pos"][2].setValue(1.5)
@@ -297,20 +292,20 @@ def test_save_load_round_trip_preserves_position_and_resolution(
     assert window2.plane_results[0].grid.shape == (4, 8)
 
 
-def test_legacy_stack_keeps_current_source_and_planes(window, repo_root):
+def test_legacy_stack_keeps_current_source_and_planes(window, stack_path):
     editor = _source_editor(window)
     editor["rays"].setValue(6)
     _click_source(window, OK)
     _trigger_measurement_plane(window)
 
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window.load_stack(stack_path)
 
     assert window.source.num_rays == 6
     assert len(window.planes) == 1
 
 
-def test_unsupported_source_type_is_rejected(window, repo_root, tmp_path):
-    elements = json.loads((repo_root / "tests" / "test_stack.json").read_text())
+def test_unsupported_source_type_is_rejected(stack_window, repo_root, tmp_path):
+    elements = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text())
     path = tmp_path / "point_array.json"
     path.write_text(json.dumps({
         "version": 1,
@@ -324,7 +319,7 @@ def test_unsupported_source_type_is_rejected(window, repo_root, tmp_path):
         },
     }))
 
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window = stack_window
     rays_before = len(window.rays)
 
     with pytest.raises(ValueError, match="Point array"):
@@ -333,9 +328,8 @@ def test_unsupported_source_type_is_rejected(window, repo_root, tmp_path):
     assert len(window.rays) == rays_before
 
 
-def test_load_project_planes_replace_existing(make_window, repo_root, tmp_path):
-    window = make_window()
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_load_project_planes_replace_existing(stack_window, make_window, tmp_path):
+    window = stack_window
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
     out_path = tmp_path / "project.json"
@@ -350,12 +344,12 @@ def test_load_project_planes_replace_existing(make_window, repo_root, tmp_path):
     assert window2.planes[1].o[2] == pytest.approx(-31.0)
 
 
-def test_load_project_invalid_source_keeps_state(window, repo_root, tmp_path):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_load_project_invalid_source_keeps_state(stack_window, repo_root, tmp_path):
+    window = stack_window
     elements_before = window.elements
 
     bad = tmp_path / "bad_project.json"
-    stack = json.loads((repo_root / "tests" / "test_stack.json").read_text(encoding="utf-8"))
+    stack = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
     bad.write_text(json.dumps({
         "version": 1,
         "elements": stack,
@@ -384,8 +378,8 @@ def _patch_open_dialog(monkeypatch, path):
     )
 
 
-def test_import_zemax_merges_into_existing(window, repo_root, monkeypatch):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_import_zemax_merges_into_existing(stack_window, repo_root, monkeypatch):
+    window = stack_window
     _trigger_measurement_plane(window)
     elements_before = len(window.elements)
     source_before = window.source
@@ -402,10 +396,8 @@ def test_import_zemax_merges_into_existing(window, repo_root, monkeypatch):
     assert "Imported 1 element" in window.statusBar().currentMessage()
 
 
-def test_import_zemax_keeps_source_and_plane_visible(window, repo_root, monkeypatch):
-    # Full-rebuild on import detaches the whole view; source and plane visuals
-    # must be re-attached (not left dangling off a stale geometry-key match).
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_import_zemax_keeps_source_and_plane_visible(stack_window, repo_root, monkeypatch):
+    window = stack_window
     _trigger_measurement_plane(window)
     _patch_open_dialog(monkeypatch, repo_root / "tests" / "zmx" / "biconvex.zmx")
 
@@ -418,8 +410,8 @@ def test_import_zemax_keeps_source_and_plane_visible(window, repo_root, monkeypa
     assert all(id(node) in attached for node in tracked)
 
 
-def test_import_zemax_cancelling_changes_nothing(window, repo_root, monkeypatch):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_import_zemax_cancelling_changes_nothing(stack_window, monkeypatch):
+    window = stack_window
     elements_before = len(window.elements)
 
     _patch_open_dialog(monkeypatch, "")  # cancelled dialog

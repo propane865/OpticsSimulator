@@ -3,6 +3,8 @@ post-DE refinement (medium re-rank / whole-fan validation) phases."""
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 
 from optics.optimizer import LensOptimization, optimize_layout
@@ -50,7 +52,7 @@ def test_optimize_layout_progress_callback_ticks_per_evaluation_interval():
     assert len(ticks) >= 2  # multiple evaluation intervals were crossed
     assert evals_seq == sorted(evals_seq)  # monotonic non-decreasing
     # One status per evaluation interval: each tick advances >= 100 evaluations.
-    assert all(b - a >= 100 for a, b in zip(evals_seq, evals_seq[1:]))
+    assert all(b - a >= 100 for a, b in pairwise(evals_seq))
     assert gens[0] == 0  # opens at the baseline before the DE loop
     for _, cost, blur, _ in ticks:
         assert np.isfinite(cost) and np.isfinite(blur)

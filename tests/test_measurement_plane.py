@@ -203,7 +203,7 @@ def test_measure_traces_through_elements(make_element):
 
     assert with_stack.total == pytest.approx(1.0)
     assert with_stack.total == pytest.approx(without_stack.total)
-    point, u, v = plane.intersect(ray)
+    _point, u, v = plane.intersect(ray)
     i, j = plane.discretize(u, v)
     assert with_stack.grid[int(j), int(i)] == pytest.approx(1.0)
 

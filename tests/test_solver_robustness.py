@@ -62,7 +62,7 @@ def test_ray_starting_inside_slab_refracts_out(make_element):
 
     assert out is not None
     np.testing.assert_allclose(out.direction, _snell_exit(d, 1.5, 1.0), atol=1e-9)
-    assert [kind for _, _, kind in segments][0] == "internal"
+    assert segments[0][2] == "internal"
     exit_pt = _exit_point(segments)
     assert exit_pt is not None
     np.testing.assert_allclose(exit_pt[2], 0.0, atol=1e-8)

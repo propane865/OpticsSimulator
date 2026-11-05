@@ -49,10 +49,10 @@ def _result_rgba(result: MeasurementResult) -> np.ndarray:
     irradiance = result.irradiance()
     normalized = normalize_irradiance(irradiance)
     if normalized is None:
-        rgb = np.tile(np.asarray(MEASUREMENT_IDLE_RGB, dtype=np.uint8), irradiance.shape + (1,))
+        rgb = np.tile(np.asarray(MEASUREMENT_IDLE_RGB, dtype=np.uint8), (*irradiance.shape, 1))
     else:
         lut = colormap_lut(MEASUREMENT_COLORMAP, uint8_rgb=True)
-        rgb = sample_lut(lut, normalized).reshape(irradiance.shape + (3,))
+        rgb = sample_lut(lut, normalized).reshape((*irradiance.shape, 3))
     alpha = np.full(irradiance.shape, 255, dtype=np.uint8)
     return np.ascontiguousarray(np.dstack([np.flipud(rgb), alpha]))
 
@@ -67,10 +67,10 @@ def _fit_rect(avail_w: int, avail_h: int, aspect: float) -> tuple[int, int, int,
         return (0, 0, 0, 0)
     if aspect >= avail_w / avail_h:
         w = avail_w
-        h = int(round(avail_w / aspect))
+        h = round(avail_w / aspect)
     else:
         h = avail_h
-        w = int(round(avail_h * aspect))
+        w = round(avail_h * aspect)
     w = min(w, avail_w)
     h = min(h, avail_h)
     return ((avail_w - w) // 2, (avail_h - h) // 2, w, h)
@@ -114,7 +114,7 @@ class _AspectLabel(QtWidgets.QLabel):
         super().resizeEvent(event)
         self.update()
 
-    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
+    def paintEvent(self, _event: QtGui.QPaintEvent) -> None:
         pixmap = self.pixmap()
         if pixmap is None or pixmap.isNull():
             return

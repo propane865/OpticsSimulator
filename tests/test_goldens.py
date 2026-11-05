@@ -17,13 +17,13 @@ GOLDEN_PATH = Path(__file__).resolve().parent / "data" / "goldens.json"
 
 
 def _leaf_equal(got, exp, rtol, atol, path):
-    if isinstance(exp, bool) or isinstance(got, bool):
-        assert got == exp, f"{path}: {got!r} != {exp!r}"
-    elif isinstance(exp, str) or isinstance(got, str):
-        assert got == exp, f"{path}: {got!r} != {exp!r}"
-    elif exp is None or got is None:
-        assert got == exp, f"{path}: {got!r} != {exp!r}"
-    elif isinstance(exp, int) and not isinstance(exp, bool):
+    exact = (
+        isinstance(exp, bool) or isinstance(got, bool)
+        or isinstance(exp, str) or isinstance(got, str)
+        or exp is None or got is None
+        or (isinstance(exp, int) and not isinstance(exp, bool))
+    )
+    if exact:
         assert got == exp, f"{path}: {got!r} != {exp!r}"
     elif isinstance(exp, float) or isinstance(got, float):
         got_f = float(got)

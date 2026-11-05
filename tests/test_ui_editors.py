@@ -43,8 +43,8 @@ def test_property_editor_disabled_without_stack(window):
     assert not editor["buttons"].isEnabled()
 
 
-def test_load_stack_populates_lens_editor(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_load_stack_populates_lens_editor(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     assert editor["remove"].isEnabled()
@@ -57,8 +57,8 @@ def test_load_stack_populates_lens_editor(window, repo_root):
     assert editor["s2"].text() == "4.6 - sqrt(9 - (u**2) - (v**2))"
 
 
-def test_switching_lens_repopulates_fields(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_switching_lens_repopulates_fields(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     _tree_select(window, "lens2")
@@ -66,8 +66,8 @@ def test_switching_lens_repopulates_fields(window, repo_root):
     assert editor["s2"].text() == "-1.3 + sqrt(4 - (u**2) - (v**2))"
 
 
-def test_ok_applies_changes(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_ok_applies_changes(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     editor["index"].setValue(1.8)
@@ -83,8 +83,8 @@ def test_ok_applies_changes(window, repo_root):
     assert "Updated properties for lens1" in window.statusBar().currentMessage()
 
 
-def test_ok_applies_separate_surface_apertures(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_ok_applies_separate_surface_apertures(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     editor["radius"].setValue(0.9)
@@ -100,8 +100,8 @@ def test_ok_applies_separate_surface_apertures(window, repo_root):
     assert "Updated properties for lens1" in window.statusBar().currentMessage()
 
 
-def test_ok_applies_surface_expressions(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_ok_applies_surface_expressions(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     editor["s1"].setText("0")
@@ -111,8 +111,8 @@ def test_ok_applies_surface_expressions(window, repo_root):
     assert window.elements[0].surface2.z_expr == "4.6 - sqrt(9 - (u**2) - (v**2))"
 
 
-def test_ok_applies_position_and_normal(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_ok_applies_position_and_normal(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     assert [spin.value() for spin in editor["pos"]] == [0.0, 0.0, 0.0]
@@ -132,8 +132,8 @@ def test_ok_applies_position_and_normal(window, repo_root):
     assert "Updated properties for lens1" in window.statusBar().currentMessage()
 
 
-def test_lens_position_repopulates_on_switch(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_lens_position_repopulates_on_switch(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     editor["pos"][1].setValue(2.5)
@@ -145,8 +145,8 @@ def test_lens_position_repopulates_on_switch(window, repo_root):
     assert editor["pos"][1].value() == pytest.approx(2.5)
 
 
-def test_zero_element_normal_warns_and_keeps(window, repo_root, captured_warnings):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_zero_element_normal_warns_and_keeps(stack_window, captured_warnings):
+    window = stack_window
 
     editor = _editor(window)
     editor["normal"][2].setValue(0.0)
@@ -158,8 +158,8 @@ def test_zero_element_normal_warns_and_keeps(window, repo_root, captured_warning
     assert "Updated properties" not in window.statusBar().currentMessage()
 
 
-def test_cancel_reverts_edits(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_cancel_reverts_edits(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     original = editor["s1"].text()
@@ -170,8 +170,8 @@ def test_cancel_reverts_edits(window, repo_root):
     assert str(window.elements[0].surface1.z_expr) != "not a valid expression"
 
 
-def test_invalid_expression_warns_and_keeps_scene(window, repo_root, captured_warnings):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_invalid_expression_warns_and_keeps_scene(stack_window, captured_warnings):
+    window = stack_window
 
     editor = _editor(window)
     editor["s1"].setText("1 +")
@@ -182,8 +182,8 @@ def test_invalid_expression_warns_and_keeps_scene(window, repo_root, captured_wa
     assert "Updated properties" not in window.statusBar().currentMessage()
 
 
-def test_new_element_action_adds_to_stack(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_new_element_action_adds_to_stack(stack_window):
+    window = stack_window
     meshes_before = _mesh_count(window.canvas.view)
 
     _trigger_new_element(window)
@@ -233,8 +233,8 @@ def test_new_element_default_geometry(window):
     assert editor["s2"].text() == "2.5"
 
 
-def test_ok_applies_to_new_element(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_ok_applies_to_new_element(stack_window):
+    window = stack_window
     _trigger_new_element(window)
 
     editor = _editor(window)
@@ -246,8 +246,8 @@ def test_ok_applies_to_new_element(window, repo_root):
     assert "Updated properties for lens3" in window.statusBar().currentMessage()
 
 
-def test_remove_element_button(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_remove_element_button(stack_window):
+    window = stack_window
     meshes_before = _mesh_count(window.canvas.view)
 
     editor = _editor(window)
@@ -261,8 +261,8 @@ def test_remove_element_button(window, repo_root):
     assert "Removed lens1" in window.statusBar().currentMessage()
 
 
-def test_remove_selected_element_keeps_others(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_remove_selected_element_keeps_others(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     _tree_select(window, "lens2")
@@ -273,8 +273,8 @@ def test_remove_selected_element_keeps_others(window, repo_root):
     assert str(window.elements[0].surface1.z_expr) == "-1 + sqrt(9 - (u**2) - (v**2))"
 
 
-def test_remove_last_element_disables_editor(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_remove_last_element_disables_editor(stack_window):
+    window = stack_window
 
     editor = _editor(window)
     _tree_select(window, "lens1")
@@ -309,8 +309,8 @@ def test_submodule_editor_disabled_without_stack(window):
     assert not fields["buttons"].isEnabled()
 
 
-def test_submodule_ok_moves_every_member_together(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_submodule_ok_moves_every_member_together(stack_window):
+    window = stack_window
     _place_lens(window, "lens1", [0.0, 0.0, -1.0], normal=[1.0, 0.0, 0.0])
     _place_lens(window, "lens2", [0.0, 0.0, -6.0])
     _group_lens(window, "lens1", "submodule1")
@@ -339,8 +339,8 @@ def test_submodule_ok_moves_every_member_together(window, repo_root):
     assert "Moved 2 element(s) in submodule1" in window.statusBar().currentMessage()
 
 
-def test_submodule_move_leaves_other_elements_alone(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_submodule_move_leaves_other_elements_alone(stack_window):
+    window = stack_window
     _place_lens(window, "lens2", [0.0, 1.0, -5.0])
     _trigger_new_element(window)  # lens3 stays ungrouped
     _group_lens(window, "lens1", "submodule1")
@@ -360,8 +360,8 @@ def test_submodule_move_leaves_other_elements_alone(window, repo_root):
     )
 
 
-def test_submodule_move_invalidates_the_system_and_retraces(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_submodule_move_invalidates_the_system_and_retraces(stack_window):
+    window = stack_window
     _trigger_measurement_plane(window)
     _group_lens(window, "lens1", "submodule1")
     system = window._state.system
@@ -375,8 +375,8 @@ def test_submodule_move_invalidates_the_system_and_retraces(window, repo_root):
     assert window.plane_results[0] is not before  # and the planes are re-measured
 
 
-def test_submodule_cancel_reverts_edits(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_submodule_cancel_reverts_edits(stack_window):
+    window = stack_window
     _place_lens(window, "lens1", [0.0, 0.0, -2.0])
     _group_lens(window, "lens1", "submodule1")
 
@@ -391,8 +391,8 @@ def test_submodule_cancel_reverts_edits(window, repo_root):
     )
 
 
-def test_submodule_ok_without_edits_reports_no_change(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_submodule_ok_without_edits_reports_no_change(stack_window):
+    window = stack_window
     _place_lens(window, "lens1", [0.0, 0.0, -2.0])
     _group_lens(window, "lens1", "submodule1")
 
@@ -404,8 +404,8 @@ def test_submodule_ok_without_edits_reports_no_change(window, repo_root):
     assert "No changes to submodule1" in window.statusBar().currentMessage()
 
 
-def test_lens_page_shows_the_moved_position(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_lens_page_shows_the_moved_position(stack_window):
+    window = stack_window
     _group_lens(window, "lens1", "submodule1")
     _group_lens(window, "lens2", "submodule1")
 
@@ -417,8 +417,8 @@ def test_lens_page_shows_the_moved_position(window, repo_root):
     assert _editor(window)["pos"][0].value() == pytest.approx(3.0)
 
 
-def test_submodule_move_round_trips_through_the_document(window, repo_root, tmp_path):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_submodule_move_round_trips_through_the_document(stack_window, tmp_path):
+    window = stack_window
     _group_lens(window, "lens1", "submodule1")
     _group_lens(window, "lens2", "submodule1")
 
@@ -522,8 +522,8 @@ def test_source_cancel_reverts_edits(window):
     assert window.source.num_rays == original
 
 
-def test_source_ok_retraces_rays(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_source_ok_retraces_rays(stack_window):
+    window = stack_window
 
     editor = _source_editor(window)
     editor["rays"].setValue(4)
@@ -533,12 +533,12 @@ def test_source_ok_retraces_rays(window, repo_root):
     assert _mesh_count(window.canvas.view) >= 7
 
 
-def test_source_survives_stack_reload(window, repo_root):
+def test_source_survives_stack_reload(window, stack_path):
     editor = _source_editor(window)
     editor["rays"].setValue(6)
     _click_source(window, OK)
 
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window.load_stack(stack_path)
 
     assert window.source.num_rays == 6
     assert len(window.rays) == 6
@@ -573,8 +573,8 @@ def test_new_menu_has_measurement_plane_action(window):
     assert any(a.objectName() == "actionMeasurement_Plane" for a in new_menu.actions())
 
 
-def test_measurement_plane_action_adds_plane(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_measurement_plane_action_adds_plane(stack_window):
+    window = stack_window
     meshes_before = _mesh_count(window.canvas.view)
 
     _trigger_measurement_plane(window)
@@ -592,17 +592,17 @@ def test_multiple_measurement_planes_offset(window):
     assert window.planes[0].o[2] != window.planes[1].o[2]
 
 
-def test_measurement_plane_persists_across_reload(window, repo_root):
+def test_measurement_plane_persists_across_reload(window, stack_path):
     _trigger_measurement_plane(window)
 
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window.load_stack(stack_path)
 
     assert len(window.planes) == 1
     assert _mesh_count(window.canvas.view) >= 7
 
 
-def test_measurement_plane_remeasures_on_source_change(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_measurement_plane_remeasures_on_source_change(stack_window):
+    window = stack_window
     _trigger_measurement_plane(window)
 
     editor = _source_editor(window)
@@ -833,8 +833,8 @@ def test_unlock_reenables_position_and_keeps_plane(window):
     assert "Unlocked plane1 from source" in window.statusBar().currentMessage()
 
 
-def test_locked_plane_follows_source(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_locked_plane_follows_source(stack_window):
+    window = stack_window
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
     editor = _plane_editor(window)
@@ -1060,7 +1060,8 @@ def _grab_painted(label, color):
         ((200, 400), 2.0, (0, 255, 0, 255), "width"),
     ],
 )
-def test_plane_view_letterboxes_to_aspect(qt_app, size, aspect, color, fills):
+@pytest.mark.usefixtures("qt_app")
+def test_plane_view_letterboxes_to_aspect(size, aspect, color, fills):
     label = _AspectLabel()
     label.resize(*size)
     label.set_aspect(aspect)
@@ -1086,7 +1087,8 @@ def _plane_view_aspect(container, plane):
     return float(label._aspect)
 
 
-def test_plane_view_aspect_uses_in_plane_size(qt_app):
+@pytest.mark.usefixtures("qt_app")
+def test_plane_view_aspect_uses_in_plane_size():
     container = QtWidgets.QWidget()
     plane = MeasurementPlane(
         origin=(0.0, 0.0, 0.0),
@@ -1099,7 +1101,8 @@ def test_plane_view_aspect_uses_in_plane_size(qt_app):
     container.close()
 
 
-def test_plane_view_aspect_square_under_compound_tilt(qt_app):
+@pytest.mark.usefixtures("qt_app")
+def test_plane_view_aspect_square_under_compound_tilt():
     container = QtWidgets.QWidget()
     plane = MeasurementPlane(
         origin=(0.0, 0.0, 0.0),
@@ -1118,7 +1121,8 @@ def _solid_pixmap(color, width, height):
     return pixmap
 
 
-def test_aspect_label_size_hint_ignores_pixmap_resolution(qt_app):
+@pytest.mark.usefixtures("qt_app")
+def test_aspect_label_size_hint_ignores_pixmap_resolution():
     # The regression: a plain QLabel sizes to its pixmap, so a higher plane
     # resolution inflates the hint and the surrounding layout shrinks the
     # displayed image. _AspectLabel must report a resolution-independent hint.
@@ -1148,7 +1152,8 @@ def _standalone_plane_label(container, resolution):
     return container.findChild(QtWidgets.QLabel, "planeImageLabel")
 
 
-def test_plane_view_expanding_and_resolution_independent_hint(qt_app):
+@pytest.mark.usefixtures("qt_app")
+def test_plane_view_expanding_and_resolution_independent_hint():
     low_container = QtWidgets.QWidget()
     high_container = QtWidgets.QWidget()
     try:
@@ -1194,7 +1199,8 @@ def test_plane_view_collapses_to_image_in_tall_column(qt_app):
         column.close()
 
 
-def test_plane_view_shrinkable_width(qt_app):
+@pytest.mark.usefixtures("qt_app")
+def test_plane_view_shrinkable_width():
     plane = MeasurementPlane(
         origin=(0.0, 0.0, 0.0),
         normal=(0.0, 0.0, 1.0),

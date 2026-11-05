@@ -47,7 +47,7 @@ class TestConstruction:
     def test_empty_system_traces_straight(self):
         system = OpticalSystem()
         assert len(system) == 0
-        origins, dirs, powers = _rays()
+        origins, dirs, _powers = _rays()
         starts, ends, kinds, counts = system.trace_segments(origins, dirs, RAY_LENGTH)
         assert [int(kinds[0, k]) for k in range(int(counts[0]))] == [0]
         np.testing.assert_allclose(starts[0, 0], origins[0], rtol=0.0, atol=0.0)

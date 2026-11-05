@@ -104,17 +104,6 @@ class ProjectState:
         """Accumulated detector image per plane (parallel to :attr:`planes`)."""
         return self._measurements.results
 
-    @property
-    def plane_reconstruct(self) -> bool:
-        """Whether plane images use adaptive-kernel reconstruction.
-
-        Raw mode histograms the hits; reconstruct mode spreads each hit with
-        a Wendland kernel (:meth:`~optics.measurement_plane.MeasurementResult.
-        reconstruct`). Toggling re-derives the images from cached hits, so it
-        never triggers a re-trace.
-        """
-        return self._measurements.reconstruct
-
     # -- naming --------------------------------------------------------------
     def new_element_name(self) -> str:
         return element_ops.new_element_name(self)

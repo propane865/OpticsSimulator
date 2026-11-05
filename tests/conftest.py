@@ -58,7 +58,7 @@ def repo_root() -> Path:
 
 @pytest.fixture
 def sphere_schema(repo_root) -> str:
-    return (repo_root / "tests/test_geometry.json").read_text()
+    return (repo_root / "tests/data/test_geometry.json").read_text()
 
 
 @pytest.fixture
@@ -68,7 +68,7 @@ def sphere(sphere_schema) -> RefractiveElement:
 
 @pytest.fixture
 def offset_lens_schema(repo_root) -> str:
-    return (repo_root / "tests/offset_geometry.json").read_text()
+    return (repo_root / "tests/data/offset_geometry.json").read_text()
 
 
 @pytest.fixture
@@ -137,6 +137,7 @@ def qt_app():
 @pytest.fixture
 def make_window(qt_app):
     """Factory for main windows, all closed at teardown."""
+    _ = qt_app  # depend on the QApplication / vispy-backend fixture being live
     from ui.app import OpticsMainWindow, make_display
 
     created = []
@@ -154,6 +155,34 @@ def make_window(qt_app):
 @pytest.fixture
 def window(make_window):
     return make_window()
+
+
+@pytest.fixture
+def stack_path(repo_root) -> Path:
+    """Path to the checked-in two-lens stack fixture used across the UI tests."""
+    return repo_root / "tests" / "data" / "test_stack.json"
+
+
+@pytest.fixture
+def doublet_path(repo_root) -> Path:
+    """Path to the bundled doublet example shipped with the ``optics`` package."""
+    return repo_root / "optics" / "examples" / "doublet.json"
+
+
+@pytest.fixture
+def stack_window(make_window, stack_path):
+    """A main window with ``test_stack.json`` already loaded."""
+    window = make_window()
+    window.load_stack(stack_path)
+    return window
+
+
+@pytest.fixture
+def doublet_window(make_window, doublet_path):
+    """A main window with the bundled ``doublet.json`` example already loaded."""
+    window = make_window()
+    window.load_stack(doublet_path)
+    return window
 
 
 @pytest.fixture

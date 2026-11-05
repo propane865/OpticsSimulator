@@ -24,7 +24,7 @@ MEASUREMENT_COLORMAP = "viridis"
 
 # Idle detector tint when no power is collected (0.5, 0.5, 0.55 in RGB).
 MEASUREMENT_IDLE_COLOR = (0.5, 0.5, 0.55, 0.35)
-MEASUREMENT_IDLE_RGB: tuple[int, ...] = tuple(int(round(c * 255.0)) for c in MEASUREMENT_IDLE_COLOR[:3])
+MEASUREMENT_IDLE_RGB: tuple[int, ...] = tuple(round(c * 255.0) for c in MEASUREMENT_IDLE_COLOR[:3])
 
 _LUT_SIZE = 256
 _LUTS: dict[tuple[str, float | None, bool], np.ndarray] = {}

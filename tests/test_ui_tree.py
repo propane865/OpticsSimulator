@@ -9,10 +9,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PySide6 = pytest.importorskip("PySide6")
 
-from PySide6 import QtCore, QtWidgets  # noqa: E402
+from PySide6 import QtCore, QtWidgets
 
-from rendering import visualize  # noqa: E402
-from tests.ui_helpers import (  # noqa: E402
+from rendering import visualize
+from tests.ui_helpers import (
     OK,
     _click,
     _click_plane,
@@ -29,7 +29,7 @@ from tests.ui_helpers import (  # noqa: E402
     _trigger_measurement_plane,
     _trigger_new_element,
 )
-from ui.project_tree import ProjectTree  # noqa: E402
+from ui.project_tree import ProjectTree
 
 
 def _rgba(color):
@@ -69,8 +69,8 @@ def test_project_dock_is_docked_on_the_left(window):
     assert window.dockWidgetArea(dock) == QtCore.Qt.DockWidgetArea.LeftDockWidgetArea
 
 
-def test_tree_lists_source_and_loaded_stack(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_tree_lists_source_and_loaded_stack(stack_window):
+    window = stack_window
 
     tree = _tree(window)
     assert _tree_item(tree, ProjectTree.SOURCE_LABEL).childCount() == 0
@@ -88,8 +88,8 @@ def test_tree_lists_measurement_planes(window):
     assert _tree_names(_tree(window), ProjectTree.PLANES_LABEL) == ["plane1", "plane2"]
 
 
-def test_group_rows_are_not_selectable(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+def test_group_rows_are_not_selectable(doublet_window):
+    window = doublet_window
 
     tree = _tree(window)
     selectable = QtCore.Qt.ItemFlag.ItemIsSelectable
@@ -99,16 +99,16 @@ def test_group_rows_are_not_selectable(window, repo_root):
     assert _tree_item(tree, ProjectTree.SOURCE_LABEL).flags() & selectable
 
 
-def test_new_element_adds_tree_row(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_new_element_adds_tree_row(stack_window):
+    window = stack_window
 
     _trigger_new_element(window)
 
     assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2", "lens3"]
 
 
-def test_remove_element_drops_tree_row(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_remove_element_drops_tree_row(stack_window):
+    window = stack_window
     _tree_select(window, "lens2")
 
     window.findChild(QtWidgets.QPushButton, "removeElementButton").click()
@@ -125,13 +125,13 @@ def test_add_plane_adds_tree_row_and_remove_drops_it(window):
     assert _tree_names(_tree(window), ProjectTree.PLANES_LABEL) == []
 
 
-def test_load_stack_replaces_tree_rows(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+def test_load_stack_replaces_tree_rows(window, stack_path, doublet_path):
+    window.load_stack(doublet_path)
     _trigger_new_element(window)
     assert "lens3" in _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL)
 
     # An element-only file replaces the stack but keeps the live source/planes.
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window.load_stack(stack_path)
 
     tree = _tree(window)
     assert _tree_names(tree, ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2"]
@@ -141,8 +141,8 @@ def test_load_stack_replaces_tree_rows(window, repo_root):
 # -- selection routing ---------------------------------------------------------
 
 
-def test_tree_selection_edits_that_lens(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+def test_tree_selection_edits_that_lens(doublet_window):
+    window = doublet_window
     editor = _editor(window)
 
     _tree_select(window, "lens2")
@@ -153,8 +153,8 @@ def test_tree_selection_edits_that_lens(window, repo_root):
     assert editor["s1"].text() == str(config["surface1"]["z"])
 
 
-def test_tree_selection_shows_the_lens_editor(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+def test_tree_selection_shows_the_lens_editor(doublet_window):
+    window = doublet_window
     _tree_select(window, ProjectTree.SOURCE_LABEL)
     assert _editor_page(window) == "editorPageSource"
 
@@ -187,8 +187,8 @@ def test_tree_selection_shows_the_plane_and_source_editors(window):
     assert _editor_page(window) == "editorPageSource"
 
 
-def test_source_selection_leaves_nothing_lit(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+def test_source_selection_leaves_nothing_lit(doublet_window):
+    window = doublet_window
     _tree_select(window, "lens1")
 
     _tree_select(window, ProjectTree.SOURCE_LABEL)
@@ -200,8 +200,8 @@ def test_source_selection_leaves_nothing_lit(window, repo_root):
 # -- 3D selection highlight ----------------------------------------------------
 
 
-def test_tree_selection_tints_only_that_element(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+def test_tree_selection_tints_only_that_element(doublet_window):
+    window = doublet_window
 
     _tree_select(window, "lens2")
 
@@ -209,8 +209,8 @@ def test_tree_selection_tints_only_that_element(window, repo_root):
     assert _element_colors(window, 0) == pytest.approx(_base_element_colors(window, 0))
 
 
-def test_lens_edit_keeps_the_selection_lit(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+def test_lens_edit_keeps_the_selection_lit(doublet_window):
+    window = doublet_window
     _tree_select(window, "lens1")
     editor = _editor(window)
     editor["index"].setValue(1.7)
@@ -220,8 +220,8 @@ def test_lens_edit_keeps_the_selection_lit(window, repo_root):
     assert _element_colors(window, 0) == pytest.approx(_lit_element_colors(window, 0))
 
 
-def test_selecting_a_plane_clears_the_element_tint(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+def test_selecting_a_plane_clears_the_element_tint(doublet_window):
+    window = doublet_window
     _trigger_measurement_plane(window)
     _tree_select(window, "lens1")
 
@@ -254,8 +254,8 @@ def test_plane_edit_keeps_the_selection_rim(window):
     assert _outline_colors(window, 0) == pytest.approx(_rim_colors(window, 0, visualize.SELECTED_COLOR))
 
 
-def test_removal_moves_the_highlight_to_the_lens_now_shown(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_removal_moves_the_highlight_to_the_lens_now_shown(stack_window):
+    window = stack_window
 
     _tree_select(window, "lens1")
     window.findChild(QtWidgets.QPushButton, "removeElementButton").click()
@@ -266,11 +266,11 @@ def test_removal_moves_the_highlight_to_the_lens_now_shown(window, repo_root):
     assert _element_colors(window, 0) == pytest.approx(_lit_element_colors(window, 0))
 
 
-def test_reload_relights_the_lens_the_editor_shows(window, repo_root):
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+def test_reload_relights_the_lens_the_editor_shows(window, stack_path, doublet_path):
+    window.load_stack(doublet_path)
     _tree_select(window, "lens2")
 
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+    window.load_stack(stack_path)
 
     # A full rebuild hands back fresh (unlit) meshes: the highlight is re-asserted
     # on the lens the lens editor actually shows, never left on stale node lists.
@@ -283,8 +283,8 @@ def test_reload_relights_the_lens_the_editor_shows(window, repo_root):
 # -- submodule grouping ----------------------------------------------------------
 
 
-def test_tree_nests_submodules_by_first_member(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_tree_nests_submodules_by_first_member(stack_window):
+    window = stack_window
     _trigger_new_element(window)
 
     window._project_tree.move_element("lens2", "submodule1")
@@ -295,8 +295,8 @@ def test_tree_nests_submodules_by_first_member(window, repo_root):
     assert _tree_item(tree, "submodule1").isExpanded()
 
 
-def test_only_elements_drag_and_only_containers_drop(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_only_elements_drag_and_only_containers_drop(stack_window):
+    window = stack_window
     _trigger_measurement_plane(window)
 
     tree = _tree(window)
@@ -309,8 +309,8 @@ def test_only_elements_drag_and_only_containers_drop(window, repo_root):
     assert _tree_item(tree, ProjectTree.ELEMENTS_LABEL).flags() & drop
 
 
-def test_drop_target_resolves_groups_and_leaves(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_drop_target_resolves_groups_and_leaves(stack_window):
+    window = stack_window
     window._project_tree.move_element("lens2", "submodule1")
 
     tree = _tree(window)
@@ -328,8 +328,8 @@ def test_drop_target_resolves_groups_and_leaves(window, repo_root):
     assert not _tree_item(tree, "submodule1").flags() & QtCore.Qt.ItemFlag.ItemIsDragEnabled
 
 
-def test_move_element_groups_without_retracing(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_move_element_groups_without_retracing(stack_window):
+    window = stack_window
     system = window._state.system
 
     window._project_tree.move_element("lens2", "submodule1")
@@ -339,8 +339,8 @@ def test_move_element_groups_without_retracing(window, repo_root):
     assert _tree_submodule_members(_tree(window), "submodule1") == ["lens2"]
 
 
-def test_move_in_out_and_empty_submodule_vanishes(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_move_in_out_and_empty_submodule_vanishes(stack_window):
+    window = stack_window
     tree_ctrl = window._project_tree
 
     tree_ctrl.move_element("lens2", "submodule1")
@@ -358,8 +358,8 @@ def test_move_in_out_and_empty_submodule_vanishes(window, repo_root):
         _tree_submodule_members(_tree(window), "submodule1")
 
 
-def test_selection_inside_a_submodule_routes_and_lights(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_selection_inside_a_submodule_routes_and_lights(stack_window):
+    window = stack_window
     window._project_tree.move_element("lens2", "submodule1")
 
     _tree_select(window, "lens2")
@@ -370,8 +370,8 @@ def test_selection_inside_a_submodule_routes_and_lights(window, repo_root):
     assert window._scene._selected_elements == (1,)
 
 
-def test_collapsed_submodule_stays_collapsed_across_rebuilds(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_collapsed_submodule_stays_collapsed_across_rebuilds(stack_window):
+    window = stack_window
     window._project_tree.move_element("lens2", "submodule1")
     tree = _tree(window)
     assert _tree_item(tree, "submodule1").isExpanded()
@@ -384,8 +384,8 @@ def test_collapsed_submodule_stays_collapsed_across_rebuilds(window, repo_root):
     assert _tree_item(tree, "submodule1").isExpanded()
 
 
-def test_created_submodule_stays_empty_until_it_gets_a_member(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_created_submodule_stays_empty_until_it_gets_a_member(stack_window):
+    window = stack_window
     tree_ctrl = window._project_tree
     tree_ctrl._create_submodule()
 
@@ -405,8 +405,8 @@ def test_created_submodule_stays_empty_until_it_gets_a_member(window, repo_root)
     assert "submodule1" in names  # this one is backed by its member config
 
 
-def test_rename_and_remove_submodule(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_rename_and_remove_submodule(stack_window):
+    window = stack_window
     window._project_tree.move_element("lens2", "submodule1")
 
     window._on_submodule_renamed("submodule1", "barrel")
@@ -420,8 +420,8 @@ def test_rename_and_remove_submodule(window, repo_root):
     assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2"]
 
 
-def test_submodule_grouping_round_trips_through_the_document(window, repo_root, tmp_path):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_submodule_grouping_round_trips_through_the_document(stack_window, tmp_path):
+    window = stack_window
     window._project_tree.move_element("lens2", "submodule1")
 
     path = window.save_stack(tmp_path / "grouped.json")
@@ -439,8 +439,8 @@ def test_submodule_grouping_round_trips_through_the_document(window, repo_root, 
 # -- submodule properties page ---------------------------------------------------
 
 
-def test_submodule_selection_shows_the_submodule_editor(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_submodule_selection_shows_the_submodule_editor(stack_window):
+    window = stack_window
     _tree_select(window, "lens2")
     _editor(window)["pos"][2].setValue(-4.0)
     _click(window, OK)
@@ -453,8 +453,8 @@ def test_submodule_selection_shows_the_submodule_editor(window, repo_root):
     assert _submodule_editor(window)["pos"][2].value() == pytest.approx(-4.0)
 
 
-def test_submodule_selection_lights_every_member(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_submodule_selection_lights_every_member(stack_window):
+    window = stack_window
     _trigger_new_element(window)
     _group_lens(window, "lens1", "submodule1")
     _group_lens(window, "lens2", "submodule1")
@@ -470,8 +470,8 @@ def test_submodule_selection_lights_every_member(window, repo_root):
     assert window._scene._selected_elements == (2,)
 
 
-def test_empty_submodule_has_nothing_to_move(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_empty_submodule_has_nothing_to_move(stack_window):
+    window = stack_window
     window._project_tree._create_submodule()
 
     _tree_select(window, "submodule1")
@@ -481,8 +481,8 @@ def test_empty_submodule_has_nothing_to_move(window, repo_root):
     assert not _submodule_editor(window)["pos"][0].isEnabled()
 
 
-def test_renaming_the_shown_submodule_keeps_it_open(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_renaming_the_shown_submodule_keeps_it_open(stack_window):
+    window = stack_window
     _group_lens(window, "lens2", "submodule1")
     _tree_select(window, "submodule1")
 
@@ -493,8 +493,8 @@ def test_renaming_the_shown_submodule_keeps_it_open(window, repo_root):
     assert _editor_page(window) == "editorPageSubmodule"
 
 
-def test_removing_the_shown_submodule_blanks_the_form(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_removing_the_shown_submodule_blanks_the_form(stack_window):
+    window = stack_window
     _group_lens(window, "lens2", "submodule1")
     _tree_select(window, "submodule1")
 
@@ -505,8 +505,8 @@ def test_removing_the_shown_submodule_blanks_the_form(window, repo_root):
     assert not _submodule_editor(window)["pos"][0].isEnabled()
 
 
-def test_grouping_edits_reanchor_the_shown_submodule(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_grouping_edits_reanchor_the_shown_submodule(stack_window):
+    window = stack_window
     lens = _editor(window)
     _tree_select(window, "lens1")
     lens["pos"][1].setValue(1.5)
@@ -534,14 +534,14 @@ def _menu_labels(window, item):
     return [action.text() for action in window._project_tree._context_menu(item).actions()]
 
 
-def test_element_context_menu_offers_duplicate(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_element_context_menu_offers_duplicate(stack_window):
+    window = stack_window
 
     assert _menu_labels(window, _tree_item(_tree(window), "lens1")) == ["Duplicate"]
 
 
-def test_non_element_menus_do_not_offer_duplicate(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_non_element_menus_do_not_offer_duplicate(stack_window):
+    window = stack_window
     tree = _tree(window)
 
     assert _menu_labels(window, _tree_item(tree, ProjectTree.ELEMENTS_LABEL)) == ["New Submodule"]
@@ -553,8 +553,8 @@ def test_non_element_menus_do_not_offer_duplicate(window, repo_root):
     assert labels == ["Rename Submodule...", "Remove Submodule"]
 
 
-def test_duplicate_inserts_after_the_original_and_selects_it(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_duplicate_inserts_after_the_original_and_selects_it(stack_window):
+    window = stack_window
 
     window._project_tree._duplicate_element("lens1")
 
@@ -567,14 +567,14 @@ def test_duplicate_inserts_after_the_original_and_selects_it(window, repo_root):
     assert _element_colors(window, 1) == pytest.approx(_lit_element_colors(window, 1))
 
 
-def test_duplicate_context_menu_wires_the_editor(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_duplicate_context_menu_wires_the_editor(stack_window):
+    window = stack_window
 
     assert window._project_tree._on_element_duplicate == window._element_editor.duplicate
 
 
-def test_element_name_resolves_only_lens_leaves(window, repo_root):
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_element_name_resolves_only_lens_leaves(stack_window):
+    window = stack_window
     tree_ctrl = window._project_tree
     tree = _tree(window)
 

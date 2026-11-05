@@ -401,7 +401,7 @@ def case_batch() -> dict:
     plane_b = MeasurementPlane(
         [0.0, 0.0, -8.0], [0.0, 0.0, 1.0], [-8.0, 8.0], [-8.0, 8.0], [4, 4]
     )
-    s2, e2, k2, c2, us, vs, pws = system.trace_segments_and_planes(
+    s2, _e2, _k2, c2, us, vs, pws = system.trace_segments_and_planes(
         origins, dirs, powers, 2.0, [plane_a, plane_b]
     )
     fused_starts = np.concatenate([s2[i, : c2[i]] for i in range(n)])

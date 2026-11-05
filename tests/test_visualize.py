@@ -50,7 +50,7 @@ def test_surface_positions_sphere_hemisphere(make_element):
 
 def test_surface_positions_plane_below(make_element):
     elem = make_element("0", "-2")
-    verts, faces = visualize.surface_positions(elem.surface2, n=16)
+    verts, _faces = visualize.surface_positions(elem.surface2, n=16)
     assert verts.shape == (16 * 16, 3)
     np.testing.assert_allclose(verts[:, 2], -2.0, atol=1e-12)
 
@@ -213,8 +213,8 @@ def test_visualize_attaches_sidewall_when_aperture(sphere_pair, monkeypatch):
             return view
 
     monkeypatch.setattr("rendering.canvas.scene", types.SimpleNamespace(SceneCanvas=_FakeCanvas))
-    monkeypatch.setattr("rendering.surfaces.make_surface_visual", lambda surface, color: ("surface", surface))
-    monkeypatch.setattr("rendering.surfaces.make_wall_visual", lambda wall, color: ("wall", wall))
+    monkeypatch.setattr("rendering.surfaces.make_surface_visual", lambda surface, _color: ("surface", surface))
+    monkeypatch.setattr("rendering.surfaces.make_wall_visual", lambda wall, _color: ("wall", wall))
 
     canvas = demo.visualize([sphere_pair], [], show=False)
 
@@ -302,12 +302,12 @@ def test_build_scene_axis_length_follows_scene(make_element, monkeypatch):
     elem = make_element("0", "-2", aperture_radius=0.5)
     lengths = []
     monkeypatch.setattr(
-        "rendering.canvas._add_axes", lambda view, width, length: lengths.append(length)
+        "rendering.canvas._add_axes", lambda _view, width, length: lengths.append(length)  # noqa: ARG005
     )
-    monkeypatch.setattr("rendering.canvas.build_element_nodes", lambda view, element: [])
+    monkeypatch.setattr("rendering.canvas.build_element_nodes", lambda _view, _element: [])
     monkeypatch.setattr(
         "rendering.canvas.build_ray_nodes",
-        lambda view, elements, rays, ray_length: [],
+        lambda _view, _elements, _rays, ray_length: [],  # noqa: ARG005
     )
 
     visualize.build_scene(_FakeView(), [elem], [])

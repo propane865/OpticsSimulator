@@ -39,10 +39,7 @@ def _translucent_mesh(verts: np.ndarray, faces: np.ndarray, **kwargs: Any) -> An
 def make_surface_visual(surface: Surface, color: Any = SURFACE1_COLOR, **mesh_kwargs: Any) -> Any:
     n = mesh_kwargs.pop("n", 128)
     verts, faces = surface_positions(surface, n=n)
-    kwargs = dict(
-        color=color,
-        shading="smooth",
-    )
+    kwargs: dict[str, Any] = {"color": color, "shading": "smooth"}
     kwargs.update(mesh_kwargs)
     return _translucent_mesh(verts, faces, **kwargs)
 

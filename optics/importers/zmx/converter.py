@@ -7,6 +7,7 @@ the geometry the merge uses for placement.
 
 import copy
 import warnings
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +55,7 @@ def zmx_to_elements(
     elements: dict[str, Any] = {}
     used: list[tuple[ZmxSurface, ZmxSurface]] = []
     radius = 0.0
-    for front, rear in zip(surfaces, surfaces[1:]):
+    for front, rear in pairwise(surfaces):
         if not _is_glass(front.glass):
             continue
         if (

@@ -262,7 +262,7 @@ class ProjectTree:
         return (str(kind), str(name))
 
     def _on_current_changed(
-        self, current: QtWidgets.QTreeWidgetItem | None, previous: QtWidgets.QTreeWidgetItem | None
+        self, current: QtWidgets.QTreeWidgetItem | None, _previous: QtWidgets.QTreeWidgetItem | None
     ) -> None:
         selection = self._key(current)
         if selection is not None:
@@ -446,5 +446,5 @@ class _ElementDropFilter(QtCore.QObject):
         super().__init__()
         self._controller = controller
 
-    def eventFilter(self, obj: QtCore.QObject | None, event: QtCore.QEvent | None) -> bool:
+    def eventFilter(self, _obj: QtCore.QObject | None, event: QtCore.QEvent | None) -> bool:
         return self._controller._handle_drag_event(event)

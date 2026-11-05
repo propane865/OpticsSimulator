@@ -26,12 +26,6 @@ def _trigger(window, menu_name, action_name):
     _action(window, menu_name, action_name).trigger()
 
 
-def _doublet(make_window, repo_root):
-    window = make_window()
-    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
-    return window
-
-
 def _editor(window):
     return {
         "remove": window.findChild(QtWidgets.QPushButton, "removeElementButton"),

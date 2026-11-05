@@ -145,7 +145,7 @@ def _stub_optimize(lens_z, plane_z, status="ok"):
     a stub emulate the best-effort result an allowed-suboptimal run returns.
     """
 
-    def fake(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+    def fake(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):  # noqa: ARG001
         import copy
 
         from optics.optimizer import OptimizationResult
@@ -428,9 +428,8 @@ def test_analysis_lock_table_columns_split_the_width(window, qt_app):
     assert sum(widths) >= table.viewport().width() - 1
 
 
-def test_analysis_lock_table_reflects_a_loaded_stack(make_window, repo_root):
-    window = make_window()
-    window.load_stack(repo_root / "tests" / "test_stack.json")
+def test_analysis_lock_table_reflects_a_loaded_stack(stack_window):
+    window = stack_window
     assert [name for name, _ in _lock_rows(_lock_table(window))] == ["lens1", "lens2"]
 
 

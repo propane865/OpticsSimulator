@@ -26,7 +26,7 @@ def test_rotation_maps_local_z_to_orientation(make_element, orientation):
     )
 
 
-@pytest.mark.parametrize("orientation", DIRECTIONS + [[0, 0, -1]])
+@pytest.mark.parametrize("orientation", [*DIRECTIONS, [0, 0, -1]])
 def test_r_matrix_is_proper_rotation(make_element, orientation):
     elem = make_element("0", "-2", orientation=orientation)
     r = elem.transform.rotation

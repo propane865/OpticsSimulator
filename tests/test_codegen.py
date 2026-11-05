@@ -42,7 +42,7 @@ def test_eval_grid_preserves_broadcast_shape(make_element):
     s = _sphere_surface(make_element)
     U, V = np.meshgrid(np.linspace(-1, 1, 4), np.linspace(-1, 1, 5))
     pts = s.evaluate_local(U, V)
-    assert pts.shape == U.shape + (3,)
+    assert pts.shape == (*U.shape, 3)
     scalar = s.evaluate_local(U[2, 3], V[2, 3])
     np.testing.assert_allclose(pts[2, 3], scalar, rtol=1e-12, atol=1e-12)
 

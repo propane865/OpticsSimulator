@@ -54,7 +54,7 @@ jobs:
         run: ruff check .
 
       - name: Type check (mypy)
-        run: mypy optics rendering ui
+        run: mypy optics rendering ui tests
 
       - name: Run tests
         run: pytest

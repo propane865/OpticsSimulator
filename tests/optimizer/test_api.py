@@ -23,7 +23,7 @@ from tests.optimizer._common import (
 
 
 def test_converges_to_best_focus(optimized):
-    schema, source, p1, p2, base, (ref_z, ref_radius), result = optimized
+    schema, source, p1, p2, _base, (ref_z, ref_radius), result = optimized
     origins, dirs, powers = source.emit_arrays()
     base_radius = _spot_radius(_system(schema), p2, origins, dirs, powers, p1)
     assert result.status == "ok"
@@ -37,7 +37,7 @@ def test_converges_to_best_focus(optimized):
 
 
 def test_spot_radius_matches_a_retrace(optimized):
-    schema, source, p1, p2, base, ref, result = optimized
+    _schema, source, p1, p2, _base, _ref, result = optimized
     origins, dirs, powers = source.emit_arrays()
     image = _plane_at(p2, result.best_z[-1])
     recomputed = _spot_radius(_system(result.elements_config), image, origins, dirs, powers, p1)
@@ -50,7 +50,7 @@ def test_spot_radius_matches_a_retrace(optimized):
 
 
 def test_reports_magnification_at_best_focus(optimized):
-    schema, source, p1, p2, base, ref, result = optimized
+    _schema, source, p1, p2, base, _ref, result = optimized
     image = _plane_at(p2, result.best_z[-1])
     focused = _system(result.elements_config)
     fresh = plane_transform(source.emit_rays(), [p1, image], focused)
@@ -88,7 +88,7 @@ def test_point_array_reports_a_real_image_magnification():
 
 
 def test_deterministic(optimized):
-    schema, source, p1, p2, base, ref, result = optimized
+    schema, source, p1, p2, _base, _ref, result = optimized
     origins, dirs, powers = source.emit_arrays()
     again = optimize_layout(
         schema,
@@ -107,7 +107,7 @@ def test_deterministic(optimized):
 
 
 def test_input_schema_untouched(optimized):
-    schema, source, p1, p2, base, ref, result = optimized
+    schema, _source, _p1, _p2, _base, _ref, _result = optimized
     assert schema["lens1"]["position"] == [0.0, 0.0, 18.0]
     assert schema["lens2"]["position"] == [0.0, 0.0, -12.5]
 
