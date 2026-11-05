@@ -319,6 +319,56 @@ def test_analysis_optimize_suboptimal_commits_with_warning(window, qt_app, monke
     assert button.isEnabled()
 
 
+# -- Analysis tab: magnification target ---------------------------------------
+
+
+def _magnification_widgets(window):
+    return (
+        window.findChild(QtWidgets.QCheckBox, "analysisOptimizeMagnificationCheck"),
+        window.findChild(QtWidgets.QDoubleSpinBox, "analysisMagnificationTargetSpin"),
+    )
+
+
+def test_analysis_magnification_spin_tracks_checkbox(window):
+    _add_element_and_two_planes(window)
+    check, spin = _magnification_widgets(window)
+    assert not check.isChecked()
+    assert not spin.isEnabled()  # focus only by default
+    check.setChecked(True)
+    assert spin.isEnabled()
+    assert spin.value() > 0.0
+    check.setChecked(False)
+    assert not spin.isEnabled()
+
+
+def test_analysis_magnification_target_reaches_optimizer(window, qt_app, monkeypatch):
+    _add_element_and_two_planes(window)
+    captured: dict[str, object] = {}
+    stub = _stub_optimize(1.0, 5.0)
+
+    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+        captured["spec"] = kwargs.get("optimization", "MISSING")
+        result = stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+        captured["done"] = True
+        return result
+
+    monkeypatch.setattr("ui.optimize.optimize_layout", spy)
+    check, spin = _magnification_widgets(window)
+    button = window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton")
+
+    check.setChecked(False)
+    button.click()
+    _wait_until(lambda: captured.get("done") and button.isEnabled(), qt_app)
+    assert captured["spec"].target_magnification is None
+
+    captured.pop("done")
+    spin.setValue(0.75)
+    check.setChecked(True)
+    button.click()
+    _wait_until(lambda: captured.get("done") and button.isEnabled(), qt_app)
+    assert captured["spec"].target_magnification == pytest.approx(0.75)
+
+
 # -- Analysis tab: element locks ---------------------------------------------
 
 

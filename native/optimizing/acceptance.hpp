@@ -14,8 +14,10 @@ namespace optics::native {
 namespace detail {
 
 // Focus acceptance for a candidate: traced, gap-free geometry, enough valid
-// correspondences and all three normalized spot radii under tolerance (NaN radii
-// fail the comparisons, so a blank detector is never accepted).
+// correspondences, all three normalized spot radii under tolerance (NaN radii
+// fail the comparisons, so a blank detector is never accepted), and -- when a
+// target magnification is set -- the fitted scale within the relative
+// tolerance of the target (a NaN scale fails too).
 bool focus_accepted(const OptimizerSpec& spec, const LayoutObjective::Stats& s);
 
 // Focus-first constrained comparison: a focused candidate always beats an

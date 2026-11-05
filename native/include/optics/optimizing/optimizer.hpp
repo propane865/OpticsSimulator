@@ -2,7 +2,11 @@
 // chosen set of stack elements and the destination measurement plane to
 // minimize the pooled per-object-point RMS spot radius (see
 // ``optics/optimizing/fit.hpp``) on the destination plane, with smooth
-// penalties for lost correspondences and stacking violations. The landscape
+// penalties for lost correspondences and stacking violations. With
+// ``target_scale`` set the objective additionally pursues a target
+// magnification: the similarity fit's relative scale error enters the cost and
+// acceptance, so the winner is focused *and* magnified as asked (or the run
+// fails). The landscape
 // is piecewise discontinuous (sigma clipping, vignetting, total internal
 // reflection), so the solver is a bounded differential evolution (Latin
 // hypercube initialized) followed by a gated box-constrained Nelder-Mead
@@ -87,6 +91,17 @@ struct OptimizerSpec {
     double w_vignette = 1.0;  // weight of the lost-correspondence penalty
     double w_order = 1e3;     // weight of the stacking-gap penalty
     double w_anchor = 0.0;    // tiny pull toward x_init (flat-direction guard)
+    // Optional target magnification (0 = off, the focus-only objective). When
+    // positive the clipped similarity fit's scale enters the cost as
+    // ``w_magnification * ((scale - target_scale) / target_scale)^2`` -- and
+    // acceptance demands the fitted scale within ``max_scale_error`` (relative)
+    // of the target, so a wrong-magnification layout is never accepted. The fit
+    // scale is the source-plane-footprint to destination-footprint ratio: a
+    // genuine object->image magnification only for an extended (point-array)
+    // source; for a single point it is a footprint ratio.
+    double target_scale = 0.0;
+    double w_magnification = 1.0;
+    double max_scale_error = 0.02;  // relative magnification acceptance tol
     int clip_iters = 3;       // plane_transform clipping rounds
     double clip_sigma = 3.0;
     // Focus acceptance. A layout is *focused* -- and only then does the run
@@ -98,7 +113,8 @@ struct OptimizerSpec {
     // clipping cannot manufacture an apparently sharp focus), and the
     // unclipped worst-object-point radius under
     // ``worst_field_factor * max_norm_blur`` (so every field point focuses,
-    // not just the pooled average).
+    // not just the pooled average). When ``target_scale`` is set the fitted
+    // magnification must also lie within ``max_scale_error`` (relative) of it.
     double max_norm_blur = 0.10;    // clipped spot radius / blur_ref
     double blur_all_factor = 2.0;   // unclipped pooled guard (multiplier)
     double worst_field_factor = 2.0;  // unclipped worst-field guard (multiplier)
@@ -195,6 +211,7 @@ enum class OptimizationFailureReason {
     INSUFFICIENT_CORRESPONDENCE,
     BLUR_THRESHOLD_NOT_MET,
     WORST_FIELD_THRESHOLD_NOT_MET,
+    MAGNIFICATION_TARGET_NOT_MET,
     NO_FULL_VALIDATION_PASS,
 };
 

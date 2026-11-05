@@ -36,7 +36,12 @@ class AnalysisEditor:
     reports the magnification that focused layout delivers; checking an
     element's "Locked?" box in the lock table holds its z at the current value
     (it is dropped from the optimizer's free set), and checking "Lock Image
-    Plane" pins the image plane's z so only the elements are searched. Elements
+    Plane" pins the image plane's z so only the elements are searched. Checking
+    "Optimize Magnification" adds a target magnification (the spin box) to the
+    acceptance contract: the winner must be focused *and* image at that
+    magnification, or the run fails (the target is a genuine object->image
+    magnification only for extended point-array sources; for a single point the
+    fitted scale is a footprint ratio). Elements
     that belong to a submodule are not listed individually: the submodule gets
     one row, and the optimizer moves it as a rigid unit -- its position is
     searched, the members' relative spacing is not. Locking the submodule row
@@ -84,6 +89,10 @@ class AnalysisEditor:
         self._optimize_button.setToolTip(self.OPTIMIZE_TOOLTIP)
         self._lock_image_check = find_child(window, QtWidgets.QCheckBox, "analysisLockImageCheck")
         self._allow_suboptimal_check = find_child(window, QtWidgets.QCheckBox, "analysisAllowSuboptimalCheck")
+        self._optimize_mag_check = find_child(window, QtWidgets.QCheckBox, "analysisOptimizeMagnificationCheck")
+        self._mag_target_spin = find_child(window, QtWidgets.QDoubleSpinBox, "analysisMagnificationTargetSpin")
+        self._mag_target_spin.setEnabled(self._optimize_mag_check.isChecked())
+        self._optimize_mag_check.toggled.connect(self._mag_target_spin.setEnabled)
         self._lock_table = find_child(window, QtWidgets.QTableWidget, "analysisLockedElementsTable")
         self._progress = find_child(window, QtWidgets.QProgressBar, "analysisOptimizeProgress")
         self._results_browser = find_child(window, QtWidgets.QTextBrowser, "analysisOptimizeLogBrowser")
@@ -304,7 +313,13 @@ class AnalysisEditor:
         # runs, but this keeps the worker free of any shared mutable state.
         schema_snapshot = copy.deepcopy(schema)
         origins, dirs, powers = self._state.rays_arrays()
-        spec = LensOptimization(allow_suboptimal=self._allow_suboptimal_check.isChecked())
+        target_magnification = (
+            float(self._mag_target_spin.value()) if self._optimize_mag_check.isChecked() else None
+        )
+        spec = LensOptimization(
+            allow_suboptimal=self._allow_suboptimal_check.isChecked(),
+            target_magnification=target_magnification,
+        )
         image_bounds: tuple[float, float] | None = None
         if self._lock_image_check.isChecked():
             z_image = float(image_plane.o[2])
@@ -324,6 +339,7 @@ class AnalysisEditor:
             "dirs": dirs,
             "powers": powers,
             "image_bounds": image_bounds,
+            "target_magnification": target_magnification,
             "optimization": spec,
         }
 
@@ -346,6 +362,9 @@ class AnalysisEditor:
         self._results_browser.append("Layout optimization started")
         self._results_browser.append(f"Free units: {', '.join(units_log)}")
         self._results_browser.append(f"Image plane: {'locked' if image_bounds else 'free'}")
+        target = request["target_magnification"]
+        if target is not None:
+            self._results_browser.append(f"Target magnification: {target:.4g}")
         self._results_browser.append("")
         self._set_optimizing(True)
         self._set_status("Optimizing layout (this can take a minute)...")
@@ -367,6 +386,8 @@ class AnalysisEditor:
         enable_widgets([self._source_combo, self._image_combo], not running)
         self._lock_image_check.setEnabled(not running)
         self._allow_suboptimal_check.setEnabled(not running)
+        self._optimize_mag_check.setEnabled(not running)
+        self._mag_target_spin.setEnabled(not running and self._optimize_mag_check.isChecked())
         self._lock_table.setEnabled(not running)
         self._progress.setVisible(running)
         if running:

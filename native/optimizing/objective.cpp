@@ -365,6 +365,16 @@ LayoutObjective::Stats LayoutObjective::trace_at(const double* x_full, std::size
             n > 0 ? static_cast<double>(fit.n_used) / static_cast<double>(n) : 0.0;
         const double vig = std::max(0.0, spec_.min_fraction - frac);
         double cost = spec_.w_focus * db * db + spec_.w_vignette * vig * vig + geo;
+        // Optional magnification target: relative squared error of the fitted
+        // scale. It rides the cost into the focus scan, DE ranking, promotion
+        // and polish alike; an invalid (or NaN-scale) fit poisons the cost
+        // through the finiteness guard, mirroring a degenerate blur.
+        if (spec_.target_scale > 0.0 && fit.valid) {
+            const double e = (fit.scale - spec_.target_scale) / spec_.target_scale;
+            cost += spec_.w_magnification * e * e;
+        } else if (spec_.target_scale > 0.0) {
+            cost = kBadCost + geo;
+        }
         if (!std::isfinite(cost)) {
             cost = kBadCost + geo;
         }

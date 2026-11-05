@@ -29,7 +29,10 @@ class LensOptimization:
     radius at most ``worst_field_factor`` times that tolerance (every field
     point must focus, not just the pooled average), at least
     ``min_correspondence_fraction`` of the rays keeping valid
-    correspondences, and gap-free stacking order. Anything else raises
+    correspondences, and gap-free stacking order. With
+    ``target_magnification`` set, the fitted magnification joining this
+    contract too: it must lie within ``max_magnification_error`` (relative) of
+    the target. Anything else raises
     :class:`OptimizationError`, unless ``allow_suboptimal`` is set: then a
     search that ends without an accepted layout returns its best-effort
     layout with status ``no-focus-found`` instead of raising (an
@@ -41,6 +44,18 @@ class LensOptimization:
     # Stacking-order penalty weight (smooth, not clipping; see the native
     # ``w_order``).
     weight_order: float = 1e3
+    # Optional target magnification (None = focus only, today's behavior). When
+    # set the relative error of the similarity fit's scale against the target
+    # enters the cost (weight ``weight_magnification``) *and* the acceptance
+    # contract: the winner's magnification must be within
+    # ``max_magnification_error`` (relative) of the target, else the run fails
+    # with reason ``magnification-target-not-met``. The fitted scale is the
+    # source-plane footprint to image-plane footprint ratio: a genuine
+    # object->image magnification only for an extended (point-array) source --
+    # for a single point it is a footprint ratio that shrinks with the spot.
+    target_magnification: float | None = None
+    weight_magnification: float = 1.0
+    max_magnification_error: float = 0.02
     # Tiny pull toward the starting layout: jointly translating the whole
     # assembly (lenses + plane) leaves the focus metric invariant -- and moving
     # a lens is nearly free of focus cost once the image plane follows it -- so
@@ -135,6 +150,9 @@ def build_native_settings(
     settings.w_vignette = float(layout.weight_vignette)
     settings.w_order = float(layout.weight_order)
     settings.w_anchor = float(layout.anchor_weight)
+    settings.target_scale = float(layout.target_magnification or 0.0)
+    settings.w_magnification = float(layout.weight_magnification)
+    settings.max_scale_error = float(layout.max_magnification_error)
     settings.clip_iters = int(layout.clip_iterations)
     settings.clip_sigma = float(layout.clip_sigma)
     settings.max_norm_blur = float(layout.max_normalized_blur)

@@ -69,6 +69,9 @@ struct OptimizerSettings {
     double w_vignette;
     double w_order;
     double w_anchor;
+    double target_scale;
+    double w_magnification;
+    double max_scale_error;
     std::int64_t clip_iters;
     double clip_sigma;
     double max_norm_blur;
@@ -108,6 +111,9 @@ struct OptimizerSettings {
         w_vignette = d.w_vignette;
         w_order = d.w_order;
         w_anchor = d.w_anchor;
+        target_scale = d.target_scale;
+        w_magnification = d.w_magnification;
+        max_scale_error = d.max_scale_error;
         clip_iters = d.clip_iters;
         clip_sigma = d.clip_sigma;
         max_norm_blur = d.max_norm_blur;

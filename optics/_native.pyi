@@ -257,6 +257,9 @@ class OptimizerSettings:
     w_vignette: float
     w_order: float
     w_anchor: float
+    target_scale: float
+    w_magnification: float
+    max_scale_error: float
     clip_iters: int
     clip_sigma: float
     max_norm_blur: float

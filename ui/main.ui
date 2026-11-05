@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1280</width>
-    <height>965</height>
+    <height>967</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -67,7 +67,7 @@
      <item>
       <widget class="QTabWidget" name="tabWidget">
        <property name="currentIndex">
-        <number>0</number>
+        <number>1</number>
        </property>
        <widget class="QWidget" name="tabEditor">
         <property name="sizePolicy">
@@ -82,6 +82,9 @@
         <layout class="QVBoxLayout" name="verticalLayout_12">
          <item>
           <widget class="QStackedWidget" name="editorStack">
+           <property name="currentIndex">
+            <number>0</number>
+           </property>
            <widget class="QWidget" name="editorPageElement">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
@@ -479,49 +482,49 @@
                       <property name="bottomMargin">
                        <number>0</number>
                       </property>
-                       <item>
-                        <widget class="QDoubleSpinBox" name="submodulePosXSpin">
-                         <property name="minimumSize">
-                          <size>
-                           <width>40</width>
-                           <height>0</height>
-                          </size>
-                         </property>
-                         <property name="toolTip">
-                          <string>x coordinate of the submodule's first element (mm); applying translates every member by the same offset</string>
-                         </property>
+                      <item>
+                       <widget class="QDoubleSpinBox" name="submodulePosXSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>x coordinate of the submodule's first element (mm); applying translates every member by the same offset</string>
+                        </property>
                         <property name="buttonSymbols">
                          <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
                         </property>
                        </widget>
                       </item>
                       <item>
-                        <widget class="QDoubleSpinBox" name="submodulePosYSpin">
-                         <property name="minimumSize">
-                          <size>
-                           <width>40</width>
-                           <height>0</height>
-                          </size>
-                         </property>
-                         <property name="toolTip">
-                          <string>y coordinate of the submodule's first element (mm); applying translates every member by the same offset</string>
-                         </property>
+                       <widget class="QDoubleSpinBox" name="submodulePosYSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>y coordinate of the submodule's first element (mm); applying translates every member by the same offset</string>
+                        </property>
                         <property name="buttonSymbols">
                          <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
                         </property>
                        </widget>
                       </item>
                       <item>
-                        <widget class="QDoubleSpinBox" name="submodulePosZSpin">
-                         <property name="minimumSize">
-                          <size>
-                           <width>40</width>
-                           <height>0</height>
-                          </size>
-                         </property>
-                         <property name="toolTip">
-                          <string>z coordinate of the submodule's first element (mm); applying translates every member by the same offset</string>
-                         </property>
+                       <widget class="QDoubleSpinBox" name="submodulePosZSpin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>40</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>z coordinate of the submodule's first element (mm); applying translates every member by the same offset</string>
+                        </property>
                         <property name="buttonSymbols">
                          <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
                         </property>
@@ -533,35 +536,35 @@
                   </layout>
                  </widget>
                 </item>
-                 <item>
-                  <widget class="QDialogButtonBox" name="submoduleButtonBox">
-                   <property name="sizePolicy">
-                    <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-                     <horstretch>0</horstretch>
-                     <verstretch>0</verstretch>
-                    </sizepolicy>
-                   </property>
-                   <property name="standardButtons">
-                    <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <spacer name="verticalSpacer">
-                   <property name="orientation">
-                    <enum>Qt::Orientation::Vertical</enum>
-                   </property>
-                   <property name="sizeType">
-                    <enum>QSizePolicy::Policy::Expanding</enum>
-                   </property>
-                   <property name="sizeHint" stdset="0">
-                    <size>
-                     <width>20</width>
-                     <height>0</height>
-                    </size>
-                   </property>
-                  </spacer>
-                 </item>
+                <item>
+                 <widget class="QDialogButtonBox" name="submoduleButtonBox">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="standardButtons">
+                   <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="verticalSpacer">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Vertical</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Policy::Expanding</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>20</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
                </layout>
               </widget>
              </item>
@@ -1562,53 +1565,118 @@
              </widget>
             </item>
             <item>
-             <layout class="QVBoxLayout" name="verticalLayout_14">
-              <property name="bottomMargin">
-               <number>9</number>
-              </property>
-              <item>
-               <widget class="QWidget" name="widget_25" native="true">
-                <layout class="QVBoxLayout" name="verticalLayout_checks">
-                 <property name="leftMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="topMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="rightMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="bottomMargin">
-                  <number>0</number>
-                 </property>
-                 <item>
-                  <widget class="QCheckBox" name="analysisLockImageCheck">
-                   <property name="toolTip">
-                    <string>Hold the image plane's z fixed and optimize only the elements</string>
-                   </property>
-                   <property name="text">
-                    <string>Lock Image Plane</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QCheckBox" name="analysisAllowSuboptimalCheck">
-                   <property name="toolTip">
-                    <string>Commit the best layout found even if it fails the focus acceptance checks</string>
-                   </property>
-                   <property name="text">
-                    <string>Allow Suboptimal Convergence</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
-             </layout>
-            </item>
-            <item>
              <widget class="QWidget" name="widget_26" native="true">
               <layout class="QVBoxLayout" name="verticalLayout_15">
+               <item>
+                <widget class="QWidget" name="widget_25" native="true">
+                 <layout class="QVBoxLayout" name="verticalLayout_14">
+                  <property name="leftMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="topMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="rightMargin">
+                   <number>0</number>
+                  </property>
+                  <item>
+                   <widget class="QLabel" name="label_14">
+                    <property name="text">
+                     <string>Options:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QWidget" name="widget_31" native="true">
+                    <layout class="QVBoxLayout" name="verticalLayout_20">
+                     <property name="leftMargin">
+                      <number>0</number>
+                     </property>
+                     <property name="topMargin">
+                      <number>0</number>
+                     </property>
+                     <property name="rightMargin">
+                      <number>0</number>
+                     </property>
+                     <property name="bottomMargin">
+                      <number>0</number>
+                     </property>
+                     <item>
+                      <widget class="QCheckBox" name="analysisAllowSuboptimalCheck">
+                       <property name="toolTip">
+                        <string>Commit the best layout found even if it fails the focus acceptance checks</string>
+                       </property>
+                       <property name="text">
+                        <string>Allow Suboptimal Convergence</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QCheckBox" name="analysisLockImageCheck">
+                       <property name="toolTip">
+                        <string>Hold the image plane's z fixed and optimize only the elements</string>
+                       </property>
+                       <property name="text">
+                        <string>Lock Image Plane</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QWidget" name="widget_32" native="true">
+                       <layout class="QHBoxLayout" name="horizontalLayout_12">
+                        <property name="leftMargin">
+                         <number>0</number>
+                        </property>
+                        <property name="topMargin">
+                         <number>0</number>
+                        </property>
+                        <property name="rightMargin">
+                         <number>0</number>
+                        </property>
+                        <property name="bottomMargin">
+                         <number>0</number>
+                        </property>
+                         <item>
+                          <widget class="QCheckBox" name="analysisOptimizeMagnificationCheck">
+                           <property name="toolTip">
+                            <string>Also require the layout to image at the target magnification; the run fails if no focused layout reaches it (meaningful for extended point-array sources -- a point source's fitted scale is a footprint ratio)</string>
+                           </property>
+                           <property name="text">
+                            <string>Optimize Magnification</string>
+                           </property>
+                          </widget>
+                         </item>
+                         <item>
+                          <widget class="QDoubleSpinBox" name="analysisMagnificationTargetSpin">
+                           <property name="toolTip">
+                            <string>Target source-to-image magnification (fitted scale between the two planes)</string>
+                           </property>
+                           <property name="decimals">
+                            <number>3</number>
+                           </property>
+                           <property name="minimum">
+                            <double>0.001000000000000</double>
+                           </property>
+                           <property name="maximum">
+                            <double>1000.000000000000000</double>
+                           </property>
+                           <property name="singleStep">
+                            <double>0.100000000000000</double>
+                           </property>
+                           <property name="value">
+                            <double>1.000000000000000</double>
+                           </property>
+                          </widget>
+                         </item>
+                       </layout>
+                      </widget>
+                     </item>
+                    </layout>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
                <item>
                 <widget class="QLabel" name="label_37">
                  <property name="text">

@@ -158,6 +158,13 @@ py::dict py_optimize_layout(const OptimizeProblem& problem, const OptimizerSetti
             "worst_field_factor: expected a finite multiplier >= 1");
     require(std::isfinite(s.polish_gate) && s.polish_gate >= 0.0,
             "polish_gate: expected a finite non-negative multiplier");
+    require(std::isfinite(s.target_scale) && s.target_scale >= 0.0,
+            "target_scale: expected a finite non-negative magnification target "
+            "(0 disables the magnification term)");
+    require(std::isfinite(s.w_magnification) && s.w_magnification >= 0.0,
+            "w_magnification: expected a finite non-negative weight");
+    require(std::isfinite(s.max_scale_error) && s.max_scale_error >= 0.0,
+            "max_scale_error: expected a finite non-negative relative tolerance");
 
     OptimizerSpec spec;
     problem.fill_spec(spec);
@@ -168,6 +175,9 @@ py::dict py_optimize_layout(const OptimizeProblem& problem, const OptimizerSetti
     spec.w_vignette = s.w_vignette;
     spec.w_order = s.w_order;
     spec.w_anchor = s.w_anchor;
+    spec.target_scale = s.target_scale;
+    spec.w_magnification = s.w_magnification;
+    spec.max_scale_error = s.max_scale_error;
     spec.clip_iters = static_cast<int>(s.clip_iters);
     spec.clip_sigma = s.clip_sigma;
     spec.seed = static_cast<std::uint64_t>(s.seed);

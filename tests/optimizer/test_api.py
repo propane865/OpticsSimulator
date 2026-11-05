@@ -216,3 +216,100 @@ def test_early_focus_stop_saves_evaluations():
     assert early.status == "ok" and exhaustive.status == "ok"
     assert early.evaluations < exhaustive.evaluations * 0.4
     assert early.spot_radius_mm <= exhaustive.spot_radius_mm * 1.05
+
+
+# -- optional magnification target ---------------------------------------------
+
+
+def test_target_magnification_is_honored():
+    schema, source, p1, p2 = _problem(point_array=True)
+    origins, dirs, powers = source.emit_arrays()
+    natural = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_BOUNDS,
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=_FAST,
+    )
+    assert natural.status == "ok"
+    target = natural.transform.scale
+    # Targeting the magnification the focus-only run already reaches: the
+    # winner must stay focused *and* land within tolerance of the target.
+    spec = replace(_FAST, target_magnification=target)
+    result = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_BOUNDS,
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=spec,
+    )
+    assert result.status == "ok"
+    assert result.transform.scale == pytest.approx(target, rel=spec.max_magnification_error * 1.01)
+    # Focused as before: the magnification contract did not trade sharpness.
+    assert result.spot_radius_mm <= natural.spot_radius_mm * 1.1
+
+
+def test_unreachable_target_magnification_raises():
+    schema, source, p1, p2 = _problem(point_array=True)
+    origins, dirs, powers = source.emit_arrays()
+    # No layout inside these windows images 50x: the focus gates can pass all
+    # they like, the magnification contract rejects every candidate.
+    spec = replace(_FAST, target_magnification=50.0)
+    with pytest.raises(OptimizationError, match="magnification-target-not-met"):
+        optimize_layout(
+            schema,
+            p1,
+            p2,
+            origins,
+            dirs,
+            powers,
+            element_bounds=_BOUNDS,
+            image_bounds=_IMAGE_BOUNDS,
+            optimization=spec,
+        )
+
+
+def test_unreachable_target_suboptimal_returns_best_effort():
+    schema, source, p1, p2 = _problem(point_array=True)
+    origins, dirs, powers = source.emit_arrays()
+    spec = replace(_FAST, target_magnification=50.0, allow_suboptimal=True)
+    result = optimize_layout(
+        schema,
+        p1,
+        p2,
+        origins,
+        dirs,
+        powers,
+        element_bounds=_BOUNDS,
+        image_bounds=_IMAGE_BOUNDS,
+        optimization=spec,
+    )
+    assert result.status == "no-focus-found"
+    assert np.isfinite(result.spot_radius_mm) and result.spot_radius_mm > 0.0
+    assert result.transform.scale < 5.0  # nowhere near the 50x target
+
+
+def test_non_positive_target_magnification_rejected():
+    schema, source, p1, p2 = _problem(point_array=True)
+    origins, dirs, powers = source.emit_arrays()
+    for bad in (0.0, -1.0, float("nan")):
+        with pytest.raises(ValueError, match="target_magnification"):
+            optimize_layout(
+                schema,
+                p1,
+                p2,
+                origins,
+                dirs,
+                powers,
+                element_bounds=_BOUNDS,
+                image_bounds=_IMAGE_BOUNDS,
+                optimization=replace(_FAST, target_magnification=bad),
+            )

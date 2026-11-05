@@ -174,8 +174,80 @@ void test_failure_reason_names() {
     CHECK(std::string(failure_reason_name(
               OptimizationFailureReason::WORST_FIELD_THRESHOLD_NOT_MET)) ==
           "worst-field-threshold-not-met");
+    CHECK(std::string(failure_reason_name(
+              OptimizationFailureReason::MAGNIFICATION_TARGET_NOT_MET)) ==
+          "magnification-target-not-met");
     CHECK(std::string(failure_reason_name(OptimizationFailureReason::NO_FULL_VALIDATION_PASS)) ==
           "no-full-validation-pass");
+}
+
+// The optional magnification contract: with a target set, the fitted scale
+// joins acceptance; without one it is ignored entirely (a focused candidate is
+// accepted whatever its scale reports).
+void test_magnification_target_acceptance() {
+    const OptimizerSpec no_target = policy_spec();
+    Stats any_scale = focused_stats();
+    any_scale.scale = 2.5;  // no target: magnification is not part of the contract
+    CHECK(focus_accepted(no_target, any_scale));
+
+    OptimizerSpec spec = policy_spec();
+    spec.target_scale = 1.0;
+    spec.max_scale_error = 0.02;
+
+    Stats on_target = focused_stats();
+    on_target.scale = 1.015;  // 1.5% off: within the 2% tolerance
+    CHECK(focus_accepted(spec, on_target));
+
+    Stats off_target = focused_stats();
+    off_target.scale = 1.05;  // 5% off: focused but wrong magnification
+    CHECK(!focus_accepted(spec, off_target));
+
+    Stats nan_scale = focused_stats();
+    nan_scale.scale = std::numeric_limits<double>::quiet_NaN();  // unmeasurable fit
+    CHECK(!focus_accepted(spec, nan_scale));
+
+    // Focus-first ranking still decides: a wrong-magnification candidate is
+    // the unfocused class, so an on-target one beats it at equal cost.
+    Stats right = focused_stats();
+    right.scale = 1.0;
+    CHECK(better_stats(spec, right, off_target));
+    CHECK(!better_stats(spec, off_target, right));
+}
+
+void test_magnification_failure_precedence() {
+    OptimizerSpec spec = policy_spec();
+    spec.target_scale = 1.0;
+    spec.max_scale_error = 0.02;
+
+    // Focus gates pass individually, so the magnification miss is the reason.
+    Stats off_target = focused_stats();
+    off_target.scale = 0.5;
+    CHECK(classify_failure(spec, off_target) ==
+          OptimizationFailureReason::MAGNIFICATION_TARGET_NOT_MET);
+
+    // A non-finite fitted scale is a magnification miss too.
+    Stats nan_scale = focused_stats();
+    nan_scale.scale = std::numeric_limits<double>::quiet_NaN();
+    CHECK(classify_failure(spec, nan_scale) ==
+          OptimizationFailureReason::MAGNIFICATION_TARGET_NOT_MET);
+
+    // The target dominates the search's cost, so its miss is the headline
+    // reason even when the blur guards also fail: the blur is what the
+    // candidate traded away chasing an unreachable magnification.
+    Stats also_blurry = off_target;
+    also_blurry.blur = 0.5;  // > tol
+    CHECK(classify_failure(spec, also_blurry) ==
+          OptimizationFailureReason::MAGNIFICATION_TARGET_NOT_MET);
+
+    // On target: nothing left for the classifier to blame.
+    Stats on_target = focused_stats();
+    on_target.scale = 1.0;
+    on_target.blur = 0.5;  // blur now decides, magnification staying satisfied
+    CHECK(classify_failure(spec, on_target) ==
+          OptimizationFailureReason::BLUR_THRESHOLD_NOT_MET);
+    on_target.blur = focused_stats().blur;
+    CHECK(classify_failure(spec, on_target) ==
+          OptimizationFailureReason::NO_FULL_VALIDATION_PASS);
 }
 
 void test_normalized_parameter_distance() {
@@ -224,6 +296,8 @@ void test_optimizer_acceptance() {
     test_focus_accepted_rejects_each_violation();
     test_better_stats_is_focus_first();
     test_classify_failure_precedence();
+    test_magnification_target_acceptance();
+    test_magnification_failure_precedence();
     test_failure_reason_names();
     test_normalized_parameter_distance();
     test_distinct_from_all();

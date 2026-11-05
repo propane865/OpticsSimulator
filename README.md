@@ -41,7 +41,9 @@ project document (legacy element-only stacks are accepted too), **File ->
 Save As** to write one back, and **File -> Import Zemax** to merge the
 lenses of a `.zmx` prescription into the open project. The analysis panel's
 **Optimize Layout** button sweeps the z of every unlocked element -- and
-optionally the image plane -- for best focus.
+optionally the image plane -- for best focus, and can additionally be asked to
+hit a target magnification (optical magnification, fitted between the analysis
+planes) as part of the accepted layout.
 
 To view the example stack without the full UI:
 

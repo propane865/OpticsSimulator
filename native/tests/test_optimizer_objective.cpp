@@ -1,7 +1,8 @@
 // The focus measure and its reduced-fidelity sampler: the pooled/per-object-
 // point spot radius, the deterministic group-aware ray order that keeps a
-// reduced level measuring whole object points, and the rigid-group geometry
-// penalties (stacking gaps run group-tail to group-head).
+// reduced level measuring whole object points, the rigid-group geometry
+// penalties (stacking gaps run group-tail to group-head), and the optional
+// magnification target's cost term.
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -11,12 +12,14 @@
 #include "optics/optimizing/optimizer.hpp"
 
 #include "check.hpp"
+#include "driver_problem.hpp"
 
 #include "../optimizing/objective.hpp"
 #include "test_element.hpp"
 
 namespace {
 
+using fixture::DriverProblem;
 using optics::native::fidelity_ray_order;
 using optics::native::OptimizerSpec;
 using optics::native::spot_radius;
@@ -187,6 +190,36 @@ void test_ungrouped_gaps_keep_the_single_element_rule() {
     CHECK(obj.swept_order_ok(loose));
 }
 
+// The optional magnification term: a target adds the weighted squared relative
+// error of the fitted scale to the cost and leaves every other reported
+// statistic alone; no target leaves the merit bit-identical to the focus-only
+// objective.
+void test_magnification_target_penalizes_cost() {
+    DriverProblem problem;
+    const double x[2] = {0.0, -5.0};
+
+    LayoutObjective plain_obj(problem.spec);
+    const LayoutObjective::Stats plain = plain_obj.evaluate(x);
+    CHECK(plain.cost < optics::native::detail::kBadCost);
+    CHECK(plain.scale > 0.0);
+
+    OptimizerSpec targeted = problem.spec;
+    targeted.target_scale = 2.0;
+    targeted.w_magnification = 3.0;
+    LayoutObjective targeted_obj(targeted);
+    const LayoutObjective::Stats with = targeted_obj.evaluate(x);
+    const double rel = (plain.scale - 2.0) / 2.0;
+    CHECK(close(with.cost, plain.cost + 3.0 * rel * rel, 1e-9));
+    CHECK(with.blur == plain.blur);
+    CHECK(with.n_shared == plain.n_shared);
+
+    // On target the penalty vanishes: the cost is exactly the focus-only one.
+    OptimizerSpec exact = problem.spec;
+    exact.target_scale = plain.scale;
+    LayoutObjective exact_obj(exact);
+    CHECK(close(exact_obj.evaluate(x).cost, plain.cost, 1e-9));
+}
+
 }  // namespace
 
 void test_optimizer_objective() {
@@ -194,4 +227,5 @@ void test_optimizer_objective() {
     test_fidelity_ray_order_is_group_aware();
     test_grouped_gaps_run_tail_to_head();
     test_ungrouped_gaps_keep_the_single_element_rule();
+    test_magnification_target_penalizes_cost();
 }

@@ -8,13 +8,16 @@ single-point source, one per pixel of a point array), each group's spread is
 taken about its own centroid, and the squared radii are pooled and normalized
 by a characteristic source-plane size. Because each object point is measured
 about its own image, the metric sees blur rather than the size or
-magnification of the image as a whole -- magnification is *not* part of the
-cost, so the layout is free to settle wherever it focuses best and the fitted
-:class:`~optics.plane_transform.PlaneTransform` magnification of the winning
-layout is reported afterwards. (For a single-point source that fitted
-magnification compares two ray footprints rather than an object and its image,
-so it tends to zero as the spot tightens; a point-array source gives a genuine
-image magnification.) Smooth penalties keep enough correspondences alive to
+magnification of the image as a whole -- by default magnification is *not*
+part of the cost, so the layout is free to settle wherever it focuses best and
+the fitted :class:`~optics.plane_transform.PlaneTransform` magnification of
+the winning layout is reported afterwards; with
+``LensOptimization.target_magnification`` set, the relative magnification
+error instead joins the cost and the acceptance contract, so the returned
+layout is focused *and* magnified as asked. (For a single-point source that
+fitted magnification compares two ray footprints rather than an object and its
+image, so it tends to zero as the spot tightens; a point-array source gives a
+genuine image magnification.) Smooth penalties keep enough correspondences alive to
 judge focus and keep the stack in order. Because the metric is
 piecewise-discontinuous (sigma clipping, vignetting, total internal
 reflection), the solver is a Latin-hypercube-initialized bounded differential

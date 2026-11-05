@@ -49,9 +49,15 @@ def optimize_layout(
     Traces the given ray fan (contiguous ``(N, 3)`` origins/dirs, ``(N,)``
     powers) from ``source_plane`` to ``image_plane`` and searches the free z
     positions minimizing the pooled per-object-point RMS spot radius on the
-    image plane (see :class:`LensOptimization` for weights). Magnification is
-    not part of the cost: it is whatever the focused layout produces, reported
-    as :attr:`OptimizationResult.transform`'s ``scale``. Free elements default
+    image plane (see :class:`LensOptimization` for weights). Without
+    ``LensOptimization.target_magnification`` magnification is not part of the
+    cost: it is whatever the focused layout produces, reported as
+    :attr:`OptimizationResult.transform`'s ``scale``. With a target set the
+    relative magnification error enters both the cost and the acceptance
+    contract -- the winner is focused *and* magnified as asked, or the run
+    fails with reason ``magnification-target-not-met``. (The fitted scale is
+    an object->image magnification only for an extended, point-array source;
+    for a single point it is a footprint ratio.) Free elements default
     to every stack element; explicit ``element_bounds`` / ``image_bounds``
     override the default windows: elements get :data:`_DEFAULT_WINDOW` about
     their current z, while the image plane gets a flat window upstream and a
@@ -101,6 +107,10 @@ def optimize_layout(
     layout = optimization if optimization is not None else LensOptimization()
     if source_plane is image_plane:
         raise ValueError("source and image plane must be different")
+    if layout.target_magnification is not None and (
+        not np.isfinite(layout.target_magnification) or layout.target_magnification <= 0.0
+    ):
+        raise ValueError("target_magnification must be a positive finite magnification")
     names = list(elements_schema.keys())
     if not names:
         raise ValueError("optimization needs at least one element")
@@ -241,13 +251,20 @@ def _result_from_outcome(
             if window_limited
             else ""
         )
+        mag_note = (
+            f" Best magnification: {float(outcome['scale']):.4g}; required "
+            f"within {layout.max_magnification_error:.3g} (relative) of the "
+            f"target {float(layout.target_magnification):.4g}."
+            if layout.target_magnification is not None
+            else ""
+        )
         raise OptimizationError(
             f"no focused configuration was found within the allowed parameter "
             f"ranges after {evals} evaluations ({status}). Best RMS spot "
             f"radius: {float(outcome['blur']):.4g} mm clipped, "
             f"{float(outcome['blur_all']):.4g} mm unclipped, worst field "
             f"{float(outcome['blur_max']):.4g} mm; required at most "
-            f"{tol:.4g} mm clipped{reason_note}.{bound_note}"
+            f"{tol:.4g} mm clipped{mag_note}{reason_note}.{bound_note}"
         )
 
     updated: dict[str, Any] = copy.deepcopy(dict(elements_schema))
