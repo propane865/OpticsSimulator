@@ -1,0 +1,23 @@
+py: "Python process" {
+  app: "Desktop app (ui/) — PySide6"
+  scene: "Scene layer (rendering/, ui/scene.py) — vispy"
+  domain: "Optics domain (optics/) — elements, trace stack, planes, optimizer"
+  cons: "tests/ and benchmarks/"
+}
+
+nat: "Compiled native layer" {
+  abi: "_native module — pybind11 bindings (native/bindings/)"
+  kern: "optics_core kernels — C++17 (native/)"
+  pool: "Native thread pool (common/parallel.hpp)"
+}
+
+doc: "Project JSON and Zemax .zmx prescriptions"
+
+doc -> py.domain: load, import, save
+py.app -> py.domain: project edits, rebuild system
+py.app -> py.scene: ray segments and plane images
+py.domain -> nat.abi: NumPy buffers + native handles
+nat.abi -> nat.kern: typed entry points
+nat.kern -> nat.pool: parallel hops, objective evaluation
+py.cons -> py.domain: trace and measurement API
+py.cons -> nat.kern: ctest binary over kernel TUs

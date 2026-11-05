@@ -1,0 +1,29 @@
+qt: "Qt layer (PySide6)" {
+  layout: "main.ui — Qt Designer layout"
+  win: "app.py — OpticsMainWindow, owns the shared selection"
+  tree: "project_tree.py — source / lens stack / planes, submodules"
+  ed: "editors/ — element, source, plane, submodule, analysis"
+  pv: "plane_view.py — 2D detector colormap"
+  work: "optimize.py — LayoutOptimizer on a QThread"
+}
+
+free: "Qt-free" {
+  state: "project/ — ProjectState (state, elements, measurements, persistence)"
+  scene: "scene.py — SceneController (vispy node bookkeeping)"
+}
+
+rendering: "rendering/ — vispy meshing, colormaps, camera"
+opt: "optics.optimizer — optimize_layout"
+
+layout -> qt.win: forms and dock widgets
+qt.win -> qt.tree: mirrors the project
+qt.tree -> qt.win: kind + name selection
+qt.win -> qt.ed: editor page per selection
+qt.ed -> free.state: validated apply
+qt.ed -> qt.win: item add and remove callbacks
+qt.win -> free.scene: fused trace segments, plane images
+free.scene -> rendering: mesh and colormap build
+qt.win -> qt.pv: selected plane result
+qt.ed -> qt.work: start and cancel run
+qt.work -> opt: solve off the UI thread
+qt.work -> qt.win: progress and result on the UI thread

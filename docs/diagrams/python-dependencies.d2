@@ -1,0 +1,37 @@
+uicore: "ui/ core — app, model facade, scene, tree, plane view"
+editors: "ui/editors/"
+uproject: "ui/project/ — Qt-free state"
+rendering: "rendering/"
+primitive: "optics/primitive/ — Ray, Surface, Element parts"
+core: "optics/ — config, element, system, measurement_plane, project, source"
+optimizer: "optics/optimizer/"
+importers: "optics/importers/zmx/"
+abi: "optics/_native — pybind11 boundary + .pyi stubs"
+
+third: "Third party" {
+  pyside: "PySide6"
+  vispy: "vispy"
+  numpy: "numpy"
+}
+
+uicore -> editors: build and route pages
+editors -> uicore: widgets, state, helpers
+uicore -> uproject: owns ProjectState
+uproject -> core: build elements and planes
+uicore -> rendering: canvas, meshes, camera
+uicore -> core: trace and measure
+uicore -> optimizer: layout runs
+uicore -> importers: merge .zmx
+editors -> core: element and plane types
+editors -> optimizer: LensOptimization settings
+rendering -> core: scene geometry
+rendering -> primitive: surfaces, sidewalls
+optimizer -> core: rebuild stacks, read planes
+core -> primitive: primitives and surfaces
+primitive -> core: constants, _util, expression
+core -> abi: surface, stack, trace calls
+primitive -> abi: surface and mesh kernels
+optimizer -> abi: OptimizeProblem, layout solve
+uicore -> third: Qt and vispy canvas
+rendering -> third: scene graph
+core -> third: array buffers

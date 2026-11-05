@@ -5,6 +5,69 @@ tracing, measurement) run in a compiled C++ kernel library exposed to Python
 as `optics._native` (type stubs in `optics/_native.pyi`). NumPy is used for
 array buffers only.
 
+### Block diagrams
+
+Generated with [D2](https://d2lang.com); the editable sources are checked in
+under `./diagrams/`. Re-render after editing a source:
+
+```sh
+d2 diagrams/native-modules.d2 diagrams/native-modules.svg
+```
+
+**1. Layers and the Python/native boundary.** The numerics live in C++: the
+domain layer hands contiguous NumPy buffers and opaque native handles across the
+pybind11 boundary and gets arrays back, so per-ray work never crosses into the
+interpreter.
+
+![Layers and the Python/native boundary](diagrams/system-overview.svg)
+
+**2. Python package dependencies.** Edges are real imports. The one package
+cycle is intentional and thin: `optics/primitive/` uses the support modules
+(`constants`, `_util`, `expression`) while the upper core packages build on the
+primitives. Neither `ui/` nor `rendering/` reaches past `optics/` into
+`_native`; only `benchmarks/` and a few kernel-level tests do.
+
+![Python package dependencies](diagrams/python-dependencies.svg)
+
+**3. Native module layering.** Includes, not declarations: each arrow means
+`A/#include <optics/B/...>`. `expression/` and `common/` are leaves;
+`geometry/` ⇄ `intersection/` is the one header cycle (`geometry/surface.hpp`
+reuses the plane and rim-mesh primitives). `native/tests/` links the whole
+library, so it is a consumer rather than a layer.
+
+![Native module layering](diagrams/native-modules.svg)
+
+**4. Desktop application blocks.** Only the boxes in the Qt container touch
+PySide6. `ProjectState` and the vispy `SceneController` are Qt-free, so the
+document model and the scene bookkeeping are unit-testable headless (CI runs
+with `QT_QPA_PLATFORM=offscreen`). The window learns about list changes through
+the `on_items_changed` callbacks it hands to the tree and editors, not from the
+state object.
+
+![Desktop application blocks](diagrams/ui-application.svg)
+
+**5. One UI refresh.** The refresh exists to make a single native walk serve
+everything: ray segments for the 3D view and the `(u, v, power)` hits for every
+measurement plane. Everything downstream (meshes, detector images, the 2D view)
+is derived, and cached by geometry signature so unchanged lenses are not
+remeshed or retraced.
+
+![One UI refresh](diagrams/refresh-dataflow.svg)
+
+**6. Layout optimization.** The search runs entirely in native code over
+transform-only stack variants; Python only builds the bounded problem and
+interprets the outcome, so the UI thread is never inside the objective.
+
+![Layout optimization](diagrams/optimization-loop.svg)
+
+**7. Build and test pipeline.** One object library feeds both shipped and
+developed artifacts, so the kernels the native tests exercise are the kernels
+the wheel ships.
+
+![Build and test pipeline](diagrams/build-pipeline.svg)
+
+### Modules
+
 - `native/`: C++17 kernels (built as the `optics_core` object library and the
   `_native` pybind11 module, whose bindings live in `native/bindings/`),
   layered `common ← expression ← geometry ← intersection ← tracing ←

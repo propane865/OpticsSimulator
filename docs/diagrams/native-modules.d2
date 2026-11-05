@@ -1,0 +1,38 @@
+bindings: "native/bindings/ — pybind11 registration (module, builders, kernels, tracing, measurement, optimizer)"
+ntests: "native/tests/ — one ctest binary"
+
+optimizing: "optimizing/ — DE + gated Nelder–Mead, objective, fit, acceptance"
+measurement: "measurement/ — power accumulation, Wendland C² reconstruction, fused batch"
+tracing: "tracing/ — element and trace-stack state, refraction, stack walk"
+intersection: "intersection/ — Newton solver, classified closed-form, inversion, rim mesh"
+geometry: "geometry/ — surface models, apertures, world normals"
+expression: "expression/ — parser and tree interpreter"
+common: "common/ — vector/matrix math, linalg, parallel dispatch, constants"
+
+ntests -> optimizing: kernel and pipeline cases
+ntests -> measurement: plane and reconstruct cases
+ntests -> tracing: element and stack cases
+ntests -> intersection: analytic solver cases
+ntests -> geometry: surface cases
+bindings -> optimizing: optimize_layout
+bindings -> measurement: accumulate, reconstruct, measure
+bindings -> tracing: build_element, build_trace_stack, trace
+bindings -> intersection: mesh_intersect, aperture mask
+bindings -> geometry: compile_surface, make_surface
+bindings -> expression: parse and validate
+bindings -> common: rotation_from_z
+optimizing -> measurement: evaluate candidate stacks
+optimizing -> tracing: transform-only stack variants
+measurement -> tracing: walk the persistent stack
+measurement -> intersection: plane hit primitives
+tracing -> intersection: surface hits per hop
+tracing -> geometry: surface descriptors and normals
+intersection -> geometry: surface and aperture models
+intersection -> expression: evaluate lowered tree
+geometry -> expression: evaluate lowered tree
+geometry -> intersection: plane and rim mesh primitives
+intersection -> common: math and threading
+tracing -> common: math and threading
+measurement -> common: math and threading
+optimizing -> common: parallel dispatch
+geometry -> common: math
