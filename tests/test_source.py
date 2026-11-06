@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from optics.primitive import Ray
+from optics.primitive import DEFAULT_WAVELENGTH_NM, Ray
 from optics.source import (
     MAX_ARRAY_RAYS,
     POINT_ARRAY,
@@ -260,3 +260,45 @@ def test_emit_rays_zero_power_allowed():
     source = PointSource([0.0, 0.0, 3.0], power=0.0, num_rays=8)
     rays = source.emit_rays()
     assert all(ray.power == 0.0 for ray in rays)
+
+# --- wavelength (nanometres) ---
+def test_default_wavelength_is_the_project_default():
+    source = PointSource([0.0, 0.0, 3.0])
+    assert source.wavelength == pytest.approx(DEFAULT_WAVELENGTH_NM)
+
+
+def test_wavelength_round_trips_through_the_constructor():
+    source = PointSource([0.0, 0.0, 3.0], wavelength=532.0)
+    assert source.wavelength == pytest.approx(532.0)
+
+
+@pytest.mark.parametrize("bad", [0.0, -405.0, np.nan, np.inf])
+def test_invalid_wavelength_raises(bad):
+    with pytest.raises(ValueError, match="Wavelength must be finite and positive"):
+        PointSource([0.0, 0.0, 0.0], wavelength=bad)
+
+
+def test_emit_arrays_carries_a_uniform_wavelength_array():
+    source = PointSource([0.0, 0.0, 3.0], num_rays=16, wavelength=633.0)
+    origins, _dirs, powers, wavelengths = source.emit_arrays()
+    assert wavelengths.shape == origins.shape[:1] == powers.shape
+    assert np.all(wavelengths == pytest.approx(633.0))
+
+
+def test_emit_arrays_grid_carries_a_uniform_wavelength_array():
+    source = PointSource(
+        [0.0, 0.0, 0.0],
+        num_rays=4,
+        wavelength=488.0,
+        source_type=POINT_ARRAY,
+        weights=np.ones((2, 3)),
+    )
+    origins, _dirs, _powers, wavelengths = source.emit_arrays()
+    assert origins.shape[0] == 24
+    assert np.all(wavelengths == pytest.approx(488.0))
+
+
+def test_emit_rays_stamp_the_source_wavelength():
+    source = PointSource([0.0, 0.0, 3.0], num_rays=8, wavelength=532.0)
+    rays = source.emit_rays()
+    assert all(ray.wavelength == pytest.approx(532.0) for ray in rays)

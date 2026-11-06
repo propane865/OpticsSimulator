@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from optics.measurement_plane import MeasurementPlane, rays_to_arrays
-from optics.primitive import Ray
+from optics.measurement_plane import MeasurementPlane, arrays_to_rays, rays_to_arrays
+from optics.primitive import DEFAULT_WAVELENGTH_NM, Ray
 from optics.source import PointSource
 from optics.system import OpticalSystem
 
@@ -345,7 +345,8 @@ def test_measure_records_traced_crossing_at_any_plane_z(make_element, z):
     system, rays = _plate_stack(make_element)
     plane = _axis_plane(z)
 
-    us, vs, pws = system.measure_planes(*rays_to_arrays(rays), [plane])
+    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
+    us, vs, pws = system.measure_planes(origins, dirs, powers, [plane])
 
     for i, ray in enumerate(rays):
         crossing = _walk_crossing(system, ray, plane)
@@ -367,7 +368,7 @@ def test_plane_above_zero_does_not_collapse_onto_the_axis(make_element):
 
 def test_fused_trace_measure_matches_above_zero(make_element):
     system, rays = _plate_stack(make_element)
-    origins, dirs, powers = rays_to_arrays(rays)
+    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
     plane = _axis_plane(1.0)
 
     us, vs, pws = system.measure_planes(origins, dirs, powers, [plane])
@@ -378,3 +379,46 @@ def test_fused_trace_measure_matches_above_zero(make_element):
     np.testing.assert_array_equal(fused_us, us)
     np.testing.assert_array_equal(fused_vs, vs)
     np.testing.assert_array_equal(fused_pws, pws)
+
+# --- Ray <-> array round trip keeps the wavelength (nm) ---
+def _wavelength_pair():
+    return [
+        Ray(np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0, 405.0),
+        Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 2.0, 532.0),
+    ]
+
+
+def test_rays_to_arrays_carries_per_ray_wavelengths():
+    *_, wavelengths = rays_to_arrays(_wavelength_pair())
+    np.testing.assert_allclose(wavelengths, [405.0, 532.0])
+
+
+def test_arrays_to_rays_round_trips_every_field():
+    restored = arrays_to_rays(*rays_to_arrays(_wavelength_pair()))
+    for original, back in zip(_wavelength_pair(), restored):
+        np.testing.assert_array_equal(back.origin, original.origin)
+        np.testing.assert_allclose(back.direction, original.direction)
+        assert back.power == pytest.approx(original.power)
+        assert back.wavelength == pytest.approx(original.wavelength)
+
+
+def test_arrays_to_rays_without_wavelengths_uses_the_default():
+    origins = np.array([[0.0, 0.0, 3.0]])
+    dirs = np.array([[0.0, 0.0, -1.0]])
+    powers = np.array([1.0])
+    rays = arrays_to_rays(origins, dirs, powers)
+    assert rays[0].wavelength == pytest.approx(DEFAULT_WAVELENGTH_NM)
+
+
+def test_arrays_to_rays_broadcasts_a_scalar_wavelength():
+    origins = np.array([[0.0, 0.0, 3.0], [1.0, 0.0, 3.0]])
+    dirs = np.array([[0.0, 0.0, -1.0], [0.0, 0.0, -1.0]])
+    powers = np.array([1.0, 1.0])
+    rays = arrays_to_rays(origins, dirs, powers, 633.0)
+    assert [ray.wavelength for ray in rays] == [pytest.approx(633.0)] * 2
+
+
+def test_rays_to_arrays_of_no_rays_is_empty():
+    origins, dirs, powers, wavelengths = rays_to_arrays([])
+    assert origins.shape == (0, 3) and dirs.shape == (0, 3)
+    assert powers.shape == (0,) and wavelengths.shape == (0,)

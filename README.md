@@ -64,7 +64,7 @@ light source and measurement planes:
   },
   "source": {
     "position": [0, 0, 3],
-    "power": 1.0, "num_rays": 16,
+    "power": 1.0, "wavelength": 405.0, "num_rays": 16,
     "source_type": "single_point",
     "cone_angle": 60.0
   },
@@ -98,13 +98,20 @@ core can still emit from an already-decoded grid:
 ```json
 "source": {
   "position": [0, 0, 3],
-  "power": 1.0, "num_rays": 4,
+  "power": 1.0, "wavelength": 405.0, "num_rays": 4,
   "source_type": "point_array",
   "cone_angle": 60.0,
   "pixel_pitch": 0.05, "max_grid_dim": 64,
   "image": "<base64 PNG>"
 }
 ```
+
+`wavelength` is the vacuum wavelength in nanometres (default 405), stamped on
+every ray the source emits and carried on each `Ray`; the Light Source panel
+edits the same value, and a document written without the key loads at that
+default. Tracing is achromatic today -- one refractive index per material -- so
+changing it does not move focus: the wavelength is per-ray colour that a future
+dispersion pass reads.
 
 ## Optical stack format
 

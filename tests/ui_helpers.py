@@ -60,6 +60,7 @@ def _source_editor(window):
     return {
         "type": window.findChild(QtWidgets.QComboBox, "sourceTypeCombo"),
         "power": window.findChild(QtWidgets.QDoubleSpinBox, "sourcePowerSpin"),
+        "wavelength": window.findChild(QtWidgets.QDoubleSpinBox, "sourceWavelengthSpin"),
         "cone": window.findChild(QtWidgets.QDoubleSpinBox, "coneAngleSpin"),
         "rays": window.findChild(QtWidgets.QSpinBox, "numRaysSpin"),
         "x": window.findChild(QtWidgets.QDoubleSpinBox, "sourceX"),

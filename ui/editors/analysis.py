@@ -312,7 +312,7 @@ class AnalysisEditor:
         # Snapshot everything the worker reads: UI edits are disabled while it
         # runs, but this keeps the worker free of any shared mutable state.
         schema_snapshot = copy.deepcopy(schema)
-        origins, dirs, powers = self._state.rays_arrays()
+        origins, dirs, powers, _wavelengths = self._state.rays_arrays()
         target_magnification = (
             float(self._mag_target_spin.value()) if self._optimize_mag_check.isChecked() else None
         )

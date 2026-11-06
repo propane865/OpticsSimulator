@@ -16,7 +16,10 @@ d2 diagrams/native-modules.d2 diagrams/native-modules.svg
 
 **1. Layers and the Python/native boundary.** The domain layer sends contiguous
 NumPy buffers and opaque native handles across pybind11 and receives arrays
-back: per-ray work never enters the interpreter.
+back: per-ray work never enters the interpreter. The trace and measure kernels
+are handed only the `(origins, dirs, powers)` buffers - a ray's wavelength (nm)
+stays Python-side, carried on `Ray` and the emitted fan, until the kernel gains
+dispersion.
 
 ![Layers and the Python/native boundary](diagrams/system-overview.svg)
 
@@ -96,7 +99,8 @@ ASan/UBSan on Linux, and runs `pytest` only after `ruff` and `mypy` pass.
     keeps floating-point evaluation order faithful to strict IEEE semantics
   - `tests/`: native unit test TUs, one ctest binary (see Testing)
 - `optics/`: numerics core, no GUI/OpenGL dependencies:
-  - `primitive/`: geometric primitives - `ray.py`, `transform.py`, `hit.py`,
+  - `primitive/`: geometric primitives - `ray.py` (origin, direction, power,
+    wavelength in nm), `transform.py`, `hit.py`,
     `material.py`, `aperture.py`, `sidewall.py` (lens rims intersected by the
     native Moller-Trumbore mesh kernel), `vector.py` (native vector helpers),
     `surface.py` (parametric surfaces delegating every numerical operation to
@@ -114,7 +118,8 @@ ASan/UBSan on Linux, and runs `pytest` only after `ruff` and `mypy` pass.
   - `plane_transform.py`: best 2D similarity (magnification, rotation, offset)
     fitted to the per-ray hit correspondence between two planes
   - `constants.py`: numerical tolerances, solver defaults
-  - `source.py`: point sources, ray emission
+  - `source.py`: point sources, ray emission (every ray carries the source's
+    wavelength in nm)
   - `config.py`: JSON -> element/stack loading
   - `io.py`: JSON project-document loading (Zemax `.zmx` is import-only)
   - `project.py`: versioned project documents (elements + source + measurement

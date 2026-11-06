@@ -3,9 +3,9 @@ from collections.abc import Callable, Sequence
 import numpy as np
 
 from . import _native
-from ._util import coerce_ray_arrays
+from ._util import coerce_ray_arrays, wavelength_array
 from .measurement_plane import arrays_to_rays
-from .primitive import Ray
+from .primitive import DEFAULT_WAVELENGTH_NM, Ray
 from .primitive.vector import as_finite_vector
 
 SINGLE_POINT = "single_point"
@@ -84,6 +84,7 @@ def _validate_cone_angle(cone_angle_deg: float) -> float:
 class PointSource:
     position: np.ndarray
     power: float
+    wavelength: float
     num_rays: int
     source_type: str
     cone_angle: float
@@ -95,6 +96,7 @@ class PointSource:
         self,
         position: np.ndarray | Sequence[float],
         power: float = 1.0,
+        wavelength: float = DEFAULT_WAVELENGTH_NM,
         num_rays: int = 64,
         source_type: str = SINGLE_POINT,
         cone_angle: float = 360.0,
@@ -107,6 +109,10 @@ class PointSource:
         self.power = float(power)
         if not np.isfinite(self.power) or self.power < 0.0:
             raise ValueError("Power must be finite and non-negative")
+
+        self.wavelength = float(wavelength)
+        if not np.isfinite(self.wavelength) or self.wavelength <= 0.0:
+            raise ValueError("Wavelength must be finite and positive")
 
         self.num_rays = int(num_rays)
         if self.num_rays < 1:
@@ -147,7 +153,7 @@ class PointSource:
         active = weights > 0.0
         return points[active], weights[active]
 
-    def _emit_arrays_grid(self) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+    def _emit_arrays_grid(self) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
         """Tile the single-point cone fan across every active grid point.
 
         The native kernel rotates each point's fan about the z axis by its own
@@ -173,15 +179,30 @@ class PointSource:
             np.ascontiguousarray(dirs, dtype=float),
             self.power,
         )
-        return coerce_ray_arrays(origins, all_dirs, powers)
+        return self._fan_with_wavelengths(origins, all_dirs, powers)
 
-    def emit_arrays(self) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
-        """Emit the ray fan as contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers.
+    def _fan_with_wavelengths(
+        self, origins: np.ndarray, dirs: np.ndarray, powers: np.ndarray
+    ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
+        """Coerce a native fan and append this source's uniform wavelength array."""
+        origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
+        return (
+            origins,
+            dirs,
+            powers,
+            wavelength_array(self.wavelength, origins.shape[0]),
+        )
+
+    def emit_arrays(self) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
+        """Emit the ray fan as contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers/wavelengths.
 
         Built directly by the native kernel with unit directions, so this is the
         marshalling-free path used by the tracing/measurement hot paths. The
         ``single_point`` type fans a single origin; ``point_array`` tiles that
         fan across an intensity-weighted grid (total power split by brightness).
+        Wavelengths (nm) are uniform across the fan -- every ray of a source
+        shares its colour -- and are the per-ray carrier a future dispersion pass
+        reads.
         """
         if self.source_type == POINT_ARRAY:
             return self._emit_arrays_grid()
@@ -190,7 +211,8 @@ class PointSource:
         origins, dirs, powers = _native.emit_cone(
             self.position, self.power, self.num_rays, self.cone_angle
         )
-        return coerce_ray_arrays(origins, dirs, powers)
+        return self._fan_with_wavelengths(origins, dirs, powers)
 
     def emit_rays(self) -> list[Ray]:
+        """The emitted fan as :class:`Ray` objects, each carrying the wavelength."""
         return arrays_to_rays(*self.emit_arrays())

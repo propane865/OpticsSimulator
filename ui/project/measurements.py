@@ -37,7 +37,9 @@ class TraceContext(Protocol):
     @property
     def source(self) -> PointSource: ...
 
-    def rays_arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+    def rays_arrays(
+        self,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: ...
 
 
 class MeasurementState:
@@ -60,7 +62,7 @@ class MeasurementState:
 
     def measure_rows(self, planes: Sequence[MeasurementPlane]) -> list[PlaneRow]:
         """One trace's hits against ``planes``, split into per-plane rows."""
-        origins, dirs, powers = self._context.rays_arrays()
+        origins, dirs, powers, _wavelengths = self._context.rays_arrays()
         return self.split_hits(
             *self._context.system.measure_planes(origins, dirs, powers, planes)
         )

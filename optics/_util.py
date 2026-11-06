@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TypeVar
 
 import numpy as np
@@ -43,3 +43,31 @@ def coerce_ray_arrays(
         np.ascontiguousarray(dirs, dtype=float),
         np.ascontiguousarray(powers, dtype=float),
     )
+
+
+def wavelength_array(
+    wavelengths: np.ndarray | Sequence[float] | float | None, count: int
+) -> np.ndarray:
+    """Contiguous ``(N,)`` float64 wavelengths in nm for a fan of ``count`` rays.
+
+    ``wavelengths`` is ``None`` (every ray takes the project default), a scalar
+    (broadcast across the fan -- the single-wavelength source) or a per-ray
+    sequence of ``count`` values (what :func:`rays_to_arrays` returns). Purely
+    structural, like :func:`coerce_ray_arrays`; the value itself is validated on
+    the :class:`~optics.primitive.ray.Ray`. Imported lazily because
+    :mod:`optics.primitive` reaches this module, so a module-level import would
+    close a cycle.
+    """
+    from .primitive.ray import DEFAULT_WAVELENGTH_NM
+
+    n = int(count)
+    values = np.asarray(
+        DEFAULT_WAVELENGTH_NM if wavelengths is None else wavelengths, dtype=float
+    )
+    try:
+        broadcast = np.broadcast_to(values, (n,))
+    except ValueError:
+        raise ValueError(
+            f"Wavelengths must be a scalar or hold {n} values, got {values.shape}"
+        ) from None
+    return np.ascontiguousarray(broadcast, dtype=float)

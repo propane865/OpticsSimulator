@@ -26,7 +26,7 @@ from tests.optimizer._common import (
 
 def test_pipeline_converges_to_best_focus():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     system = _system(schema)
     base_radius = _spot_radius(system, p2, origins, dirs, powers, p1)
     _, ref_radius = _sweep_best_z(system, p1, p2, origins, dirs, powers)
@@ -38,7 +38,7 @@ def test_pipeline_converges_to_best_focus():
 
 def test_pipeline_spot_matches_a_retrace():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     result = _optimize_pipeline(schema, source, p1, p2)
     assert result.status == "ok"
     image = _plane_at(p2, result.best_z[-1])
@@ -96,7 +96,7 @@ def test_pipeline_reports_a_structured_failure_reason():
 
 def test_pipeline_converges_on_a_grouped_fan_in_one_run():
     schema, source, p1, p2 = _grouped_problem()
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     assert origins.shape[0] == 1024  # 64 object points of 16 rays each
     result = optimize_layout(
         schema,

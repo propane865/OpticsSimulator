@@ -357,7 +357,7 @@ def import_elements(
         built.append(refractive_element_from_config(new_config))
 
     new_system = OpticalSystem([*state._elements, *built])
-    origins, dirs, powers = state.rays_arrays()
+    origins, dirs, powers, _wavelengths = state.rays_arrays()
     new_rows = state._measurements.split_hits(
         *new_system.measure_planes(origins, dirs, powers, state._measurements.planes)
     )

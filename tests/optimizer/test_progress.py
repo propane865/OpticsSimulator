@@ -18,7 +18,7 @@ def test_optimize_layout_progress_callback_ticks_per_evaluation_interval():
     # evaluations apart and generations may repeat. Autofocus is off; the legacy
     # (non-pipeline) path traces the whole fan, keeping this a couple of seconds.
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     ticks: list[tuple[int, float, float, int]] = []
     opt = LensOptimization(
         seed=7,
@@ -70,7 +70,7 @@ def test_progress_ticks_cover_post_de_refinement():
     # evaluations looks hung. Every phase shares the same evaluation gate, so
     # the final tick sits within one interval plus one candidate of the total.
     schema, source, p1, p2 = _problem(point_array=True)
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     ticks: list[tuple[int, float, float, int]] = []
     opt = LensOptimization(
         seed=11,

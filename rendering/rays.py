@@ -76,7 +76,7 @@ def build_ray_nodes(
     """
     if not rays:
         return []
-    origins, dirs, _powers = rays_to_arrays(rays)
+    origins, dirs, _powers, _wavelengths = rays_to_arrays(rays)
     finite = np.isfinite(origins).all(axis=1) & np.isfinite(dirs).all(axis=1)
     if not finite.any():
         return []

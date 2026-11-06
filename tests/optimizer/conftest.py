@@ -20,7 +20,7 @@ from tests.optimizer._common import (
 def optimized():
     schema, source, p1, p2 = _problem()
     base = plane_transform(source.emit_rays(), [p1, p2], _system(schema))
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     system = _system(schema)
     ref_z, ref_radius = _sweep_best_z(system, p1, p2, origins, dirs, powers)
     result = optimize_layout(

@@ -86,8 +86,11 @@ def test_measure_batch_matches_per_plane_measure(name):
     planes = _planes([-1.5, -3.0, -5.5])
     system = OpticalSystem(elements)
 
+    # The batch measure takes only the geometric arrays; wavelength is not an
+    # input to an achromatic trace.
+    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
     batch_results = MeasurementPlane.measure_batch_arrays(
-        planes, *rays_to_arrays(rays), system
+        planes, origins, dirs, powers, system
     )
     batch_grids = [r.grid.copy() for r in batch_results]
 

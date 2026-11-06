@@ -44,7 +44,7 @@ def test_bounds_and_configs(optimized):
 
 def test_locked_elements_keep_their_z():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     locked_z = float(schema["lens1"]["position"][2])
     result = optimize_layout(
         schema,
@@ -68,7 +68,7 @@ def test_locked_elements_keep_their_z():
 
 def test_locked_image_plane_still_focuses_with_the_elements():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     system = _system(schema)
     base_radius = _spot_radius(system, p2, origins, dirs, powers, p1)
     z_image = float(p2.o[2])
@@ -186,7 +186,7 @@ def test_free_group_moves_rigidly_with_the_anchor():
     # merit -- a member left behind in the trace would report a blur far off
     # the committed layout's own spot radius.
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     spec = replace(_FAST, allow_suboptimal=True)
     result = optimize_layout(
         schema,
@@ -210,7 +210,9 @@ def test_free_group_moves_rigidly_with_the_anchor():
     # preserved to the last bit.
     assert pos1 - pos2 == pytest.approx(18.0 - (-12.5), rel=1e-12)
     image = _plane_at(p2, result.best_z[-1])
-    raw = _spot_radius(_system(result.elements_config), image, *source.emit_arrays(), p1)
+    raw = _spot_radius(
+        _system(result.elements_config), image, *source.emit_arrays()[:3], p1
+    )
     assert 0.0 < result.spot_radius_mm <= raw * (1.0 + 1e-9)
     if result.transform.n_used == result.transform.n_total:
         assert result.spot_radius_mm == pytest.approx(raw, rel=1e-6)
@@ -221,7 +223,7 @@ def test_default_free_set_uses_one_parameter_per_group():
     # two-dimensional (group anchor + plane), not three: the lens members drop
     # out of the standalone free set instead of being reported as grouped twice.
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     spec = replace(_FAST, allow_suboptimal=True, max_evals=200)
     result = optimize_layout(
         schema,

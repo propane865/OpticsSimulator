@@ -99,7 +99,11 @@ class OpticalSystem:
     def trace_path(
         self, ray: Ray, ray_length: float = 3.0
     ) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], Ray | None]":
-        """Single-ray ``(segments, final_ray)`` through the stack."""
+        """Single-ray ``(segments, final_ray)`` through the stack.
+
+        The exit ray carries the incident power and wavelength: the stack is
+        achromatic, so refraction leaves both untouched.
+        """
         cap = _native.segments_capacity(len(self._stack))
         starts = np.empty((cap, 3), dtype=float)
         ends = np.empty((cap, 3), dtype=float)
@@ -119,7 +123,7 @@ class OpticalSystem:
         ]
         if not exited:
             return segments, None
-        return segments, Ray(fo, fd, ray.power)
+        return segments, Ray(fo, fd, ray.power, ray.wavelength)
 
     def trace_segments(
         self,

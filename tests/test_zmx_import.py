@@ -456,7 +456,7 @@ def _trace_total(elements: dict[str, Any], geometry: Any) -> float:
         v_range=[-half, half],
         resolution=[64, 64],
     )
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     result = MeasurementPlane.measure_batch_arrays(
         [plane], origins, dirs, powers, system
     )[0]

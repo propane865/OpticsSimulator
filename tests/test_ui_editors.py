@@ -12,6 +12,7 @@ PySide6 = pytest.importorskip("PySide6")
 from PySide6 import QtGui, QtWidgets
 
 from optics.measurement_plane import MeasurementPlane
+from optics.primitive import DEFAULT_WAVELENGTH_NM
 from tests.ui_helpers import (
     CANCEL,
     OK,
@@ -451,6 +452,9 @@ def test_source_panel_populated_with_defaults(window):
     editor = _source_editor(window)
     assert editor["type"].currentText() == "Single Point"
     assert editor["power"].value() == pytest.approx(1.0)
+    assert editor["wavelength"].value() == pytest.approx(DEFAULT_WAVELENGTH_NM)
+    # Qt's own 0..99.99 spin default cannot hold a visible-light wavelength.
+    assert editor["wavelength"].maximum() >= 1000.0
     assert editor["cone"].value() == pytest.approx(60.0)
     assert editor["rays"].value() == 16
     assert editor["z"].value() == pytest.approx(30.0)
@@ -510,6 +514,25 @@ def test_source_ok_applies_changes(window):
     assert len(window.rays) == 8
     assert all(ray.origin[2] == pytest.approx(5.0) for ray in window.rays)
     assert "Updated light source (8 rays)" in window.statusBar().currentMessage()
+
+
+def test_source_wavelength_applies(window):
+    editor = _source_editor(window)
+    editor["wavelength"].setValue(532.0)
+    _click_source(window, OK)
+
+    assert window.source.wavelength == pytest.approx(532.0)
+    assert all(ray.wavelength == pytest.approx(532.0) for ray in window.rays)
+
+
+def test_source_wavelength_cancel_reverts(window):
+    editor = _source_editor(window)
+    original = editor["wavelength"].value()
+    editor["wavelength"].setValue(633.0)
+    _click_source(window, CANCEL)
+
+    assert editor["wavelength"].value() == pytest.approx(original)
+    assert window.source.wavelength == pytest.approx(original)
 
 
 def test_source_cancel_reverts_edits(window):

@@ -6,7 +6,7 @@ from vispy import scene
 
 import rendering.visualize as visualize
 from optics.measurement_plane import MeasurementPlane
-from optics.primitive import Ray, Surface
+from optics.primitive import DEFAULT_WAVELENGTH_NM, Ray, Surface
 from optics.source import PointSource
 from optics.system import OpticalSystem
 from rendering import demo
@@ -88,6 +88,13 @@ def test_trace_ray_off_axis_finite(sphere):
     assert np.all(np.isfinite(out.direction))
     assert np.all(np.isfinite(out.origin))
 
+
+
+def test_trace_path_forwards_the_wavelength(sphere):
+    ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0, 532.0)
+    _segments, out = OpticalSystem([sphere]).trace_path(ray)
+    assert out is not None
+    assert out.wavelength == pytest.approx(ray.wavelength)
 
 def test_trace_ray_miss_returns_none(sphere):
     ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, 1.0]), 1.0)
@@ -428,6 +435,7 @@ def test_build_ray_nodes_skips_non_finite_rays():
         origin=np.array([np.nan, 0.0, 0.0]),
         direction=np.array([0.0, 0.0, -1.0]),
         power=1.0,
+        wavelength=DEFAULT_WAVELENGTH_NM,
     )
     assert visualize.build_ray_nodes(view, [], [bad], ray_length=2.0) == []
     assert view.added == []

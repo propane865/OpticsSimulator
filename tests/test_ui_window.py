@@ -244,6 +244,7 @@ def test_save_load_round_trip_preserves_source_and_planes(stack_window, make_win
     source_editor = _source_editor(window)
     source_editor["rays"].setValue(8)
     source_editor["cone"].setValue(30.0)
+    source_editor["wavelength"].setValue(532.0)
     _click_source(window, OK)
     _trigger_measurement_plane(window)
     plane_editor = _plane_editor(window)
@@ -259,6 +260,8 @@ def test_save_load_round_trip_preserves_source_and_planes(stack_window, make_win
 
     assert window2.source.num_rays == 8
     assert window2.source.cone_angle == pytest.approx(30.0)
+    assert window2.source.wavelength == pytest.approx(532.0)
+    assert all(ray.wavelength == pytest.approx(532.0) for ray in window2.rays)
     assert len(window2.rays) == 8
     assert len(window2.planes) == 1
     assert window2.planes[0].o[2] == pytest.approx(-5.0)

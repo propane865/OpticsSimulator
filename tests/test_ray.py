@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from optics.primitive import Ray
+from optics.primitive import DEFAULT_WAVELENGTH_NM, Ray
 
 
 def test_direction_normalized_to_unit():
@@ -112,3 +112,32 @@ def test_bad_shape_origin_reported_before_finiteness():
 def test_negative_power_message_updated():
     with pytest.raises(ValueError, match="Power cannot be negative"):
         Ray(np.zeros(3), np.array([0.0, 0.0, 1.0]), -0.5)
+
+# --- wavelength (nanometres, carried unchanged) ---
+def test_wavelength_defaults_to_the_project_default():
+    ray = Ray(np.zeros(3), np.array([0.0, 0.0, -1.0]), 1.0)
+    assert ray.wavelength == pytest.approx(DEFAULT_WAVELENGTH_NM)
+
+
+def test_wavelength_is_kept_in_nanometres():
+    ray = Ray(np.zeros(3), np.array([0.0, 0.0, -1.0]), 1.0, 532.0)
+    assert ray.wavelength == pytest.approx(532.0)
+
+
+def test_wavelength_survives_a_rebuilt_ray():
+    # The trace hands the exit ray the incident wavelength, so a unit
+    # conversion at construction would shrink it by 1e-6 on every hop.
+    ray = Ray(np.zeros(3), np.array([0.0, 0.0, -1.0]), 1.0, 405.0)
+    rebuilt = Ray(ray.origin, ray.direction, ray.power, ray.wavelength)
+    assert rebuilt.wavelength == pytest.approx(ray.wavelength)
+
+
+def test_int_wavelength_coerced_to_float():
+    ray = Ray(np.zeros(3), np.array([0.0, 0.0, 1.0]), 1.0, 633)
+    assert isinstance(ray.wavelength, float)
+
+
+@pytest.mark.parametrize("bad", [0.0, -1.0, np.nan, np.inf])
+def test_invalid_wavelength_rejected(bad):
+    with pytest.raises(ValueError, match="Wavelength must be finite and positive"):
+        Ray(np.zeros(3), np.array([0.0, 0.0, 1.0]), 1.0, bad)

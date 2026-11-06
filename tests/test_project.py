@@ -2,7 +2,9 @@ import numpy as np
 import pytest
 
 from optics.measurement_plane import MeasurementPlane
+from optics.primitive import DEFAULT_WAVELENGTH_NM
 from optics.project import (
+    DEFAULT_SOURCE_CONFIG,
     PROJECT_VERSION,
     build_project_document,
     parse_project,
@@ -25,10 +27,13 @@ def _plane(z=-3.0):
 
 
 def test_source_round_trip():
-    source = PointSource(position=[1.0, 2.0, 3.0], power=2.5, num_rays=8, cone_angle=30.0)
+    source = PointSource(
+        position=[1.0, 2.0, 3.0], power=2.5, wavelength=532.0, num_rays=8, cone_angle=30.0
+    )
     restored = source_from_config(source_to_config(source))
     np.testing.assert_allclose(restored.position, source.position)
     assert restored.power == pytest.approx(source.power)
+    assert restored.wavelength == pytest.approx(source.wavelength)
     assert restored.num_rays == source.num_rays
     assert restored.source_type == source.source_type
     assert restored.cone_angle == pytest.approx(source.cone_angle)
@@ -48,7 +53,7 @@ def test_source_from_config_rejects_point_array_without_image():
 def test_point_array_source_round_trip():
     grid = np.array([[0.0, 1.0], [2.0, 0.0]])
     source = PointSource(
-        position=[0.0, 0.0, 3.0], power=1.5, num_rays=4,
+        position=[0.0, 0.0, 3.0], power=1.5, wavelength=488.0, num_rays=4,
         source_type="point_array", cone_angle=60.0, pixel_pitch=0.1, weights=grid,
     )
     config = source_to_config(source)
@@ -57,9 +62,22 @@ def test_point_array_source_round_trip():
     assert "image" in config
 
     restored = source_from_config(config)
+    assert restored.wavelength == pytest.approx(488.0)
     assert restored.source_type == "point_array"
     assert restored.pixel_pitch == pytest.approx(0.1)
     np.testing.assert_allclose(restored.weights, grid)
+
+
+def test_source_config_records_the_wavelength():
+    config = source_to_config(PointSource(position=[0.0, 0.0, 3.0], wavelength=532.0))
+    assert config["wavelength"] == pytest.approx(532.0)
+
+
+def test_source_without_a_wavelength_key_loads_at_the_default():
+    # Documents written before the wavelength existed must keep loading.
+    restored = source_from_config({"position": [0.0, 0.0, 3.0], "power": 1.0})
+    assert restored.wavelength == pytest.approx(DEFAULT_WAVELENGTH_NM)
+    assert DEFAULT_SOURCE_CONFIG["wavelength"] == pytest.approx(DEFAULT_WAVELENGTH_NM)
 
 
 def test_plane_round_trip():

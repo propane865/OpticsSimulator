@@ -98,7 +98,7 @@ class Problem:
             weights=np.ones((3, 3)) if point_array else None,
             pixel_pitch=3.0,
         )
-        self.origins, self.dirs, self.powers = self.source.emit_arrays()
+        self.origins, self.dirs, self.powers, self.wavelengths = self.source.emit_arrays()
         self.n_rays = int(self.powers.shape[0])
         self.free = list(free)
         names = list(self.schema.keys())

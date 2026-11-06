@@ -52,6 +52,9 @@ class SourceEditor:
 
         self._type_combo = find_child(window, QtWidgets.QComboBox, "sourceTypeCombo")
         self._power_spin = find_child(window, QtWidgets.QDoubleSpinBox, "sourcePowerSpin")
+        self._wavelength_spin = find_child(
+            window, QtWidgets.QDoubleSpinBox, "sourceWavelengthSpin"
+        )
         self._cone_spin = find_child(window, QtWidgets.QDoubleSpinBox, "coneAngleSpin")
         self._num_rays_spin = find_child(window, QtWidgets.QSpinBox, "numRaysSpin")
         self._x_spin = find_child(window, QtWidgets.QDoubleSpinBox, "sourceX")
@@ -69,6 +72,9 @@ class SourceEditor:
             _REVERT_TIP,
         )
         configure_spin(self._power_spin, 0.0, 1000.0, 0.1)
+        # Range in code, like every sibling: Qt's own 0..99.99 default cannot
+        # even hold a visible-light wavelength in nanometres.
+        configure_spin(self._wavelength_spin, 1.0, 2000.0, 1.0, 1)
         configure_spin(self._cone_spin, 0.0, 360.0, 1.0)
         configure_spin(self._num_rays_spin, 1, MAX_ARRAY_RAYS)
         configure_spin(self._pitch_spin, 0.0001, 10.0, 0.01, 4)
@@ -118,6 +124,7 @@ class SourceEditor:
         source = self._state.source
         self._type_combo.setCurrentText(LABEL_BY_SOURCE_TYPE.get(source.source_type, "Single Point"))
         self._power_spin.setValue(float(source.power))
+        self._wavelength_spin.setValue(float(source.wavelength))
         self._cone_spin.setValue(float(source.cone_angle))
         self._num_rays_spin.setValue(int(source.num_rays))
         self._x_spin.setValue(float(source.position[0]))
@@ -137,6 +144,7 @@ class SourceEditor:
         return PointSource(
             position=np.array([self._x_spin.value(), self._y_spin.value(), self._z_spin.value()]),
             power=float(self._power_spin.value()),
+            wavelength=float(self._wavelength_spin.value()),
             num_rays=int(self._num_rays_spin.value()),
             source_type=POINT_ARRAY,
             cone_angle=float(self._cone_spin.value()),
@@ -153,6 +161,7 @@ class SourceEditor:
                 source = PointSource(
                     position=np.array([self._x_spin.value(), self._y_spin.value(), self._z_spin.value()]),
                     power=float(self._power_spin.value()),
+                    wavelength=float(self._wavelength_spin.value()),
                     num_rays=int(self._num_rays_spin.value()),
                     source_type=SOURCE_TYPE_BY_LABEL[self._type_combo.currentText()],
                     cone_angle=float(self._cone_spin.value()),

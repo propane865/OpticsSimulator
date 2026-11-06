@@ -283,6 +283,10 @@ def _result_from_outcome(
 
     new_system = OpticalSystem(stack_from_config(updated))
     new_plane = plane_from_config(plane_config)
+    # Only the geometry arrays survive the search, so the rays rebuilt for the
+    # magnification fit take the default wavelength -- the achromatic trace
+    # never reads it, so no per-ray value was worth threading through the
+    # optimization request.
     rays = arrays_to_rays(origins, dirs, powers)
     try:
         transform = plane_transform(rays, [source_plane, new_plane], new_system)

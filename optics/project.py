@@ -7,6 +7,7 @@ import numpy as np
 
 from .config import _require
 from .measurement_plane import MeasurementPlane
+from .primitive import DEFAULT_WAVELENGTH_NM
 from .source import (
     DEFAULT_PIXEL_PITCH,
     POINT_ARRAY,
@@ -25,6 +26,7 @@ DEFAULT_MAX_GRID_DIM = 64
 DEFAULT_SOURCE_CONFIG: dict[str, Any] = {
     "position": [0.0, 0.0, 30.0],
     "power": 1.0,
+    "wavelength": DEFAULT_WAVELENGTH_NM,
     "num_rays": 16,
     "source_type": SINGLE_POINT,
     "cone_angle": 60.0,
@@ -48,6 +50,9 @@ def source_from_config(config: object) -> PointSource:
     power = float(config.get("power", default["power"]))
     num_rays = int(config.get("num_rays", default["num_rays"]))
     cone_angle = float(config.get("cone_angle", default["cone_angle"]))
+    # Documents written before the wavelength existed simply omit the key and
+    # load at the default, so no project version bump is warranted.
+    wavelength = float(config.get("wavelength", default["wavelength"]))
     if source_type == POINT_ARRAY:
         image = config.get("image")
         if not image:
@@ -59,6 +64,7 @@ def source_from_config(config: object) -> PointSource:
         return PointSource(
             position=position,
             power=power,
+            wavelength=wavelength,
             num_rays=num_rays,
             source_type=source_type,
             cone_angle=cone_angle,
@@ -69,6 +75,7 @@ def source_from_config(config: object) -> PointSource:
     return PointSource(
         position=position,
         power=power,
+        wavelength=wavelength,
         num_rays=num_rays,
         source_type=source_type,
         cone_angle=cone_angle,
@@ -79,6 +86,7 @@ def source_to_config(source: PointSource) -> dict[str, Any]:
     config: dict[str, Any] = {
         "position": [float(v) for v in source.position],
         "power": float(source.power),
+        "wavelength": float(source.wavelength),
         "num_rays": int(source.num_rays),
         "source_type": str(source.source_type),
         "cone_angle": float(source.cone_angle),

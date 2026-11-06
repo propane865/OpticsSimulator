@@ -344,15 +344,15 @@ def case_measurement() -> dict:
     plane_b = MeasurementPlane(
         [0.0, 0.0, -2.0], [0.0, 0.0, 1.0], [-4.0, 4.0], [-4.0, 4.0], [8, 8]
     )
+    # Only the three geometric arrays reach the (achromatic) trace; the
+    # per-ray wavelengths are dropped here on purpose.
+    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
     results = MeasurementPlane.measure_batch_arrays(
-        [plane, plane_b], *rays_to_arrays(rays), system
+        [plane, plane_b], origins, dirs, powers, system
     )
 
     # Distance of every measured hit to the nearest detector bin boundary:
     # keeps the golden immune to 1-ulp platform wobble flipping a bin.
-    origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
-    dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
-    powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
     us, vs, pws = system.measure_planes(origins, dirs, powers, [plane, plane_b])
     margins: list[float | None] = []
     for q, det in enumerate([plane, plane_b]):

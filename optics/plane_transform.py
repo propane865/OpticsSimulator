@@ -95,7 +95,8 @@ def plane_transform(
         raise ValueError("plane_transform needs exactly two measurement planes")
     plane_a, plane_b = plane_list
 
-    origins, dirs, powers = rays_to_arrays(rays)
+    # The similarity fit is purely geometric; the per-ray wavelength is not an input.
+    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
     n_total = int(origins.shape[0])
     if system is None:
         ua, va, pa = _direct_hits(plane_a, origins, dirs, powers)

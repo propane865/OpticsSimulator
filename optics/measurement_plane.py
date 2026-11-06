@@ -5,7 +5,7 @@ import numpy as np
 
 from . import _native
 from . import constants as _c
-from ._util import coerce_ray_arrays
+from ._util import coerce_ray_arrays, wavelength_array
 from .primitive import Ray
 from .primitive.vector import as_finite_vector, normalize
 
@@ -17,24 +17,43 @@ _EPS = _c.PLANE_EPS
 
 def rays_to_arrays(
     rays: Sequence[Ray],
-) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
-    """Contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers for ``rays``."""
+) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
+    """Contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers/wavelengths for ``rays``.
+
+    Wavelengths (nm) ride along so a ray list survives the array round trip in
+    :func:`arrays_to_rays`; the trace itself takes only the three geometric
+    arrays, since the kernel is achromatic.
+    """
     if len(rays) > 0:
         origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
         dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
         powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
+        wavelengths = np.ascontiguousarray([r.wavelength for r in rays], dtype=float)
     else:
         origins = np.empty((0, 3), dtype=float)
         dirs = np.empty((0, 3), dtype=float)
         powers = np.empty((0,), dtype=float)
-    return origins, dirs, powers
+        wavelengths = np.empty((0,), dtype=float)
+    return origins, dirs, powers, wavelengths
 
 
 def arrays_to_rays(
-    origins: np.ndarray, dirs: np.ndarray, powers: np.ndarray
+    origins: np.ndarray,
+    dirs: np.ndarray,
+    powers: np.ndarray,
+    wavelengths: "np.ndarray | Sequence[float] | float | None" = None,
 ) -> list[Ray]:
-    """Rays from the contiguous arrays produced by :func:`rays_to_arrays`."""
-    return [Ray(origins[i], dirs[i], float(powers[i])) for i in range(origins.shape[0])]
+    """Rays from the contiguous arrays produced by :func:`rays_to_arrays`.
+
+    ``wavelengths`` (nm) is per-ray, a scalar, or ``None`` for the project
+    default -- the array-only passes (the optimizer's focus search, say) hold no
+    wavelength and must not invent one beyond the documented default.
+    """
+    n = int(origins.shape[0])
+    wl = wavelength_array(wavelengths, n)
+    return [
+        Ray(origins[i], dirs[i], float(powers[i]), float(wl[i])) for i in range(n)
+    ]
 
 
 def _direct_hits(
@@ -265,9 +284,12 @@ class MeasurementPlane:
         ``reconstruct`` fills the image with adaptive-kernel reconstruction
         of the hits instead of the plain per-bin histogram.
         """
+        origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
         return MeasurementPlane.measure_batch_arrays(
             [self],
-            *rays_to_arrays(rays),
+            origins,
+            dirs,
+            powers,
             system,
             reconstruct=reconstruct,
             neighbors=neighbors,

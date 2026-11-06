@@ -325,7 +325,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         # persistent stack serves rendering and every measurement plane;
         # otherwise use the separate measure/retrace paths.
         if rays and planes:
-            origins, dirs, powers = state.rays_arrays()
+            origins, dirs, powers, _wavelengths = state.rays_arrays()
             starts, ends, _kinds, counts, us, vs, pws = system.trace_segments_and_planes(
                 origins, dirs, powers, RAY_LENGTH, planes
             )
@@ -528,7 +528,7 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
     try:
         if not elements:
             elements = [refractive_element_from_config(DEFAULT_ELEMENT_CONFIG)]
-        origins, dirs, powers = PointSource(**DEFAULT_SOURCE_CONFIG).emit_arrays()
+        origins, dirs, powers, _wavelengths = PointSource(**DEFAULT_SOURCE_CONFIG).emit_arrays()
         system = OpticalSystem(list(elements))
         system.trace_segments(origins, dirs, ray_length=RAY_LENGTH)
         plane = plane_from_config(DEFAULT_MEASUREMENT_CONFIG)

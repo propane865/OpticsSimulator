@@ -125,7 +125,7 @@ _PIPELINE = replace(
 
 
 def _optimize_pipeline(schema, source, p1, p2, spec=_PIPELINE):
-    origins, dirs, powers = source.emit_arrays()
+    origins, dirs, powers, _ = source.emit_arrays()
     return optimize_layout(
         schema,
         p1,
@@ -227,7 +227,7 @@ def _far_focus_problem():
         weights=[[1.0] * 7] * 7,
         pixel_pitch=1.0,
     )
-    origins, dirs, powers = source_points.emit_arrays()
+    origins, dirs, powers, _ = source_points.emit_arrays()
     return schema, source, image, origins, dirs, powers
 
 

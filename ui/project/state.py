@@ -39,7 +39,7 @@ class ProjectState:
         self._elements: list[RefractiveElement] = []
         self._source: PointSource = source if source is not None else PointSource(**DEFAULT_SOURCE_CONFIG)
         self._rays: list[Ray] = list(rays) if rays is not None else list(self._source.emit_rays())
-        self._rays_arrays: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+        self._rays_arrays: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None
         self._measurements = MeasurementState(self)
         self._system: OpticalSystem | None = None
 
@@ -74,12 +74,14 @@ class ProjectState:
     def rays(self) -> list[Ray]:
         return self._rays
 
-    def rays_arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """The ray fan as contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers.
+    def rays_arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """The ray fan as contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers/wavelengths.
 
         Materialized lazily from :attr:`rays` and cached; the cache is dropped
         whenever the source/rays change, so per-refresh trace/measure passes can
-        reuse the arrays without re-marshalling the ``Ray`` list every time.
+        reuse the arrays without re-marshalling the ``Ray`` list every time. The
+        wavelengths (nm) ride along for wavelength-aware consumers; the trace
+        reads only the first three arrays.
         """
         arrays = self._rays_arrays
         if arrays is None:
