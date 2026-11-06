@@ -2,8 +2,8 @@
 
 One subsystem owns the plane list, the parallel name/result/hit/lock lists and
 the raw-vs-reconstruct display mode. The aggregate root passes itself as the
-:class:`TraceContext` (system + ray arrays + source); everything else —
-measurement, locking policy, display-mode re-derivation — lives here.
+:class:`TraceContext` (system + ray arrays + source); everything else -
+measurement, locking policy, display-mode re-derivation - lives here.
 """
 
 from __future__ import annotations

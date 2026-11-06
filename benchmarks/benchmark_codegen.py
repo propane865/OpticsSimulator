@@ -1,4 +1,4 @@
-﻿"""Stage-level profile of the native surface-codegen path.
+"""Stage-level profile of the native surface-codegen path.
 
 ``optics.expression.compile_parametric_surface`` validates a surface's
 ``(x(u,v), y(u,v), z(u,v))`` expressions and lowers them to a native model

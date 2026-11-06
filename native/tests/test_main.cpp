@@ -1,4 +1,4 @@
-﻿// Native test entry point: runs every suite and reports the failure count.
+// Native test entry point: runs every suite and reports the failure count.
 #include <cstdio>
 
 #include "check.hpp"

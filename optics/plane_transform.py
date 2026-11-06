@@ -11,7 +11,7 @@ images. The reported transform is the best 2D similarity
 fitted to that correspondence: a single magnification, rotation and
 offset, with ``rms_error`` measuring how little of the observed mapping
 is rotation + scale + translation (distortion, shear, nonuniform
-magnification — and, for detector planes tilted relative to each
+magnification - and, for detector planes tilted relative to each
 other, the projective foreshortening of the tilt itself, which a
 similarity cannot represent).
 
@@ -75,8 +75,8 @@ def plane_transform(
     Traces ``rays`` through ``system`` (or straight, when ``system`` is
     ``None``) exactly once against both planes, pairs the per-ray hits into a
     correspondence, and fits the plane ``planes[0]`` -> ``planes[1]``
-    similarity — magnification, rotation and translation in detector-local
-    ``(u, v)`` — with the native Umeyama/Kabsch kernel
+    similarity - magnification, rotation and translation in detector-local
+    ``(u, v)`` - with the native Umeyama/Kabsch kernel
     (:func:`optics._native.fit_clipped_similarity`); the residual against
     that fit quantifies everything the similarity cannot express (see
     :class:`PlaneTransform`).

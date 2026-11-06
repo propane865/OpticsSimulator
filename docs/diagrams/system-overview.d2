@@ -1,13 +1,13 @@
 py: "Python process" {
-  app: "Desktop app (ui/) — PySide6"
-  scene: "Scene layer (rendering/, ui/scene.py) — vispy"
-  domain: "Optics domain (optics/) — elements, trace stack, planes, optimizer"
+  app: "Desktop app (ui/): PySide6"
+  scene: "Scene layer (rendering/, ui/scene.py): vispy"
+  domain: "Optics domain (optics/): elements, trace stack, planes, optimizer"
   cons: "tests/ and benchmarks/"
 }
 
 nat: "Compiled native layer" {
-  abi: "_native module — pybind11 bindings (native/bindings/)"
-  kern: "optics_core kernels — C++17 (native/)"
+  abi: "_native module: pybind11 bindings (native/bindings/)"
+  kern: "optics_core kernels: C++17 (native/)"
   pool: "Native thread pool (common/parallel.hpp)"
 }
 

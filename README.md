@@ -10,7 +10,7 @@ sweep the layout for best focus with the built-in optimizer.
 
 Requires Python 3.10+ and a C++17 compiler: installing the package compiles
 the native kernel extension (`optics._native`, pybind11 via scikit-build-core
-and CMake ≥ 3.24; `cmake`/`ninja` are pulled from PyPI into the build
+and CMake >= 3.24; `cmake`/`ninja` are pulled from PyPI into the build
 environment when not already present). Use the MSVC Build Tools or MinGW-w64
 on Windows, and gcc or clang on Linux/macOS.
 
@@ -150,7 +150,7 @@ Apertures are optional and circular: `radius` is required, `center`
 
 Each surface maps parameters `(u, v)` over `u_range`/`v_range` to a local point
 `(x(u, v), y(u, v), z(u, v))`. Expressions use a restricted, safe arithmetic
-language (parsed, validated, and compiled by the native C++ parser —
+language (parsed, validated, and compiled by the native C++ parser --
 no SymPy, and no `eval` of raw strings):
 
 - Variables: `u`, `v`
@@ -159,8 +159,8 @@ no SymPy, and no `eval` of raw strings):
 - Functions: `sqrt`, `sin`, `cos`, `tan`, `exp`, `log`, `abs`
 
 Division and modulo follow NumPy scalar semantics (`inf`/`nan`, never a
-`ZeroDivisionError`). Anything outside this grammar — attribute access,
-subscripts, arbitrary calls, imports, `pi`/`e` — is rejected when the stack
+`ZeroDivisionError`). Anything outside this grammar -- attribute access,
+subscripts, arbitrary calls, imports, `pi`/`e` -- is rejected when the stack
 loads. Surface tangents (and therefore normals) are computed with finite
 differences rather than symbolic differentiation, with a domain-aware policy
 implemented in the native kernels.

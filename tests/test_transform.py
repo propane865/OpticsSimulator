@@ -1,4 +1,4 @@
-﻿import numpy as np
+import numpy as np
 
 from optics.config import refractive_element_from_config
 from optics.primitive import Ray, Surface, Transform

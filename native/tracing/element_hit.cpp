@@ -46,7 +46,7 @@ bool box_forward(const Element& elem, const Vec3& o, const Vec3& d, double min_t
 // the (surface1-local) radial distance is at least ``wall_r_min`` AND the
 // local z lies inside ``[wall_z_lo, wall_z_hi]``. When the ray's z-window
 // crossing never leaves the cylinder of radius ``wall_r_min`` the 256-face
-// Möller-Trumbore loop can find no facet, so the mesh test is skippable.
+// Moller-Trumbore loop can find no facet, so the mesh test is skippable.
 bool wall_reachable(const Element& elem, const Vec3& o, const Vec3& d, double min_t) {
     if (!elem.wall_valid) {
         return true;

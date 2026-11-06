@@ -1,4 +1,4 @@
-﻿"""Profile the lens create/modify hot path (headless, stdlib-only).
+"""Profile the lens create/modify hot path (headless, stdlib-only).
 
 Drives the exact call sequence ``ElementEditor.apply()`` performs when a lens is
 created or its properties are applied, with no Qt/GL, and reports where the time

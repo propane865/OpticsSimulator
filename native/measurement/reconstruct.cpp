@@ -18,7 +18,7 @@ namespace {
 
 // Deposition runs single-threaded below this ray count or when the
 // per-chunk private grids would exceed the scratch budget (one grid per
-// thread keeps the reduction order — and the output — deterministic).
+// thread keeps the reduction order - and the output - deterministic).
 constexpr std::size_t kParallelMinRays = 256;
 constexpr std::size_t kParallelMaxScratchDoubles = 8'000'000;
 

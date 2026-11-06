@@ -1,4 +1,4 @@
-﻿"""Pinned-behavior golden cases (Phase 0 refactor safety net).
+"""Pinned-behavior golden cases (Phase 0 refactor safety net).
 
 Every required scenario (plane, sphere, arbitrary expression, transformed
 surface, aperture, two-surface element, TIR, multi-element stack, sidewall,
