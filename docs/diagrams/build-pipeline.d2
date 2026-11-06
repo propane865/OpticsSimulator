@@ -1,23 +1,32 @@
-src: "native/ sources and headers"
-cmake: "CMakeLists.txt (C++17)"
-core: "optics_core: OBJECT library, -ffp-contract=off"
-abi: "_native: pybind11 module"
-ntests: "optics_native_tests: native test binary"
-mod: "optics/_native.pyd or .so"
-wheel: "wheel / editable install"
-ctest: "ctest"
-pytest: "pytest, ruff, mypy"
-ci: "GitHub CI: Linux and Windows"
+direction: down
 
-src -> cmake: "globbed per-module sources"
-cmake -> core: "add_library(optics_core OBJECT)"
-core -> abi: "pybind11_add_module, OPTICS_BUILD_MODULE=ON"
-core -> ntests: "OPTICS_BUILD_TESTS=ON"
-abi -> mod: "LIBRARY_OUTPUT_DIRECTORY, install into optics/"
-cmake -> wheel: "scikit-build-core packs optics, rendering, ui"
-mod -> pytest: "imported by the Python suite"
-ntests -> ctest: "native unit cases"
-wheel -> pytest: "pip install -e .[dev]"
-ci -> ctest: "Release build on both runners"
-ci -> ntests: "ASan and UBSan rebuild on Linux"
-ci -> pytest: "after lint and type checks"
+inputs: "Inputs" {
+  src: "native/ sources"
+  cmake: "CMakeLists.txt (C++17)"
+
+  src -> cmake: "globbed sources"
+}
+
+targets: "CMake targets: one object library" {
+  core: "optics_core: OBJECT library, -ffp-contract=off"
+  abi: "_native: pybind11 module"
+  mod: "optics/_native.pyd or .so"
+  ntests: optics_native_tests
+  wheel: "wheel / editable install"
+
+  core -> abi: OPTICS_BUILD_MODULE=ON
+  abi -> mod: "install into optics/"
+  core -> ntests: OPTICS_BUILD_TESTS=ON
+}
+
+gates: "GitHub CI: Linux and Windows" {
+  ctest: ctest
+  pytest: "pytest, ruff, mypy"
+}
+
+inputs.cmake -> targets.core: "add_library(OBJECT)"
+inputs.cmake -> targets.wheel: scikit-build-core
+targets.mod -> gates.pytest: "Python suite imports it"
+targets.ntests -> gates.ctest: "native cases"
+targets.wheel -> gates.pytest: "pip install -e .[dev]"
+gates -> targets.ntests: "ASan/UBSan rebuild (Linux)"

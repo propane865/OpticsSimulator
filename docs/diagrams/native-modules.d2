@@ -1,6 +1,6 @@
 direction: down
 
-consumers: "consumers" {
+consumers: {
   direction: right
   bindings: "bindings/: pybind11 registration"
   ntests: "native/tests/: ctest binary"
@@ -9,22 +9,22 @@ consumers: "consumers" {
 kernels: "kernel layers: each arrow is an include of optics/..." {
   optimizing: "optimizing/: DE + gated Nelder-Mead, objective, fit, acceptance"
   measurement: "measurement/: power accumulation, Wendland C2 reconstruction"
-  tracing: "tracing/: element and trace-stack state, refraction, stack walk"
-  intersection: "intersection/: Newton solver, classified closed-form, inversion, rim mesh"
+  tracing: "tracing/: element, trace-stack state, refraction, stack walk"
+  intersection: "intersection/: Newton solver, closed-form, inversion, rim mesh"
   geometry: "geometry/: surface models, apertures, world normals"
 
-  optimizing -> measurement: evaluate candidate stacks
+  optimizing -> measurement: candidate stacks
   optimizing -> tracing: transform-only stack variants
-  measurement -> tracing: walk the persistent stack
+  measurement -> tracing: persistent stack walk
   measurement -> intersection: plane hit primitives
   tracing -> intersection: surface hits per hop
-  tracing -> geometry: surface descriptors and normals
-  intersection <-> geometry: "header cycle: surfaces and apertures, plane and rim mesh"
+  tracing -> geometry: surface descriptors, normals
+  intersection <-> geometry: "cycle: surfaces, apertures, plane, rim mesh"
 }
 
-expression: "expression/: parser and tree interpreter"
+expression: "expression/: parser, tree interpreter"
 common: "common/: vector/matrix math, linalg, parallel dispatch, constants"
 
-consumers -> kernels: "bindings register every layer, ctest links every TU"
-kernels -> expression: intersection and geometry evaluate the lowered tree
-kernels -> common: math and parallel dispatch from every module
+consumers -> kernels: "all layers registered, all TUs linked"
+kernels -> expression: "lowered tree, from intersection and geometry"
+kernels -> common: "math, parallel dispatch, constants"

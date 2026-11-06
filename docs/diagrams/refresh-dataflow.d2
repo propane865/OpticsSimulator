@@ -1,24 +1,40 @@
-ed: "Editor apply: element, source, plane"
-cls: "classify_element_edit: none, index, transform, geometry"
-state: "ProjectState: elements, source, cached ray arrays"
-sys: "OpticalSystem: one persistent native TraceStack"
-fused: "trace_segments_and_planes: single fused native pass"
-segs: "Ray segments: starts, ends, hop kinds, per-ray counts"
-hits: "Plane hits: u, v, power per ray and plane"
-res: "MeasurementResult: raw histogram or Wendland C2 reconstruction"
-scene: "SceneController: retrace_from_segments, mesh signature cache"
-pview: "plane_view: letterboxed QImage colormap"
+direction: down
 
-ed -> cls: element edit
-cls -> state: "none, index: no retrace or no remesh"
-cls -> state: "transform, geometry: cached system dropped"
-state -> sys: "rebuild lazily, only after element edits"
-state -> fused: "cached contiguous ray arrays"
-sys -> fused: "native stack handle"
-fused -> segs: "per-hop segments for rendering"
-fused -> hits: "(P, N) hits for every plane"
-hits -> res: "accumulate and reconstruct"
-segs -> scene: "reuse identical local meshes"
-res -> scene: "detector mesh"
-res -> pview: "image of the selected plane"
-sys -> res: "no fused pass: per-plane measure or plain retrace"
+cmd: "Editor apply" {
+  ed: "apply: element, source, plane"
+  cls: "classify_element_edit: none, index, transform, geometry"
+
+  ed -> cls: element edit
+}
+
+st: "Qt-free state" {
+  state: "ProjectState: elements, source, ray arrays"
+  sys: "OpticalSystem: persistent native TraceStack"
+
+  state -> sys: "lazy rebuild after element edits"
+}
+
+nat: "One native pass" {
+  fused: trace_segments_and_planes
+  segs: "ray segments: starts, ends, hop kinds"
+  hits: "plane hits: u, v, power"
+  res: "MeasurementResult: histogram or Wendland C2"
+
+  fused -> segs: "per-hop segments"
+  fused -> hits: "(P, N) hits"
+  hits -> res: "accumulate, reconstruct"
+}
+
+views: "Views" {
+  scene: "SceneController: mesh signature cache"
+  pview: "plane_view: QImage colormap"
+}
+
+cmd.cls -> st.state: "none, index: no retrace or remesh"
+cmd.cls -> st.state: "transform, geometry: system dropped"
+st.state -> nat.fused: "cached ray arrays"
+st.sys -> nat.fused: "native stack handle"
+st.sys -> nat.res: "no fused pass: measure or retrace"
+nat.segs -> views.scene: "identical local meshes"
+nat.res -> views.scene: "detector mesh"
+nat.res -> views.pview: "selected plane image"

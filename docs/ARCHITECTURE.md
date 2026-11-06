@@ -24,7 +24,9 @@ back: per-ray work never enters the interpreter.
 intentional and thin: `optics/primitive/` uses the support modules (`constants`,
 `_util`, `expression`) while the core packages above build on the primitives.
 Neither `ui/` nor `rendering/` reaches past `optics/` into `_native`: only
-`benchmarks/` and a few kernel-level tests do.
+`benchmarks/` and a few kernel-level tests do. Arrows between bands are drawn
+once per band and name the boxes they leave and the packages they reach;
+`optics/_native` and the third-party band are leaves.
 
 ![Python package dependencies](diagrams/python-dependencies.svg)
 
@@ -62,7 +64,8 @@ outcome, so the UI thread never enters the objective.
 
 **7. Build and test pipeline.** One object library feeds shipped and tested
 artifacts alike: the kernels the native tests exercise are the kernels the wheel
-ships.
+ships. CI builds Release on both runners, rebuilds the native test binary under
+ASan/UBSan on Linux, and runs `pytest` only after `ruff` and `mypy` pass.
 
 ![Build and test pipeline](diagrams/build-pipeline.svg)
 

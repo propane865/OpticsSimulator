@@ -1,22 +1,35 @@
-ed: "editors/analysis.py: element z-lock table, image-plane lock, log"
-worker: "optimize.py: LayoutOptimizer worker thread"
-api: "optimizer/api.py: validate, build problem, solve, interpret"
-cfg: "optimizer/config.py: LensOptimization to native OptimizerSettings"
-layout: "optimizer/layout.py: transform-only stack variants, submodule bounds"
-nat: "native optimizing/: Latin-hypercube bounded DE, then gated Nelder-Mead polish"
-fit: "native fit + objective: pooled per-object-point spot radius"
-acc: "native acceptance: focus-acceptance contract"
-result: "OptimizationResult: layout, plane transform, diagnostics"
+direction: down
 
-ed -> worker: start and cancel
-worker -> api: solve off the UI thread
-api -> cfg: build native settings
-api -> layout: free element z keys and image plane
-layout -> nat: bounded candidate space
-nat -> fit: cost per candidate stack
-fit -> nat: spot-radius focus measure
-nat -> acc: best candidate
-acc -> api: accepted layout or failure reason
-api -> result: layout plus plane_transform fit
-result -> worker: outcome
-worker -> ed: progress and result on the UI thread
+ui: "UI thread (Qt)" {
+  ed: "analysis.py: z-lock table, image-plane lock, log"
+  work: "optimize.py: LayoutOptimizer (QThread)"
+
+  work -> ed: "progress, result"
+}
+
+py: "optics/optimizer/" {
+  api: "api.py: validate, build problem, solve, interpret"
+  cfg: "config.py: LensOptimization to OptimizerSettings"
+  layout: "layout.py: transform-only variants, bounds"
+  res: "OptimizationResult: layout, plane_transform, diagnostics"
+
+  api -> cfg: settings
+  api -> layout: "free z keys, image plane"
+  api -> res: "layout + plane_transform"
+}
+
+nat: "native search" {
+  search: "optimizing/: bounded DE, gated Nelder-Mead polish"
+  fit: "fit: per-object-point spot radius"
+  acc: "acceptance contract"
+
+  search <-> fit: "cost per candidate <-> focus measure"
+  search -> acc: best candidate
+}
+
+ui.ed -> ui.work: "start, cancel"
+ui.work -> py.api: solve
+py.cfg -> nat.search: OptimizerSettings
+py.layout -> nat.search: "bounded space"
+nat.acc -> py.api: "layout or failure reason"
+py.res -> ui.work: outcome

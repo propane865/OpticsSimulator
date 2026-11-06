@@ -1,28 +1,28 @@
 direction: down
 
-qt: "Qt layer (PySide6): window, tree, editors, detector, worker" {
+qt: "Qt layer (PySide6)" {
   win: "app.py + main.ui: OpticsMainWindow, selection hub"
   tree: "project_tree.py: sources, lens stacks, planes"
   ed: "editors/: element, source, plane, analysis"
   pv: "plane_view.py: 2D detector colormap"
   work: "optimize.py: LayoutOptimizer on a QThread"
 
-  win <-> tree: "mirrors the project <-> kind + name selection"
-  win <-> ed: "editor page per selection <-> item callbacks"
+  win <-> tree: "selection <-> mirrored list"
+  win <-> ed: "page per selection <-> item callbacks"
   win -> pv: selected plane result
-  ed -> work: start and cancel run
-  work -> win: progress and result
+  ed -> work: start, cancel
+  work -> win: progress, result
 }
 
-free: "Qt-free: state, vispy scene, meshing, native optimizer" {
+free: "Qt-free" {
   state: "project/: ProjectState, persistence"
   scene: "scene.py: SceneController (vispy)"
   rendering: "rendering/: vispy meshes, colormaps, camera"
   opt: "optics.optimizer: optimize_layout"
 
-  scene -> rendering: mesh and colormap build
+  scene -> rendering: mesh, colormap build
 }
 
-qt.ed -> free: "validated apply -> ProjectState"
-qt.win -> free: "trace segments and plane images -> SceneController"
-qt.work -> free: "solve off the UI thread -> optimizer"
+qt.ed -> free: "validated apply -> state"
+qt.win -> free: "segments, plane images -> scene"
+qt.work -> free: "solve -> optimizer"
