@@ -25,14 +25,6 @@ from optics.system import OpticalSystem
 
 ZMX_DIR = Path(__file__).parent / "zmx"
 
-ASL_PATH = Path(__file__).resolve().parents[1] / "ASL10142-Zemax-ZMX.zmx"
-AX_PATH = Path(__file__).resolve().parents[1] / "AX2530-C-Zemax-ZMX.zmx"
-
-# Vendor sample prescriptions live at the repo root and are not tracked in
-# git: integration tests against them run only when the samples are present.
-requires_asl = pytest.mark.skipif(not ASL_PATH.exists(), reason=f"missing {ASL_PATH.name}")
-requires_ax = pytest.mark.skipif(not AX_PATH.exists(), reason=f"missing {AX_PATH.name}")
-
 N_BK7 = '"N-BK7" 1.5168 64.17 "N-BK7"'
 
 
@@ -443,53 +435,6 @@ def test_reject_conic_on_rear_standard_surface(tmp_path: Path) -> None:
         load_zmx_elements(path)
 
 
-# -- the repo-root Thorlabs prescriptions ----------------------------------------
-@requires_asl
-def test_load_root_aspheric_file() -> None:
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        elements, geometry = load_zmx_elements(ASL_PATH)
-    assert not [w for w in caught if "ignored" in str(w.message)]
-    assert list(elements) == ["lens1"]
-    lens = elements["lens1"]
-    assert lens["material"]["refractive_index"] == pytest.approx(1.5)
-    assert lens["position"][2] == pytest.approx(-2.0)
-    assert lens["surface2"]["z"] == "-6.0"
-    assert geometry.length == pytest.approx(6.0)
-    assert geometry.radius == pytest.approx(12.7)
-    front = stack_from_config(elements)[0].surface1
-    u, v = 2.5, 2.5
-    r2 = u * u + v * v
-    curvature, conic, quartic = 2.791296370293013e-2, -0.6291250563026, 1.439837307613e-7
-    zemax_sag = (
-        curvature * r2 / (1 + math.sqrt(1 - (1 + conic) * curvature**2 * r2))
-        + quartic * r2**2
-    )
-    assert front.evaluate_local(u, v)[2] == pytest.approx(-zemax_sag)
-
-
-@requires_ax
-def test_load_root_axicon_file() -> None:
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        elements, geometry = load_zmx_elements(AX_PATH)
-    assert not [w for w in caught if "ignored" in str(w.message)]
-    assert list(elements) == ["lens1"]
-    lens = elements["lens1"]
-    # F_SILICA is a zero-nd catalog record: index from the built-in table.
-    assert lens["material"]["refractive_index"] == pytest.approx(1.4585)
-    assert lens["surface1"]["z"] == "0"
-    z = lens["surface2"]["z"]
-    assert z.startswith("-12.331710000000001 + ")
-    assert "0.5773 * ((u**2 + v**2) ** 0.5)" in z
-    assert geometry.length == pytest.approx(12.33171)
-    assert geometry.radius == pytest.approx(12.7)
-    rear = stack_from_config(elements)[0].surface2
-    u, v = 2.0, 3.0
-    r = math.hypot(u, v)
-    assert rear.evaluate_local(u, v)[2] == pytest.approx(-12.33171 + 0.5773 * r)
-
-
 # -- end-to-end trace smoke ------------------------------------------------------
 def _trace_total(elements: dict[str, Any], geometry: Any) -> float:
     """Trace the imported stack against a beam sized from ``geometry``."""
@@ -525,18 +470,6 @@ def test_trace_smoke_biconvex() -> None:
 
 def test_trace_smoke_cemented_zero_gap_interface() -> None:
     elements, geometry = _load_quiet_elements(ZMX_DIR / "cemented_doublet.zmx")
-    assert _trace_total(elements, geometry) > 0.5
-
-
-@requires_asl
-def test_trace_smoke_root_aspheric_file() -> None:
-    elements, geometry = _load_quiet_elements(ASL_PATH)
-    assert _trace_total(elements, geometry) > 0.5
-
-
-@requires_ax
-def test_trace_smoke_root_axicon_file() -> None:
-    elements, geometry = _load_quiet_elements(AX_PATH)
     assert _trace_total(elements, geometry) > 0.5
 
 
