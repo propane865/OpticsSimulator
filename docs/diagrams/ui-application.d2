@@ -1,9 +1,7 @@
-grid-rows: 2
-grid-gap: 84
+direction: down
 
 qt: "Qt layer (PySide6)" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   tree: "project_tree.py: source,\nlenses + submodules, planes"
   win: "app.py + main.ui:\nOpticsMainWindow,\nselection hub"
   ed: "editors/: element, source, plane,\nsubmodule, analysis - one page per\nselection, item callbacks"
@@ -18,8 +16,7 @@ qt: "Qt layer (PySide6)" {
 }
 
 free: "Qt-free" {
-  grid-rows: 2
-  grid-gap: 39
+  direction: right
   scene: "scene.py: SceneController (vispy)"
   state: "project/: ProjectState, elements, planes,\npersistence (no PySide6, no vispy)"
   rendering: "rendering/: vispy meshes,\ncolormaps, camera"

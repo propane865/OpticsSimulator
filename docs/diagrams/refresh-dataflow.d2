@@ -1,9 +1,7 @@
-grid-rows: 4
-grid-gap: 80
+direction: down
 
 cmd: "Editor apply" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   ed: "apply: element, source,\nplane, submodule"
   cls: "classify_element_edit: none, index,\ntransform, geometry\n(element edits only)"
 
@@ -11,8 +9,7 @@ cmd: "Editor apply" {
 }
 
 st: "Qt-free state" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   state: "ProjectState: elements, source,\ncached ray arrays"
   sys: "OpticalSystem: persistent native\nTraceStack, dropped on any element\nedit, rebuilt lazily"
 
@@ -20,8 +17,7 @@ st: "Qt-free state" {
 }
 
 nat: "One native pass" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   fused: trace_segments_and_planes
   segs: "ray segments:\nstarts, ends, hop kinds"
   hits: "plane hits:\n(P, N) -> u, v, power"
@@ -33,8 +29,7 @@ nat: "One native pass" {
 }
 
 views: "Views" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   scene: "SceneController:\nretrace_from_segments,\ngeometry-key mesh cache"
   pview: "plane_view: QImage colormap\nof the selected plane"
 }

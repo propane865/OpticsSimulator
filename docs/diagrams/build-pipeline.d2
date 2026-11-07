@@ -1,11 +1,9 @@
-grid-rows: 3
-grid-gap: 64
+direction: down
 
 cmake: "CMakeLists.txt: C++17, CMake >= 3.24\nnative/ sources listed explicitly"
 
 targets: "CMake targets: one object library" {
-  grid-columns: 2
-  grid-gap: 26
+  direction: right
   core: "optics_core: OBJECT library\n-ffp-contract=off (GNU/Clang)"
   ntests: "optics_native_tests\nOPTICS_BUILD_TESTS=ON\nlinks optics_core"
   mod: "_native: pybind11 module\nOPTICS_BUILD_MODULE=ON\n-> optics/_native.(pyd | so)"
@@ -16,8 +14,7 @@ targets: "CMake targets: one object library" {
 }
 
 ci: "GitHub CI: Linux and Windows" {
-  grid-rows: 3
-  grid-gap: 26
+  direction: right
   ctest: "ctest (Release), both runners\n+ ASan/UBSan rebuild on Linux"
   lint: "ruff check .; mypy\noptics rendering ui tests"
   pytest: "pytest\n(QT_QPA_PLATFORM=offscreen)"

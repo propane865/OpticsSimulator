@@ -1,16 +1,13 @@
-grid-rows: 3
-grid-gap: 72
+direction: right
 
 consumers: "consumers: not layers" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: down
   bindings: "bindings/: pybind11 registration\nof every layer"
   ntests: "native/tests/:\nctest binary"
 }
 
 kernels: "kernel layers: arrows are includes" {
-  grid-rows: 5
-  grid-gap: 39
+  direction: down
   optimizing: "optimizing/: coarse DE -> promotion -> medium ->\nwhole-fan validate -> gated NM; also includes tracing"
   measurement: "measurement/: power accumulation, Wendland C2\nreconstruction; also includes intersection"
   tracing: "tracing/: element, trace-stack state, refraction,\nstack walk; also includes geometry"
@@ -24,8 +21,7 @@ kernels: "kernel layers: arrows are includes" {
 }
 
 base: "leaf layers" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: down
   expression: "expression/: parser and tree interpreter"
   common: "common/: vector and matrix math, linalg,\nparallel dispatch, constants"
 }

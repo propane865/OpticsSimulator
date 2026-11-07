@@ -1,9 +1,7 @@
-grid-rows: 3
-grid-gap: 105
+direction: down
 
 ui: "UI thread (Qt)" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   ed: "analysis.py: z-locks, plane\nlock, magnification target, log"
   work: "optimize.py: LayoutOptimizer\n(daemon thread); start down,\nprogress / finished / failed up"
 
@@ -11,8 +9,7 @@ ui: "UI thread (Qt)" {
 }
 
 py: "optics/optimizer/" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   api: "api.py: validate, build, solve,\ninterpret"
   build: "config.py: OptimizerSettings;\nlayout.py: units and windows -\nthe bounded problem"
 
@@ -20,8 +17,7 @@ py: "optics/optimizer/" {
 }
 
 nat: "native search: coarse -> fine" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   gate: "pure-arithmetic precheck +\nshallow pilot trace: hopeless\ntrials bill no coarse eval"
   coarse: "coarse DE (Latin hypercube) fills\na diverse archive"
   med: "promotion gate: a deterministic subset\ngoes to medium-fidelity re-rank"

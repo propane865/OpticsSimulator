@@ -1,11 +1,9 @@
-grid-rows: 3
-grid-gap: 56
+direction: down
 
 doc: "Project JSON, Zemax .zmx"
 
 py: "Python process" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   scene: "rendering/, ui/scene.py:\nvispy canvases"
   app: "ui/: PySide6 app\n(main.ui, tree, editors,\nplane view, codec)"
   cons: "tests/ and\nbenchmarks/"
@@ -17,8 +15,7 @@ py: "Python process" {
 }
 
 nat: "Compiled native layer" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   abi: "native/bindings/: pybind11"
   kern: "native/: optics_core,\nC++17 kernels"
   ntests: "native/tests/:\nctest binary, links\nthe whole library"

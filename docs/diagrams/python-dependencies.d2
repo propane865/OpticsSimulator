@@ -1,8 +1,7 @@
 direction: down
 
 ui: "ui/" {
-  grid-columns: 2
-  grid-gap: 39
+  direction: right
   ed: "editors/: element, source, plane, submodule,\nanalysis (PySide6; one page per selection)"
   core: "core: app, model facade, project_tree, plane_view,\noptimize, widgets, imagecodec (PySide6),\nplus scene.py (vispy, Qt-free)"
   proj: "project/: state, elements, measurements,\npersistence (Qt-free)"
@@ -14,15 +13,14 @@ ui: "ui/" {
 rendering: "rendering/ (vispy, numpy): camera, canvas, colormaps,\nmeshing, surfaces, rays, sources, measurements"
 
 optics: "optics/ (numpy buffers)" {
-  grid-columns: 2
-  grid-gap: 52
+  direction: right
   prim: "primitive/: Ray, Surface, aperture, hit,\nmaterial, sidewall, transform, vector"
   root: "root: config, element, system, measurement_plane,\nsource, plane_transform, io, project, expression,\nconstants, _util"
   opt: "optimizer/: api, config, layout, result -\nthe layout solve"
   imp: "importers/zmx/: parser, model, normalize,\nglass, expressions, converter"
 
   prim <-> root
-  opt -> root: "rebuild stacks, read planes"
+  opt -> root: "rebuild stacks,\nread planes"
 }
 
 abi: "_native: pybind11 boundary, .pyi stubs (the only leaf)"
