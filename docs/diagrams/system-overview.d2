@@ -1,31 +1,31 @@
 grid-rows: 3
-grid-gap: 48
+grid-gap: 56
 
 doc: "Project JSON, Zemax .zmx"
 
 py: "Python process" {
-  grid-rows: 4
-  grid-gap: 26
+  grid-columns: 2
+  grid-gap: 39
   scene: "rendering/, ui/scene.py:\nvispy canvases"
-  app: "ui/: PySide6 app\n(main.ui, tree, editors)"
+  app: "ui/: PySide6 app\n(main.ui, tree, editors,\nplane view, codec)"
+  cons: "tests/ and\nbenchmarks/"
   domain: "optics/: elements, trace stack,\nplanes, optimizer"
-  cons: "tests/ and benchmarks/"
 
   app -> scene: "segments, plane images"
-  app -> domain: "edits, rebuild"
+  app -> domain
   cons -> domain: "trace, measure API"
 }
 
 nat: "Compiled native layer" {
-  grid-rows: 4
-  grid-gap: 26
+  grid-columns: 2
+  grid-gap: 39
   abi: "native/bindings/: pybind11"
-  kern: "native/: optics_core, C++17"
-  pool: "common/parallel.hpp:\nworker pool"
-  ntests: "native/tests/: ctest binary,\nlinks the whole library"
+  kern: "native/: optics_core,\nC++17 kernels"
+  ntests: "native/tests/:\nctest binary, links\nthe whole library"
+  pool: "common/parallel.hpp:\nworker pool (parallel\nhops, objective)"
 
   abi -> kern: "typed entry points"
-  kern -> pool: "parallel hops, objective"
+  kern -> pool
 }
 
 doc -> py: "load, import, save"

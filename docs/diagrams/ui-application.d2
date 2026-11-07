@@ -1,15 +1,15 @@
 grid-rows: 2
-grid-gap: 56
+grid-gap: 84
 
 qt: "Qt layer (PySide6)" {
   grid-columns: 2
-  grid-gap: 26
+  grid-gap: 39
   tree: "project_tree.py: source,\nlenses + submodules, planes"
   win: "app.py + main.ui:\nOpticsMainWindow,\nselection hub"
   ed: "editors/: element, source, plane,\nsubmodule, analysis - one page per\nselection, item callbacks"
   pv: "plane_view.py: 2D colormap of\nthe selected plane result"
   widgets: "widgets.py: find_child,\nrun_validated, spin and\nbutton-box setup"
-  work: "optimize.py: LayoutOptimizer on a\ndaemon thread; progress, finished,\nfailed back via Qt signals"
+  work: "optimize.py: LayoutOptimizer on a daemon\nthread; progress, finished, failed\nback via Qt signals"
 
   win <-> tree: selection <-> mirrored list
   win <-> ed
@@ -18,11 +18,11 @@ qt: "Qt layer (PySide6)" {
 }
 
 free: "Qt-free" {
-  grid-rows: 4
-  grid-gap: 26
+  grid-rows: 2
+  grid-gap: 39
   scene: "scene.py: SceneController (vispy)"
+  state: "project/: ProjectState, elements, planes,\npersistence (no PySide6, no vispy)"
   rendering: "rendering/: vispy meshes,\ncolormaps, camera"
-  state: "project/: ProjectState, elements,\nplanes, persistence\n(no PySide6, no vispy)"
   opt: "optics.optimizer: optimize_layout\n(called from the worker thread)"
 
   scene -> rendering: mesh, colormap build

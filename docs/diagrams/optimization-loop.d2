@@ -1,38 +1,41 @@
 grid-rows: 3
-grid-gap: 70
+grid-gap: 105
 
 ui: "UI thread (Qt)" {
-  grid-rows: 2
-  grid-gap: 26
-  ed: "analysis.py: z-locks, plane lock,\nmagnification target, log"
-  work: "optimize.py: LayoutOptimizer\n(daemon thread)"
+  grid-columns: 2
+  grid-gap: 39
+  ed: "analysis.py: z-locks, plane\nlock, magnification target, log"
+  work: "optimize.py: LayoutOptimizer\n(daemon thread); start down,\nprogress / finished / failed up"
 
-  ed <-> work: "start  /  progress, finished, failed"
+  ed <-> work
 }
 
 py: "optics/optimizer/" {
-  grid-rows: 2
-  grid-gap: 26
-  build: "config.py: OptimizerSettings\nlayout.py: units, windows"
+  grid-columns: 2
+  grid-gap: 39
   api: "api.py: validate, build, solve,\ninterpret"
+  build: "config.py: OptimizerSettings;\nlayout.py: units and windows -\nthe bounded problem"
 
-  api -> build: "settings + bounded problem"
+  api -> build
 }
 
 nat: "native search: coarse -> fine" {
-  grid-rows: 5
-  grid-gap: 26
-  coarse: "coarse DE (Latin hypercube),\nbehind a shallow pilot gate"
-  med: "promotion gate +\nmedium-fidelity re-rank"
-  val: "whole-fan validation:\nthe only success gate"
-  polish: "Nelder-Mead polish,\ngated on near-acceptance blur"
-  acc: "acceptance: spot-radius and\nmagnification tolerances"
+  grid-columns: 2
+  grid-gap: 39
+  gate: "pure-arithmetic precheck +\nshallow pilot trace: hopeless\ntrials bill no coarse eval"
+  coarse: "coarse DE (Latin hypercube) fills\na diverse archive"
+  med: "promotion gate: a deterministic subset\ngoes to medium-fidelity re-rank"
+  acc: "acceptance: spot-radius and\nmagnification tolerances -\nwhat Python reads back"
+  polish: "Nelder-Mead refinement on the winner\nor a near-focus best, gated on\nnear-acceptance blur"
+  val: "whole-fan validation: the only place\nsuccess can occur;\nfinalists, best first"
 
-  coarse -> med: "archive"
-  med -> val: "finalists, best first"
+  gate -> coarse: survivors
+  coarse -> med: archive
+  med -> val
   val -> polish: "winner, or near-focus best"
-  polish -> acc: "re-checked"
+  polish -> acc: re-checked
 }
 
 ui.work <-> py: "solve  /  OptimizationResult on the UI thread"
-py.api <-> nat.coarse: "OptimizerSettings + box  /  accepted layout or failure"
+py.api -> nat.gate: "OptimizerSettings + box"
+nat.acc -> py.api

@@ -1,21 +1,21 @@
 grid-rows: 3
-grid-gap: 48
+grid-gap: 72
 
 consumers: "consumers: not layers" {
   grid-columns: 2
-  grid-gap: 26
-  bindings: "bindings/:\npybind11 registration"
+  grid-gap: 39
+  bindings: "bindings/: pybind11 registration\nof every layer"
   ntests: "native/tests/:\nctest binary"
 }
 
 kernels: "kernel layers: arrows are includes" {
   grid-rows: 5
-  grid-gap: 26
-  optimizing: "optimizing/: coarse DE -> promotion -> medium\n-> whole-fan validate -> gated NM; objective, fit\nalso includes tracing (transform-only variants)"
+  grid-gap: 39
+  optimizing: "optimizing/: coarse DE -> promotion -> medium ->\nwhole-fan validate -> gated NM; also includes tracing"
   measurement: "measurement/: power accumulation, Wendland C2\nreconstruction; also includes intersection"
   tracing: "tracing/: element, trace-stack state, refraction,\nstack walk; also includes geometry"
-  intersection: "intersection/: Newton solver, closed form,\ninversion, rim mesh"
-  geometry: "geometry/: surface models, apertures,\nworld normals"
+  intersection: "intersection/: Newton solver, closed form, inversion, rim mesh"
+  geometry: "geometry/: surface models, apertures, world normals"
 
   optimizing -> measurement: "plane hits per candidate"
   measurement -> tracing: persistent stack walk
@@ -25,10 +25,10 @@ kernels: "kernel layers: arrows are includes" {
 
 base: "leaf layers" {
   grid-columns: 2
-  grid-gap: 26
-  expression: "expression/: parser,\ntree interpreter"
-  common: "common/: math, linalg,\nparallel dispatch, constants"
+  grid-gap: 39
+  expression: "expression/: parser and tree interpreter"
+  common: "common/: vector and matrix math, linalg,\nparallel dispatch, constants"
 }
 
 consumers -> kernels: "all layers registered, all TUs linked"
-kernels -> base: "expression: lowered tree (intersection,\ngeometry); common: math, parallel, constants"
+kernels -> base: "expression: lowered tree (intersection, geometry);\ncommon: math, parallel, constants"

@@ -1,31 +1,31 @@
 direction: down
 
 ui: "ui/" {
-  grid-rows: 3
-  grid-gap: 24
-  ed: "editors/: element, source, plane,\nsubmodule, analysis (PySide6)"
-  core: "core: app, facade, tree, plane view,\noptimize, imagecodec (PySide6)\n+ scene.py (vispy, Qt-free)"
-  proj: "project/: ProjectState, persistence\n(Qt-free)"
+  grid-columns: 2
+  grid-gap: 39
+  ed: "editors/: element, source, plane, submodule,\nanalysis (PySide6; one page per selection)"
+  core: "core: app, model facade, project_tree, plane_view,\noptimize, widgets, imagecodec (PySide6),\nplus scene.py (vispy, Qt-free)"
+  proj: "project/: state, elements, measurements,\npersistence (Qt-free)"
 
-  ed <-> core: "pages <-> state, callbacks"
-  core -> proj: owns ProjectState
+  ed <-> core
+  core -> proj
 }
 
-rendering: "rendering/ (vispy, numpy):\nmeshes, colormaps, camera"
+rendering: "rendering/ (vispy, numpy): camera, canvas, colormaps,\nmeshing, surfaces, rays, sources, measurements"
 
 optics: "optics/ (numpy buffers)" {
-  grid-rows: 4
-  grid-gap: 24
-  prim: "primitive/: Ray, Surface, Element parts"
-  root: "root: config, element, system,\nplanes, project, expressions"
-  opt: "optimizer/: layout solve"
-  imp: "importers/zmx/"
+  grid-columns: 2
+  grid-gap: 52
+  prim: "primitive/: Ray, Surface, aperture, hit,\nmaterial, sidewall, transform, vector"
+  root: "root: config, element, system, measurement_plane,\nsource, plane_transform, io, project, expression,\nconstants, _util"
+  opt: "optimizer/: api, config, layout, result -\nthe layout solve"
+  imp: "importers/zmx/: parser, model, normalize,\nglass, expressions, converter"
 
-  prim <-> root: "constants, _util, expression"
+  prim <-> root
   opt -> root: "rebuild stacks, read planes"
 }
 
-abi: "_native: pybind11 boundary, .pyi stubs"
+abi: "_native: pybind11 boundary, .pyi stubs (the only leaf)"
 
 ui -> rendering: "colormaps, canvas"
 ui -> optics: "trace, measure, merge .zmx"

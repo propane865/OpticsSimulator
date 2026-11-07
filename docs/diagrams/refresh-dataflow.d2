@@ -1,27 +1,27 @@
 grid-rows: 4
-grid-gap: 96
+grid-gap: 80
 
 cmd: "Editor apply" {
-  grid-rows: 2
-  grid-gap: 26
+  grid-columns: 2
+  grid-gap: 39
   ed: "apply: element, source,\nplane, submodule"
-  cls: "classify_element_edit:\nnone, index, transform, geometry"
+  cls: "classify_element_edit: none, index,\ntransform, geometry\n(element edits only)"
 
-  ed -> cls: element edit
+  ed -> cls
 }
 
 st: "Qt-free state" {
-  grid-rows: 2
-  grid-gap: 26
+  grid-columns: 2
+  grid-gap: 39
   state: "ProjectState: elements, source,\ncached ray arrays"
-  sys: "OpticalSystem: persistent native\nTraceStack, rebuilt lazily"
+  sys: "OpticalSystem: persistent native\nTraceStack, dropped on any element\nedit, rebuilt lazily"
 
-  state -> sys: dropped on any element edit
+  state -> sys
 }
 
 nat: "One native pass" {
   grid-columns: 2
-  grid-gap: 26
+  grid-gap: 39
   fused: trace_segments_and_planes
   segs: "ray segments:\nstarts, ends, hop kinds"
   hits: "plane hits:\n(P, N) -> u, v, power"
@@ -34,11 +34,11 @@ nat: "One native pass" {
 
 views: "Views" {
   grid-columns: 2
-  grid-gap: 26
+  grid-gap: 39
   scene: "SceneController:\nretrace_from_segments,\ngeometry-key mesh cache"
   pview: "plane_view: QImage colormap\nof the selected plane"
 }
 
-cmd.cls -> st.state: "none: no retrace, no remesh\nindex: retrace, meshes kept\ntransform, geometry: nodes remeshed"
+cmd -> st: "none: no retrace, no remesh\nindex: retrace, meshes kept\ntransform, geometry: nodes remeshed"
 st -> nat: "cached ray arrays +\nnative stack handle"
 nat -> views: "ray segments, detector mesh,\nplane image"
