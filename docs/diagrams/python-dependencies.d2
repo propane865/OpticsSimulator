@@ -1,41 +1,33 @@
 direction: down
 
 ui: "ui/" {
-  core: "core: app, facade, scene, tree, plane view"
-  ed: "editors/: element, source, plane, analysis"
-  proj: "project/: ProjectState, persistence"
+  grid-rows: 3
+  grid-gap: 24
+  ed: "editors/: element, source, plane,\nsubmodule, analysis (PySide6)"
+  core: "core: app, facade, tree, plane view,\noptimize, imagecodec (PySide6)\n+ scene.py (vispy, Qt-free)"
+  proj: "project/: ProjectState, persistence\n(Qt-free)"
 
-  core <-> ed: "pages <-> widgets, state, callbacks"
+  ed <-> core: "pages <-> state, callbacks"
   core -> proj: owns ProjectState
 }
 
-rendering: "rendering/: vispy meshes, colormaps, camera"
+rendering: "rendering/ (vispy, numpy):\nmeshes, colormaps, camera"
 
-optics: "optics/" {
-  root: "root: config, element, system, plane, project, source"
+optics: "optics/ (numpy buffers)" {
+  grid-rows: 4
+  grid-gap: 24
   prim: "primitive/: Ray, Surface, Element parts"
+  root: "root: config, element, system,\nplanes, project, expressions"
   opt: "optimizer/: layout solve"
   imp: "importers/zmx/"
 
-  root <-> prim: "constants, _util, expression"
+  prim <-> root: "constants, _util, expression"
   opt -> root: "rebuild stacks, read planes"
 }
 
 abi: "_native: pybind11 boundary, .pyi stubs"
 
-third: "third party" {
-  pyside: PySide6
-  vispy: vispy
-  numpy: numpy
-}
-
-ui -> optics.root: "trace, measure, build planes"
-ui.core -> optics.opt: layout runs
-ui.core -> optics.imp: "merge .zmx"
-ui.ed -> optics.opt: LensOptimization
-rendering -> optics.root: scene geometry
-rendering -> optics.prim: "surfaces, sidewalls"
+ui -> rendering: "colormaps, canvas"
+ui -> optics: "trace, measure, merge .zmx"
+rendering -> optics: "surfaces, sidewalls"
 optics -> abi: "surface, stack, trace, solve"
-ui.core -> third: "PySide6, vispy"
-rendering -> third: "vispy, numpy"
-optics -> third: "array buffers"

@@ -1,35 +1,38 @@
-direction: down
+grid-rows: 3
+grid-gap: 70
 
 ui: "UI thread (Qt)" {
-  ed: "analysis.py: z-lock table, image-plane lock, log"
-  work: "optimize.py: LayoutOptimizer (QThread)"
+  grid-rows: 2
+  grid-gap: 26
+  ed: "analysis.py: z-locks, plane lock,\nmagnification target, log"
+  work: "optimize.py: LayoutOptimizer\n(daemon thread)"
 
-  work -> ed: "progress, result"
+  ed <-> work: "start  /  progress, finished, failed"
 }
 
 py: "optics/optimizer/" {
-  api: "api.py: validate, build problem, solve, interpret"
-  cfg: "config.py: LensOptimization to OptimizerSettings"
-  layout: "layout.py: transform-only variants, bounds"
-  res: "OptimizationResult: layout, plane_transform, diagnostics"
+  grid-rows: 2
+  grid-gap: 26
+  build: "config.py: OptimizerSettings\nlayout.py: units, windows"
+  api: "api.py: validate, build, solve,\ninterpret"
 
-  api -> cfg: settings
-  api -> layout: "free z keys, image plane"
-  api -> res: "layout + plane_transform"
+  api -> build: "settings + bounded problem"
 }
 
-nat: "native search" {
-  search: "optimizing/: bounded DE, gated Nelder-Mead polish"
-  fit: "fit: per-object-point spot radius"
-  acc: "acceptance contract"
+nat: "native search: coarse -> fine" {
+  grid-rows: 5
+  grid-gap: 26
+  coarse: "coarse DE (Latin hypercube),\nbehind a shallow pilot gate"
+  med: "promotion gate +\nmedium-fidelity re-rank"
+  val: "whole-fan validation:\nthe only success gate"
+  polish: "Nelder-Mead polish,\ngated on near-acceptance blur"
+  acc: "acceptance: spot-radius and\nmagnification tolerances"
 
-  search <-> fit: "cost per candidate <-> focus measure"
-  search -> acc: best candidate
+  coarse -> med: "archive"
+  med -> val: "finalists, best first"
+  val -> polish: "winner, or near-focus best"
+  polish -> acc: "re-checked"
 }
 
-ui.ed -> ui.work: "start, cancel"
-ui.work -> py.api: solve
-py.cfg -> nat.search: OptimizerSettings
-py.layout -> nat.search: "bounded space"
-nat.acc -> py.api: "layout or failure reason"
-py.res -> ui.work: outcome
+ui.work <-> py: "solve  /  OptimizationResult on the UI thread"
+py.api <-> nat.coarse: "OptimizerSettings + box  /  accepted layout or failure"

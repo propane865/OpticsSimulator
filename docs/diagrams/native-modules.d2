@@ -1,30 +1,34 @@
-direction: down
+grid-rows: 3
+grid-gap: 48
 
-consumers: {
-  direction: right
-  bindings: "bindings/: pybind11 registration"
-  ntests: "native/tests/: ctest binary"
+consumers: "consumers: not layers" {
+  grid-columns: 2
+  grid-gap: 26
+  bindings: "bindings/:\npybind11 registration"
+  ntests: "native/tests/:\nctest binary"
 }
 
-kernels: "kernel layers: each arrow is an include of optics/..." {
-  optimizing: "optimizing/: DE + gated Nelder-Mead, objective, fit, acceptance"
-  measurement: "measurement/: power accumulation, Wendland C2 reconstruction"
-  tracing: "tracing/: element, trace-stack state, refraction, stack walk"
-  intersection: "intersection/: Newton solver, closed-form, inversion, rim mesh"
-  geometry: "geometry/: surface models, apertures, world normals"
+kernels: "kernel layers: arrows are includes" {
+  grid-rows: 5
+  grid-gap: 26
+  optimizing: "optimizing/: coarse DE -> promotion -> medium\n-> whole-fan validate -> gated NM; objective, fit\nalso includes tracing (transform-only variants)"
+  measurement: "measurement/: power accumulation, Wendland C2\nreconstruction; also includes intersection"
+  tracing: "tracing/: element, trace-stack state, refraction,\nstack walk; also includes geometry"
+  intersection: "intersection/: Newton solver, closed form,\ninversion, rim mesh"
+  geometry: "geometry/: surface models, apertures,\nworld normals"
 
-  optimizing -> measurement: candidate stacks
-  optimizing -> tracing: transform-only stack variants
+  optimizing -> measurement: "plane hits per candidate"
   measurement -> tracing: persistent stack walk
-  measurement -> intersection: plane hit primitives
   tracing -> intersection: surface hits per hop
-  tracing -> geometry: surface descriptors, normals
-  intersection <-> geometry: "cycle: surfaces, apertures, plane, rim mesh"
+  intersection <-> geometry: the one header cycle
 }
 
-expression: "expression/: parser, tree interpreter"
-common: "common/: vector/matrix math, linalg, parallel dispatch, constants"
+base: "leaf layers" {
+  grid-columns: 2
+  grid-gap: 26
+  expression: "expression/: parser,\ntree interpreter"
+  common: "common/: math, linalg,\nparallel dispatch, constants"
+}
 
 consumers -> kernels: "all layers registered, all TUs linked"
-kernels -> expression: "lowered tree, from intersection and geometry"
-kernels -> common: "math, parallel dispatch, constants"
+kernels -> base: "expression: lowered tree (intersection,\ngeometry); common: math, parallel, constants"

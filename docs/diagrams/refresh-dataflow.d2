@@ -1,40 +1,44 @@
-direction: down
+grid-rows: 4
+grid-gap: 96
 
 cmd: "Editor apply" {
-  ed: "apply: element, source, plane"
-  cls: "classify_element_edit: none, index, transform, geometry"
+  grid-rows: 2
+  grid-gap: 26
+  ed: "apply: element, source,\nplane, submodule"
+  cls: "classify_element_edit:\nnone, index, transform, geometry"
 
   ed -> cls: element edit
 }
 
 st: "Qt-free state" {
-  state: "ProjectState: elements, source, ray arrays"
-  sys: "OpticalSystem: persistent native TraceStack"
+  grid-rows: 2
+  grid-gap: 26
+  state: "ProjectState: elements, source,\ncached ray arrays"
+  sys: "OpticalSystem: persistent native\nTraceStack, rebuilt lazily"
 
-  state -> sys: "lazy rebuild after element edits"
+  state -> sys: dropped on any element edit
 }
 
 nat: "One native pass" {
+  grid-columns: 2
+  grid-gap: 26
   fused: trace_segments_and_planes
-  segs: "ray segments: starts, ends, hop kinds"
-  hits: "plane hits: u, v, power"
-  res: "MeasurementResult: histogram or Wendland C2"
+  segs: "ray segments:\nstarts, ends, hop kinds"
+  hits: "plane hits:\n(P, N) -> u, v, power"
+  res: "MeasurementResult:\nraw histogram or Wendland C2"
 
   fused -> segs: "per-hop segments"
-  fused -> hits: "(P, N) hits"
+  fused -> hits
   hits -> res: "accumulate, reconstruct"
 }
 
 views: "Views" {
-  scene: "SceneController: mesh signature cache"
-  pview: "plane_view: QImage colormap"
+  grid-columns: 2
+  grid-gap: 26
+  scene: "SceneController:\nretrace_from_segments,\ngeometry-key mesh cache"
+  pview: "plane_view: QImage colormap\nof the selected plane"
 }
 
-cmd.cls -> st.state: "none, index: no retrace or remesh"
-cmd.cls -> st.state: "transform, geometry: system dropped"
-st.state -> nat.fused: "cached ray arrays"
-st.sys -> nat.fused: "native stack handle"
-st.sys -> nat.res: "no fused pass: measure or retrace"
-nat.segs -> views.scene: "identical local meshes"
-nat.res -> views.scene: "detector mesh"
-nat.res -> views.pview: "selected plane image"
+cmd.cls -> st.state: "none: no retrace, no remesh\nindex: retrace, meshes kept\ntransform, geometry: nodes remeshed"
+st -> nat: "cached ray arrays +\nnative stack handle"
+nat -> views: "ray segments, detector mesh,\nplane image"

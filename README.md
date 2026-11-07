@@ -39,11 +39,22 @@ The window loads the bundled `optics/examples/doublet.json` by default
 (`triplet.json` is bundled as well). Use **File -> Open** to load a saved
 project document (legacy element-only stacks are accepted too), **File ->
 Save As** to write one back, and **File -> Import Zemax** to merge the
-lenses of a `.zmx` prescription into the open project. The analysis panel's
-**Optimize Layout** button sweeps the z of every unlocked element -- and
-optionally the image plane -- for best focus, and can additionally be asked to
-hit a target magnification (optical magnification, fitted between the analysis
-planes) as part of the accepted layout.
+lenses of a `.zmx` prescription into the open project. Lenses in the Elements
+tree can be grouped into *submodules* (drag a lens onto a submodule node, onto
+another lens to adopt its group, or onto Elements to ungroup): a submodule moves
+as one rigid block -- its properties page translates every member by the same
+offset and the optimizer searches one position for the whole group.
+
+The analysis panel's **Optimize Layout** button sweeps the z of every unlocked
+element (or unlocked submodule) and the image plane for best focus -- the
+smallest per-object-point RMS spot radius on the image plane -- and reports the
+magnification that layout delivers. **Optimize Magnification** adds a target
+magnification (fitted between the two analysis planes) to the acceptance
+contract, so the winner must focus *and* image at that magnification; **Lock
+Image Plane** pins the detector instead of profiling its best-focus z; **Allow
+Suboptimal Convergence** commits the best layout found even when nothing passed
+acceptance (otherwise a run that finds no focused layout fails and leaves the
+system untouched).
 
 To view the example stack without the full UI:
 
@@ -92,8 +103,8 @@ point emits its own cone fan, so the total ray count is
 `active_points x num_rays`, capped at 16384; images are block-mean downsampled
 to `max_grid_dim` per side before emission. The image is embedded in the project
 as a base64 PNG and re-decoded on load. PNG (de)coding is provided by the Qt UI
-layer (`ui.imagecodec`) through the codec seam in `optics.source`, so the Qt-free
-core can still emit from an already-decoded grid:
+layer (`ui.imagecodec`) through the codec seam in `optics.source`, so the
+Qt-free core can still emit from an already-decoded grid:
 
 ```json
 "source": {

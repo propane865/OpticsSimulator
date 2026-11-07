@@ -9,7 +9,7 @@ Lint and type checks (the commands CI runs):
 
 ```bash
 ruff check .
-mypy optics rendering ui
+mypy optics rendering ui tests
 ```
 
 Native C++ tests:
@@ -37,18 +37,23 @@ python benchmarks/benchmark_stack.py         # 2 elem x 10k and 4 elem x 100k: b
 python benchmarks/benchmark_scale.py         # scale: 10-element stack trace, fused pass with 1/4/16/64 planes, 1k-64k batch-size sweep
 python benchmarks/benchmark_codegen.py       # stage-level profile of surface compilation (C++ parse + first eval passes)
 python benchmarks/profile_lens_edit.py       # lens create/modify hot path: per-phase breakdown, scaling matrix, cProfile
-python benchmarks/profile_optimizer.py       # layout optimization: solve stages, DE/polish split, scaling matrix, cProfile
+python benchmarks/profile_optimizer.py       # layout optimization: solve stages, DE/refinement split, scaling matrix, cProfile
 ```
 
-The three tracing benchmarks (`intersection`, `trace`, `stack`) print a
-per-scenario table with rays/sec and ns/ray; `profile_lens_edit.py` reports
-per-phase times plus a unified-apply scaling matrix over element/plane/ray
-counts. All scripts built on the `bench_common` arg parser share
-`--rays/--repeats/--warmup/--budget` (the repeat budget caps cumulative
-timed seconds per scenario), `--json out.json` for machine-readable output,
-and `--cold` to additionally re-run itself in a fresh subprocess
-interpreter; the native kernels carry no JIT cache, so cold runs are
-dominated by interpreter start-up and first-call setup.
+Every `bench_common` report prints one row per scenario -- seconds, plus rays/s
+and ns/ray on the rows that trace a ray fan; `profile_lens_edit.py` adds
+per-phase times and a unified-apply scaling matrix over element/plane/ray
+counts. Scripts built on the `bench_common` arg parser share
+`--rays/--repeats/--warmup/--budget` (the repeat budget caps cumulative timed
+seconds per scenario), `--quiet` and `--json out.json` for machine-readable
+output. The five scripts with a cold path (`benchmark_intersection`,
+`benchmark_trace`, `benchmark_stack`, `profile_lens_edit`,
+`profile_optimizer`) additionally take `--cold`, which re-runs each scenario in
+a fresh subprocess interpreter (`--child-rays` sizes that run); the native
+kernels carry no JIT cache, so cold runs are dominated by interpreter start-up
+and first-call setup. `benchmark_codegen.py` needs no `--cold`: it already runs
+every timing in its own child process because the surface compile is
+`lru_cache`'d.
 `benchmark_stack.py` adds `--two-rays`/`--four-rays` ray-count overrides for
 its 2- and 4-element scenarios; `benchmark_scale.py` adds
 `--stack-rays`/`--plane-rays`;
@@ -60,11 +65,11 @@ per-thread intersection counters through ``_native.intersection_stats()``.
 `profile_optimizer.py` drives the bundled doublet best-focus problem and splits
 one `optimize_layout` call into setup / native solver / teardown. The solver
 releases the GIL and is opaque to `cProfile`, so its DE-sweep and
-Nelder-Mead-polish costs come from re-running with `generations=0` /
+Nelder-Mead-refinement costs come from re-running with `generations=0` /
 `nm_iterations=0` and differencing, with `--decomp-generations`,
 `--decomp-nm` and `--decomp-evals` keeping that uncapped run cheap. It also
 reports cost per objective evaluation, whether the `max_evals` cap starves the
-polish, and a scaling matrix over ray count, free-parameter count and solver
+refinement, and a scaling matrix over ray count, free-parameter count and solver
 budget; extra flags are `--generations`, `--nm`, `--evals`, `--population`,
 `--seed`, `--point-array`, `--ui-default` and `--no-cprofile`. A full run takes
 a couple of minutes -- shrink it with `--rays` and `--budget`.

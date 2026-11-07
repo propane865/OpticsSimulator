@@ -1,32 +1,30 @@
-direction: down
+grid-rows: 3
+grid-gap: 64
 
-inputs: "Inputs" {
-  src: "native/ sources"
-  cmake: "CMakeLists.txt (C++17)"
-
-  src -> cmake: "globbed sources"
-}
+cmake: "CMakeLists.txt: C++17, CMake >= 3.24\nnative/ sources listed explicitly"
 
 targets: "CMake targets: one object library" {
-  core: "optics_core: OBJECT library, -ffp-contract=off"
-  abi: "_native: pybind11 module"
-  mod: "optics/_native.pyd or .so"
-  ntests: optics_native_tests
-  wheel: "wheel / editable install"
+  grid-columns: 2
+  grid-gap: 26
+  core: "optics_core: OBJECT library\n-ffp-contract=off (GNU/Clang)"
+  ntests: "optics_native_tests\nOPTICS_BUILD_TESTS=ON\nlinks optics_core"
+  mod: "_native: pybind11 module\nOPTICS_BUILD_MODULE=ON\n-> optics/_native.(pyd | so)"
+  wheel: "wheel / editable install\nscikit-build-core (+ main.ui, JSON)"
 
-  core -> abi: OPTICS_BUILD_MODULE=ON
-  abi -> mod: "install into optics/"
-  core -> ntests: OPTICS_BUILD_TESTS=ON
+  core -> ntests
+  core -> mod
 }
 
-gates: "GitHub CI: Linux and Windows" {
-  ctest: ctest
-  pytest: "pytest, ruff, mypy"
+ci: "GitHub CI: Linux and Windows" {
+  grid-rows: 3
+  grid-gap: 26
+  ctest: "ctest (Release), both runners\n+ ASan/UBSan rebuild on Linux"
+  lint: "ruff check .; mypy\noptics rendering ui tests"
+  pytest: "pytest\n(QT_QPA_PLATFORM=offscreen)"
+
+  ctest -> lint: green
+  lint -> pytest: green
 }
 
-inputs.cmake -> targets.core: "add_library(OBJECT)"
-inputs.cmake -> targets.wheel: scikit-build-core
-targets.mod -> gates.pytest: "Python suite imports it"
-targets.ntests -> gates.ctest: "native cases"
-targets.wheel -> gates.pytest: "pip install -e .[dev]"
-gates -> targets.ntests: "ASan/UBSan rebuild (Linux)"
+cmake -> targets: add_library(OBJECT)
+targets -> ci: "ctest the native binary;\npip install -e .[dev] for pytest"
