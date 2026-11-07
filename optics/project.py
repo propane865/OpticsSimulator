@@ -1,4 +1,4 @@
-"""Versioned project document format: elements, light source, measurement planes."""
+"""Project document format: elements, light source, measurement planes."""
 
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -17,8 +17,6 @@ from .source import (
     encode_image,
     resample_grid,
 )
-
-PROJECT_VERSION = 2
 
 # Default ceiling on each point-array image dimension after downsampling.
 DEFAULT_MAX_GRID_DIM = 64
@@ -61,8 +59,7 @@ def source_from_config(config: object) -> PointSource:
     power = float(config.get("power", default["power"]))
     num_rays = int(config.get("num_rays", default["num_rays"]))
     cone_angle = float(config.get("cone_angle", default["cone_angle"]))
-    # Documents written before the wavelength existed simply omit the key and
-    # load at the default, so no project version bump is warranted.
+    # Every source key is optional and loads at the default, wavelength included.
     wavelength = float(config.get("wavelength", default["wavelength"]))
     if source_type == POINT_ARRAY:
         image = config.get("image")
@@ -139,58 +136,28 @@ def plane_to_config(name: str, plane: MeasurementPlane) -> dict[str, Any]:
     }
 
 
-def require_project_document(document: object) -> dict[str, Any]:
-    """Shared validation for parsed project documents (used by :mod:`optics.io`).
-
-    A document written before Sellmeier materials carries the old constant-index
-    elements, so its declared version is rejected here with the migration note
-    instead of failing element by element later.
-    """
-    if not isinstance(document, dict):
-        raise ValueError("Optical stack must be a JSON object")
-    declared = document.get("version")
-    if declared is not None:
-        try:
-            version = int(declared)
-        except (TypeError, ValueError):
-            raise ValueError("Project 'version' must be an integer") from None
-        if version < PROJECT_VERSION:
-            raise ValueError(
-                f"Project document version {version} predates Sellmeier materials "
-                f"(version {PROJECT_VERSION}); give every element "
-                'material.sellmeier = {"b": [...], "c": [...]} coefficients'
-            )
-    return document
-
-
 def parse_project(
     document: object,
-) -> "tuple[dict[str, Any], PointSource | None, list[tuple[str, MeasurementPlane]] | None]":
+) -> tuple[dict[str, Any], PointSource, list[tuple[str, MeasurementPlane]]]:
     """Split a project document into ``(elements_config, source, planes)``.
 
-    Files without an ``"elements"`` key are treated as legacy element-only
-    maps; ``source``/``planes`` are then ``None`` meaning "keep current".
+    A project document is exactly ``{"elements", "source", "measurement_planes"}``;
+    every section is required and a missing one raises naming the key.
     """
-    document = require_project_document(document)
-    if "elements" in document:
-        elements_config = document["elements"]
-        source_config = document.get("source")
-        planes_config = document.get("measurement_planes")
-    else:
-        elements_config = document
-        source_config = None
-        planes_config = None
+    if not isinstance(document, dict):
+        raise ValueError("Project document must be a JSON object")
+    elements_config = _require(document, "elements", "project document")
+    if not isinstance(elements_config, dict):
+        raise ValueError("Project 'elements' must be an object")
+    source = source_from_config(_require(document, "source", "project document"))
+    planes_config = _require(document, "measurement_planes", "project document")
 
-    source = None if source_config is None else source_from_config(source_config)
-
-    planes: list[tuple[str, MeasurementPlane]] | None = None
-    if planes_config is not None:
-        if not isinstance(planes_config, list):
-            raise ValueError("measurement_planes must be a list")
-        planes = []
-        for entry in planes_config:
-            base_name = str(entry.get("name", "")) if isinstance(entry, dict) else ""
-            planes.append((base_name, plane_from_config(entry)))
+    if not isinstance(planes_config, list):
+        raise ValueError("measurement_planes must be a list")
+    planes = []
+    for entry in planes_config:
+        base_name = str(entry.get("name", "")) if isinstance(entry, dict) else ""
+        planes.append((base_name, plane_from_config(entry)))
 
     return elements_config, source, planes
 
@@ -201,9 +168,8 @@ def build_project_document(
     plane_names: Sequence[str],
     planes: Sequence[MeasurementPlane],
 ) -> dict[str, Any]:
-    """Assemble the versioned project document for saving."""
+    """Assemble the project document for saving."""
     return {
-        "version": PROJECT_VERSION,
         "elements": dict(elements_schema),
         "source": source_to_config(source),
         "measurement_planes": [

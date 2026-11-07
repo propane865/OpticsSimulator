@@ -572,15 +572,16 @@ def test_source_ok_retraces_rays(stack_window):
     assert _mesh_count(window.canvas.view) >= 7
 
 
-def test_source_survives_stack_reload(window, stack_path):
+def test_source_is_replaced_by_a_stack_reload(window, stack_path):
     editor = _source_editor(window)
     editor["rays"].setValue(6)
     _click_source(window, OK)
 
+    # The loaded document owns the source, so its source replaces the live one.
     window.load_stack(stack_path)
 
-    assert window.source.num_rays == 6
-    assert len(window.rays) == 6
+    assert window.source.num_rays == 16
+    assert len(window.rays) == 16
     assert _mesh_count(window.canvas.view) >= 7
 
 
@@ -631,12 +632,13 @@ def test_multiple_measurement_planes_offset(window):
     assert window.planes[0].o[2] != window.planes[1].o[2]
 
 
-def test_measurement_plane_persists_across_reload(window, stack_path):
+def test_planes_are_replaced_by_a_stack_reload(window, stack_path):
     _trigger_measurement_plane(window)
 
     window.load_stack(stack_path)
 
-    assert len(window.planes) == 1
+    # The loaded document owns the plane set, and its document carries none.
+    assert window.planes == []
     assert _mesh_count(window.canvas.view) >= 7
 
 

@@ -391,7 +391,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     def load_stack(self, path: str | Path) -> "list[RefractiveElement]":
         path = Path(path)
         document = load_project(path)
-        elements, replaced_planes = self._state.load_document(document)
+        elements = self._state.load_document(document)
 
         self._scene.full_rebuild(self._state.elements, self._state.rays)
         self._scene.refresh_source(self._state.source)
@@ -400,8 +400,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         # A load replaces every element, so session-only empty submodules from
         # the previous project must not haunt the fresh tree.
         self._project_tree.clear_pending_submodules()
-        if replaced_planes:
-            self._plane_editor.refresh()
+        self._plane_editor.refresh()
         # The submodule form is refreshed first so the lens editor keeps the
         # last word on the selection, while the (hidden) group fields are reset
         # to the loaded project instead of the previous one.

@@ -37,7 +37,7 @@ python -m ui.app
 
 The window loads the bundled `optics/examples/doublet.json` by default
 (`triplet.json` is bundled as well). Use **File -> Open** to load a saved
-project document (legacy element-only stacks are accepted too), **File ->
+project document, **File ->
 Save As** to write one back, and **File -> Import Zemax** to merge the
 lenses of a `.zmx` prescription into the open project. Lenses in the Elements
 tree can be grouped into *submodules* (drag a lens onto a submodule node, onto
@@ -64,12 +64,12 @@ python -m rendering.demo
 
 ## Project file format
 
-**File -> Save As** writes a versioned project document that also stores the
-light source and measurement planes:
+**File -> Save As** writes a project document that also stores the
+light source and measurement planes -- all three sections are required when a
+document is opened:
 
 ```json
 {
-  "version": 1,
   "elements": {
     "lens1": { ... }
   },
@@ -194,8 +194,7 @@ as exactly `n` at every wavelength, bit for bit. That idiom is what the bundled
 examples and the test fixtures use for `n = 1.5`.
 
 There is no `refractive_index` key any more: a material config without
-`sellmeier` -- or a project document declaring a version older than 2 -- is
-refused with a message naming the coefficients to write.
+`sellmeier` is refused with a message naming the coefficients to write.
 
 What the trace does with the index:
 

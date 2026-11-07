@@ -1,90 +1,104 @@
 {
-    "lens1": {
-        "surface1": {
-            "x": "u",
-            "y": "v",
-            "z": "-1 + sqrt(9 - (u**2) - (v**2))",
-            "u_range": [
-                -2.0,
-                2.0
-            ],
-            "v_range": [
-                -2.0,
-                2.0
-            ],
-            "aperture": {
-                "radius": 0.75
-            }
-        },
-        "surface2": {
-            "x": "u",
-            "y": "v",
-            "z": "4.6 - sqrt(9 - (u**2) - (v**2))",
-            "u_range": [
-                -2.0,
-                2.0
-            ],
-            "v_range": [
-                -2.0,
-                2.0
-            ],
-            "aperture": {
-                "radius": 0.75
-            }
-        },
-        "material": {
-            "sellmeier": {
-                "b": [
-                    1.25
+    "elements": {
+        "lens1": {
+            "surface1": {
+                "x": "u",
+                "y": "v",
+                "z": "-1 + sqrt(9 - (u**2) - (v**2))",
+                "u_range": [
+                    -2.0,
+                    2.0
                 ],
-                "c": [
-                    0.0
-                ]
+                "v_range": [
+                    -2.0,
+                    2.0
+                ],
+                "aperture": {
+                    "radius": 0.75
+                }
+            },
+            "surface2": {
+                "x": "u",
+                "y": "v",
+                "z": "4.6 - sqrt(9 - (u**2) - (v**2))",
+                "u_range": [
+                    -2.0,
+                    2.0
+                ],
+                "v_range": [
+                    -2.0,
+                    2.0
+                ],
+                "aperture": {
+                    "radius": 0.75
+                }
+            },
+            "material": {
+                "sellmeier": {
+                    "b": [
+                        1.25
+                    ],
+                    "c": [
+                        0.0
+                    ]
+                }
+            }
+        },
+        "lens2": {
+            "surface1": {
+                "x": "u",
+                "y": "v",
+                "z": "2.8 - sqrt(4 - (u**2) - (v**2))",
+                "u_range": [
+                    -2.0,
+                    2.0
+                ],
+                "v_range": [
+                    -2.0,
+                    2.0
+                ],
+                "aperture": {
+                    "radius": 0.75
+                }
+            },
+            "surface2": {
+                "x": "u",
+                "y": "v",
+                "z": "-1.3 + sqrt(4 - (u**2) - (v**2))",
+                "u_range": [
+                    -2.0,
+                    2.0
+                ],
+                "v_range": [
+                    -2.0,
+                    2.0
+                ],
+                "aperture": {
+                    "radius": 0.75
+                }
+            },
+            "material": {
+                "sellmeier": {
+                    "b": [
+                        1.25
+                    ],
+                    "c": [
+                        0.0
+                    ]
+                }
             }
         }
     },
-    "lens2": {
-        "surface1": {
-            "x": "u",
-            "y": "v",
-            "z": "2.8 - sqrt(4 - (u**2) - (v**2))",
-            "u_range": [
-                -2.0,
-                2.0
-            ],
-            "v_range": [
-                -2.0,
-                2.0
-            ],
-            "aperture": {
-                "radius": 0.75
-            }
-        },
-        "surface2": {
-            "x": "u",
-            "y": "v",
-            "z": "-1.3 + sqrt(4 - (u**2) - (v**2))",
-            "u_range": [
-                -2.0,
-                2.0
-            ],
-            "v_range": [
-                -2.0,
-                2.0
-            ],
-            "aperture": {
-                "radius": 0.75
-            }
-        },
-        "material": {
-            "sellmeier": {
-                "b": [
-                    1.25
-                ],
-                "c": [
-                    0.0
-                ]
-            }
-        }
-    }
+    "source": {
+        "position": [
+            0.0,
+            0.0,
+            30.0
+        ],
+        "power": 1.0,
+        "num_rays": 16,
+        "source_type": "single_point",
+        "cone_angle": 60.0
+    },
+    "measurement_planes": []
 }

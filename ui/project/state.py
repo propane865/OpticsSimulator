@@ -198,8 +198,8 @@ class ProjectState:
         self._measurements.measure_all()
 
     # -- document (de)serialization -----------------------------------------
-    def load_document(self, document: object) -> tuple[list[RefractiveElement], bool]:
-        """Apply a parsed project ``document`` to this state."""
+    def load_document(self, document: object) -> list[RefractiveElement]:
+        """Apply a parsed project ``document`` to this state, replacing its project."""
         return persistence.apply_document(self, document)
 
     def to_document(self) -> dict[str, Any]:

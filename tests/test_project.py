@@ -8,12 +8,10 @@ from optics.measurement_plane import MeasurementPlane
 from optics.primitive import DEFAULT_WAVELENGTH_NM
 from optics.project import (
     DEFAULT_SOURCE_CONFIG,
-    PROJECT_VERSION,
     build_project_document,
     parse_project,
     plane_from_config,
     plane_to_config,
-    require_project_document,
     source_from_config,
     source_to_config,
 )
@@ -79,7 +77,7 @@ def test_source_config_records_the_wavelength():
 
 
 def test_source_without_a_wavelength_key_loads_at_the_default():
-    # Documents written before the wavelength existed must keep loading.
+    # Every source key is optional, so a partial source block still loads.
     restored = source_from_config({"position": [0.0, 0.0, 3.0], "power": 1.0})
     assert restored.wavelength == pytest.approx(DEFAULT_WAVELENGTH_NM)
     assert DEFAULT_SOURCE_CONFIG["wavelength"] == pytest.approx(DEFAULT_WAVELENGTH_NM)
@@ -105,7 +103,6 @@ def test_plane_from_config_requires_keys():
 
 def test_parse_project_full_document():
     document = {
-        "version": PROJECT_VERSION,
         "elements": {"lens1": {}},
         "source": {"position": [0, 0, 3], "power": 1.0, "num_rays": 4,
                    "source_type": "single_point", "cone_angle": 60.0},
@@ -116,16 +113,8 @@ def test_parse_project_full_document():
     }
     elements_config, source, planes = parse_project(document)
     assert elements_config == {"lens1": {}}
-    assert source is not None and source.num_rays == 4
-    assert planes is not None
+    assert source.num_rays == 4
     assert [name for name, _ in planes] == ["p1"]
-
-
-def test_parse_project_legacy_stack_keeps_source_and_planes():
-    elements_config, source, planes = parse_project({"lens1": {}})
-    assert elements_config == {"lens1": {}}
-    assert source is None
-    assert planes is None
 
 
 def test_parse_project_rejects_non_dict():
@@ -133,9 +122,27 @@ def test_parse_project_rejects_non_dict():
         parse_project([1, 2, 3])
 
 
+@pytest.mark.parametrize("section", ["elements", "source", "measurement_planes"])
+def test_parse_project_requires_every_section(section):
+    document = {
+        "elements": {"lens1": {}},
+        "source": {"position": [0, 0, 3]},
+        "measurement_planes": [],
+    }
+    del document[section]
+
+    with pytest.raises(ValueError, match=section):
+        parse_project(document)
+
+
 def test_parse_project_rejects_bad_planes():
     with pytest.raises(ValueError, match="measurement_planes"):
-        parse_project({"elements": {}, "measurement_planes": {"name": "p1"}})
+        parse_project({"elements": {}, "source": {}, "measurement_planes": {"name": "p1"}})
+
+
+def test_parse_project_rejects_non_object_elements():
+    with pytest.raises(ValueError, match="elements"):
+        parse_project({"elements": [1, 2], "source": {}, "measurement_planes": []})
 
 
 def test_build_project_document_round_trip():
@@ -143,36 +150,22 @@ def test_build_project_document_round_trip():
     source = PointSource(position=[0.0, 0.0, 3.0], power=1.0, num_rays=4)
     planes = [_plane(-3.0), _plane(-4.0)]
     document = build_project_document(schema, source, ["p1", "p2"], planes)
-    assert document["version"] == PROJECT_VERSION
+    assert set(document) == {"elements", "source", "measurement_planes"}
 
     elements_config, restored_source, restored_planes = parse_project(document)
     assert elements_config == schema
-    assert restored_source is not None
     assert restored_source.num_rays == 4
-    assert restored_planes is not None
     assert [name for name, _ in restored_planes] == ["p1", "p2"]
     np.testing.assert_allclose(restored_planes[1][1].o, planes[1].o)
 
 
 class TestSellmeierBreak:
-    """What a document written before Sellmeier materials gets instead of a lens.
+    """What a document whose elements carry a fixed index gets instead of a lens.
 
     The break is deliberate, so every path that used to accept a fixed index is
-    checked to refuse loudly and name the key to write -- a legacy file must not
+    checked to refuse loudly and name the key to write -- such a file must not
     half-load into a stack of vacuum elements.
     """
-
-    def test_a_version_one_document_is_refused_with_the_migration_note(self):
-        with pytest.raises(ValueError, match=r"version 1 predates Sellmeier materials"):
-            require_project_document({"version": 1, "elements": {"lens1": {}}})
-
-    def test_the_current_version_is_accepted(self):
-        document = require_project_document({"version": PROJECT_VERSION, "elements": {}})
-        assert document["elements"] == {}
-
-    def test_a_version_that_is_not_a_number_is_named(self):
-        with pytest.raises(ValueError, match="'version' must be an integer"):
-            require_project_document({"version": "two", "elements": {}})
 
     @pytest.mark.parametrize(
         "material",
@@ -203,7 +196,7 @@ class TestSellmeierBreak:
     def test_a_fixture_element_rewritten_with_a_legacy_material_is_refused(self, repo_root):
         """The refusal survives a whole-document load, not just one config dict."""
         document = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
-        for entry in document.values():
+        for entry in document["elements"].values():
             entry["material"] = {"refractive_index": 1.5}
         with pytest.raises(ValueError, match="key was removed"):
-            stack_from_config(document)
+            stack_from_config(document["elements"])

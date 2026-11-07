@@ -133,12 +133,12 @@ def test_load_stack_replaces_tree_rows(window, stack_path, doublet_path):
     _trigger_new_element(window)
     assert "lens3" in _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL)
 
-    # An element-only file replaces the stack but keeps the live source/planes.
+    # The loaded document owns both sections: its stack and its (empty) plane set.
     window.load_stack(stack_path)
 
     tree = _tree(window)
     assert _tree_names(tree, ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2"]
-    assert _tree_names(tree, ProjectTree.PLANES_LABEL) == ["plane1", "plane2"]
+    assert _tree_names(tree, ProjectTree.PLANES_LABEL) == []
 
 
 # -- selection routing ---------------------------------------------------------

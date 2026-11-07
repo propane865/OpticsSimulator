@@ -107,6 +107,7 @@ def test_load_document_with_planes_clears_locks() -> None:
 
     document = {
         "elements": {},
+        "source": {"position": [0.0, 0.0, 30.0]},
         "measurement_planes": [
             {
                 "name": "ip",
@@ -118,19 +119,8 @@ def test_load_document_with_planes_clears_locks() -> None:
             }
         ],
     }
-    elements, replaced = state.load_document(document)
+    elements = state.load_document(document)
 
     assert elements == []
-    assert replaced
+    assert len(state.planes) == 1
     assert not state.is_plane_locked(0)
-
-
-def test_legacy_load_keeps_planes_and_locks() -> None:
-    state = _state_with_planes(_plane(-30.0))
-    state.set_plane_locked(0, True)
-
-    elements, replaced = state.load_document({})
-
-    assert elements == []
-    assert not replaced
-    assert state.is_plane_locked(0)

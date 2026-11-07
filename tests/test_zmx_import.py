@@ -22,6 +22,7 @@ from optics.importers.zmx import (
 from optics.io import load_project
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Sellmeier
+from optics.project import parse_project
 from optics.source import PointSource
 from optics.system import OpticalSystem
 
@@ -147,8 +148,8 @@ def test_element_geometry() -> None:
 def test_elements_only_has_no_project() -> None:
     elements, _ = _load_quiet_elements(ZMX_DIR / "biconvex.zmx")
     assert list(elements) == ["lens1"]
-    # An elements-only import carries no synthesized source/planes/version keys.
-    for stray in ("source", "measurement_planes", "version"):
+    # An elements-only import carries no synthesized source/planes keys.
+    for stray in ("source", "measurement_planes"):
         assert stray not in elements
         assert stray not in elements["lens1"]
 
@@ -497,11 +498,11 @@ def test_load_project_json(tmp_path: Path) -> None:
     assert load_project(path) == {"elements": {}}
 
 
-def test_load_project_rejects_non_object_json(tmp_path: Path) -> None:
+def test_a_non_object_document_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "bad.json"
     path.write_text("[1, 2]", encoding="utf-8")
     with pytest.raises(ValueError, match="JSON object"):
-        load_project(path)
+        parse_project(load_project(path))
 
 
 def test_load_project_rejects_unknown_extension(tmp_path: Path) -> None:

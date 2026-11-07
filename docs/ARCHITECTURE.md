@@ -193,7 +193,7 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     Sellmeier coefficients; the removed `refractive_index` key is a diagnostic,
     not a compatibility path)
   - `io.py`: JSON project-document loading (Zemax `.zmx` is import-only)
-  - `project.py`: versioned project documents (elements + source + measurement
+  - `project.py`: project documents (elements + source + measurement
     planes)
   - `optimizer/`: layout optimization for best focus - `api.py`
     (validate -> build problem -> native solve -> interpret, i.e.
@@ -237,8 +237,8 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     `elements.py` (naming, add/replace/remove/duplicate, submodule membership
     and moves, `classify_element_edit` for the fast lens-edit path),
     `measurements.py` (plane list, cached hits, raw-vs-reconstruct display,
-    source-locked planes), `persistence.py` (project-document (de)serialization
-    incl. legacy element-only documents)
+    source-locked planes), `persistence.py` (project-document
+    (de)serialization)
   - `model.py`: compatibility facade re-exporting `ProjectState` and the element
     helpers from `project/`
   - `scene.py`: `make_display` and `SceneController` - vispy view and node

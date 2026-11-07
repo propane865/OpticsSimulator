@@ -1,21 +1,24 @@
 """Standalone demo entry point: render the bundled doublet example without the UI."""
 
-import json
-from importlib.resources import files
+from importlib.resources import as_file, files
 from typing import Any
 
 import numpy as np
 
 from optics.config import stack_from_config
 from optics.element import RefractiveElement
+from optics.io import load_project
 from optics.primitive import Ray
+from optics.project import parse_project
 
 from . import visualize as _visualize
 
 
 def default_stack() -> list[RefractiveElement]:
-    schema_text = (files("optics") / "examples" / "doublet.json").read_text()
-    return stack_from_config(json.loads(schema_text))
+    """The bundled doublet example's element stack."""
+    with as_file(files("optics") / "examples" / "doublet.json") as path:
+        elements_config, _source, _planes = parse_project(load_project(path))
+    return stack_from_config(elements_config)
 
 
 def default_rays() -> list[Ray]:

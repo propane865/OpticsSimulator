@@ -12,7 +12,6 @@ PySide6 = pytest.importorskip("PySide6")
 from PySide6 import QtCore, QtWidgets
 
 from optics.primitive import DEFAULT_WAVELENGTH_NM
-from optics.project import PROJECT_VERSION
 from rendering import demo
 from tests.ui_helpers import (
     OK,
@@ -205,8 +204,8 @@ def test_save_as_action_writes_file(stack_window, repo_root, tmp_path, monkeypat
     assert out_path.exists()
     saved = json.loads(out_path.read_text(encoding="utf-8"))
     expected = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
-    assert saved["version"] == PROJECT_VERSION
-    assert saved["elements"] == expected
+    assert set(saved) == {"elements", "source", "measurement_planes"}
+    assert saved["elements"] == expected["elements"]
     assert saved["source"]["num_rays"] == 16
     assert saved["measurement_planes"] == []
     assert "Saved" in window.statusBar().currentMessage()
@@ -303,23 +302,10 @@ def test_save_load_round_trip_preserves_position_and_resolution(stack_window, ma
     assert window2.plane_results[0].grid.shape == (4, 8)
 
 
-def test_legacy_stack_keeps_current_source_and_planes(window, stack_path):
-    editor = _source_editor(window)
-    editor["rays"].setValue(6)
-    _click_source(window, OK)
-    _trigger_measurement_plane(window)
-
-    window.load_stack(stack_path)
-
-    assert window.source.num_rays == 6
-    assert len(window.planes) == 1
-
-
 def test_unsupported_source_type_is_rejected(stack_window, repo_root, tmp_path):
-    elements = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text())
+    elements = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text())["elements"]
     path = tmp_path / "point_array.json"
     path.write_text(json.dumps({
-        "version": PROJECT_VERSION,
         "elements": elements,
         "source": {
             "position": [0.0, 0.0, 3.0],
@@ -328,6 +314,7 @@ def test_unsupported_source_type_is_rejected(stack_window, repo_root, tmp_path):
             "source_type": "point_array",
             "cone_angle": 60.0,
         },
+        "measurement_planes": [],
     }))
 
     window = stack_window
@@ -360,11 +347,11 @@ def test_load_project_invalid_source_keeps_state(stack_window, repo_root, tmp_pa
     elements_before = window.elements
 
     bad = tmp_path / "bad_project.json"
-    stack = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
+    stack = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))["elements"]
     bad.write_text(json.dumps({
-        "version": PROJECT_VERSION,
         "elements": stack,
         "source": {"cone_angle": 500.0},
+        "measurement_planes": [],
     }), encoding="utf-8")
 
     with pytest.raises(ValueError):

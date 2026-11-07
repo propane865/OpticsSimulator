@@ -61,7 +61,6 @@ def _plane_at(image_plane: MeasurementPlane, z: float) -> MeasurementPlane:
 def _problem(point_array: bool = False):
     doc = json.loads((Path(_examples.__file__).parent / "doublet.json").read_text())
     schema, source, planes = parse_project(doc)
-    assert planes is not None
     if point_array:
         # A 6 mm-wide object: the focused pattern (about 2 mm across) dwarfs the
         # spot blur, so the fitted similarity is a genuine object -> image
@@ -149,7 +148,6 @@ _WIDE_IMAGE_BOUNDS = (-45.0, -15.0)
 def _grouped_problem(side: int = 8, pitch: float = 2.0):
     doc = json.loads((Path(_examples.__file__).parent / "doublet.json").read_text())
     schema, _stored, planes = parse_project(doc)
-    assert planes is not None
     source = PointSource(
         position=[0.0, 0.0, _SOURCE_Z],
         power=1.0,
