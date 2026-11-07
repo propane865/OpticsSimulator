@@ -197,9 +197,12 @@ def test_measure_batch_arrays_reconstruct_flag():
     powers = np.full(n, 1.0)
     plane_a = _plane(resolution=(48, 48))
     plane_b = _plane(resolution=(48, 48), v_range=(-0.5, 0.5))
-    plain = MeasurementPlane.measure_batch_arrays([plane_a, plane_b], origins, dirs, powers)
+    # No wavelength column of its own: the project default serves every ray.
+    plain = MeasurementPlane.measure_batch_arrays(
+        [plane_a, plane_b], origins, dirs, powers, None
+    )
     recon = MeasurementPlane.measure_batch_arrays(
-        [plane_a, plane_b], origins, dirs, powers, reconstruct=True
+        [plane_a, plane_b], origins, dirs, powers, None, reconstruct=True
     )
     for expected, actual in zip(plain, recon):
         assert actual.total == pytest.approx(expected.total, rel=1e-9)

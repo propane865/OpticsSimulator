@@ -249,7 +249,8 @@ LayoutObjective::Stats LayoutObjective::trace_at(const double* x_full, std::size
     const MeasurementOutputView out{us_.data(), vs_.data(), pws_.data()};
     const RayBatchView fan{lvl.natural ? spec_.rays.origins : lvl.origins.data(),
                            lvl.natural ? spec_.rays.directions : lvl.dirs.data(),
-                           lvl.natural ? spec_.rays.powers : lvl.powers.data(), n};
+                           lvl.natural ? spec_.rays.powers : lvl.powers.data(),
+                           lvl.natural ? spec_.rays.wavelengths : lvl.wavelengths.data(), n};
     const std::int32_t* group_ptr = lvl.natural ? spec_.groups : lvl.groups.data();
     measure_planes_multi(variant, fan, planes_view_, spec_.plane_eps, out);
 
@@ -433,6 +434,7 @@ const RayLevel& LayoutObjective::level(std::size_t budget) {
         lvl.origins.reserve(3 * idx.size());
         lvl.dirs.reserve(3 * idx.size());
         lvl.powers.reserve(idx.size());
+        lvl.wavelengths.reserve(idx.size());
         lvl.groups.reserve(idx.size());
         for (const std::size_t i : idx) {
             for (int c = 0; c < 3; ++c) {
@@ -440,6 +442,7 @@ const RayLevel& LayoutObjective::level(std::size_t budget) {
                 lvl.dirs.push_back(spec_.rays.directions[3 * i + c]);
             }
             lvl.powers.push_back(spec_.rays.powers[i]);
+            lvl.wavelengths.push_back(spec_.rays.wavelengths[i]);
             lvl.groups.push_back(spec_.groups != nullptr ? spec_.groups[i] : 0);
         }
         std::vector<std::int32_t> uniq = lvl.groups;

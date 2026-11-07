@@ -1,8 +1,10 @@
 // The internal-bounce loop for one closed refractive element: entry
 // refraction followed by refraction-or-internal-reflection at each face until
 // the ray leaves the glass (see ``element_hit.cpp`` for the face assembly and
-// ``element_build.cpp`` for the persistent element itself).
+// ``element_build.cpp`` for the persistent element itself). The glass index is
+// the Sellmeier index at the ray's wavelength, evaluated once per walk.
 
+#include <cmath>
 #include <cstddef>
 
 #include "optics/common/constants.hpp"
@@ -11,11 +13,12 @@
 
 namespace optics::native {
 
-ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d) {
-    return trace_element(elem, o, d, element_first_hit(elem, o, d, 0.0));
+ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
+                           double wavelength_nm) {
+    return trace_element(elem, o, d, wavelength_nm, element_first_hit(elem, o, d, 0.0));
 }
 
-ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
+ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d, double wavelength_nm,
                            const ElementHit& entry) {
     const bool inside = element_contains_point(elem, o);
     ElementTrace out;
@@ -38,7 +41,21 @@ ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
         out.incident_pt = o;
         return out;
     }
-    const double n = elem.index;
+    const double n = element_index(elem, wavelength_nm);
+    if (std::isnan(n)) {
+        // The material has no refractive index at this wavelength (a Sellmeier
+        // pole, or a non-positive n^2): treat it as opaque. The ray stops at the
+        // face it reached and reports no exit, exactly like a ray swallowed
+        // inside the glass.
+        out.exit_o = inside ? o : entry.p;
+        out.exit_d = d;
+        out.exited = false;
+        out.n_pts = 1;
+        out.pts[0] = inside ? o : entry.p;
+        out.has_incident = !inside;
+        out.incident_pt = entry.p;
+        return out;
+    }
     Vec3 cur_o;
     Vec3 cur_d;
     if (inside) {

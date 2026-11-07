@@ -38,7 +38,7 @@ void test_empty_stack() {
     double ends[3 * kCap];
     signed char kinds[kCap];
     const optics::native::StackSegments seg =
-        trace_stack_segments(empty, o, d, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(empty, o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
     CHECK(seg.count == 1);
     CHECK(seg.exited);
     CHECK(kinds[0] == 0);
@@ -47,7 +47,7 @@ void test_empty_stack() {
     CHECK(close(seg.final_o[2], 3.0));
     CHECK(close(seg.final_d[2], -1.0));
 
-    const optics::native::RayHops hops = build_hops(empty, o, d);
+    const optics::native::RayHops hops = build_hops(empty, o, d, fixture::kTestWavelengthNm);
     CHECK(hops.size() == 1);
     CHECK(!hops[0].has_element);
 }
@@ -62,7 +62,7 @@ void test_two_plate_walk() {
     double ends[3 * kCap];
     signed char kinds[kCap];
     const optics::native::StackSegments seg =
-        trace_stack_segments(stack, o, d, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(stack, o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
     CHECK(seg.count == 5);
     CHECK(seg.exited);
     const signed char expected_kinds[5] = {0, 1, 2, 1, 2};
@@ -92,7 +92,7 @@ void test_walk_miss_and_oblique() {
     double ends[3 * kCap];
     signed char kinds[kCap];
     const optics::native::StackSegments seg =
-        trace_stack_segments(stack, miss_o, d, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(stack, miss_o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
     CHECK(seg.count == 1);
     CHECK(seg.exited);
     CHECK(kinds[0] == 0);
@@ -103,14 +103,14 @@ void test_walk_miss_and_oblique() {
     // plate at z=0, so the walk ends with one element hop and a tail gap.
     const Vec3 o = make_vec3(-0.2, 0.0, 5.0);
     const Vec3 slant = make_vec3(0.3, 0.0, -kCos1);
-    const optics::native::RayHops hops = build_hops(stack, o, slant);
+    const optics::native::RayHops hops = build_hops(stack, o, slant, fixture::kTestWavelengthNm);
     CHECK(hops.size() == 2);
     CHECK(hops[0].has_element && hops[0].exited);
     CHECK(!hops[1].has_element);
     CHECK(close(hops[1].o[2], 2.5, 1e-9));  // exits through the lower face
     CHECK(close(hops[1].d[2], -kCos1, 1e-9));
     const optics::native::StackSegments seg2 =
-        trace_stack_segments(stack, o, slant, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(stack, o, slant, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
     CHECK(seg2.count == 3);  // incident + internal + exit tail
     CHECK(seg2.exited);
     CHECK(kinds[0] == 0 && kinds[1] == 1 && kinds[2] == 2);
@@ -126,8 +126,8 @@ void test_hops_reuse() {
     optics::native::RayHops reused;
     for (int pass = 0; pass < 3; ++pass) {
         for (const Vec3& o : {miss_o, hit_o, miss_o}) {
-            fill_hops(reused, stack, o, d);
-            const optics::native::RayHops fresh = build_hops(stack, o, d);
+            fill_hops(reused, stack, o, d, fixture::kTestWavelengthNm);
+            const optics::native::RayHops fresh = build_hops(stack, o, d, fixture::kTestWavelengthNm);
             CHECK(reused.size() == fresh.size());
             for (std::size_t k = 0; k < reused.size() && k < fresh.size(); ++k) {
                 CHECK(reused[k].has_element == fresh[k].has_element);
@@ -148,9 +148,9 @@ void test_hops_reuse() {
     signed char kinds_b[kCap];
     optics::native::RayHops scratch;
     const optics::native::StackSegments a =
-        trace_stack_segments(stack, hit_o, d, kTraceOptions, starts_a, ends_a, kinds_a, kCap);
+        trace_stack_segments(stack, hit_o, d, fixture::kTestWavelengthNm, kTraceOptions, starts_a, ends_a, kinds_a, kCap);
     const optics::native::StackSegments b =
-        trace_stack_segments(stack, hit_o, d, kTraceOptions, scratch, starts_b, ends_b, kinds_b,
+        trace_stack_segments(stack, hit_o, d, fixture::kTestWavelengthNm, kTraceOptions, scratch, starts_b, ends_b, kinds_b,
                              kCap);
     CHECK(a.count == b.count);
     CHECK(a.exited == b.exited);
@@ -175,7 +175,7 @@ void test_three_plate_order() {
     double ends[3 * kCap];
     signed char kinds[kCap];
     const optics::native::StackSegments seg =
-        trace_stack_segments(stack, o, d, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(stack, o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
     // Incident + interior per element and the capped tail: seven segments,
     // visited in geometric order 3.0 -> 1.5 -> 0.0.
     CHECK(seg.count == 7);

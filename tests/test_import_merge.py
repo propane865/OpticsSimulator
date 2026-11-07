@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from tests.materials import constant_material
 from ui.model import ProjectState
 
 
@@ -27,7 +28,7 @@ def _flat_lens(front_z: float, rear_offset: float, n: float = 1.5) -> dict[str, 
     return {
         "surface1": surface("0"),
         "surface2": surface(repr(rear_offset)),
-        "material": {"refractive_index": n},
+        "material": constant_material(n),
         "position": [0.0, 0.0, front_z],
         "orientation": [0.0, 0.0, 1.0],
     }

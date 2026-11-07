@@ -5,8 +5,25 @@ from typing import Any
 import numpy as np
 
 from .element import RefractiveElement
-from .primitive import CircularAperture, Material, Surface, Transform
+from .primitive import CircularAperture, Material, Sellmeier, Surface, Transform
 from .primitive.vector import rotation_from_z
+
+# The one error every pre-Sellmeier material config produces: naming the key to
+# write, and how to express a constant index now that no such key exists.
+_LEGACY_MATERIAL_MESSAGE = (
+    'material config requires Sellmeier coefficients as material.sellmeier = '
+    '{"b": [...], "c": [...]}; the constant "refractive_index" key was removed '
+    '(a wavelength-independent index n is b=[n**2-1], c=[0])'
+)
+
+# The refusal every "this material carries no coefficients" path uses, from the
+# lens editor down to the config loader: the legacy message above names the key,
+# this one names what is missing.
+SELLMEIER_REQUIRED_MESSAGE = (
+    'element material requires Sellmeier coefficients as material.sellmeier = '
+    '{"b": [...], "c": [...]}; a wavelength-independent index n is '
+    'b=[n**2-1], c=[0]'
+)
 
 # Implicit element placement when a config omits ``position``/``orientation``:
 # at the origin, facing +Z. One convention, read through the accessors below.
@@ -53,6 +70,32 @@ def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface
     )
 
 
+def sellmeier_from_config(config: object) -> Sellmeier:
+    """Sellmeier coefficients from a ``{"b": [...], "c": [...]}`` config object.
+
+    Coefficient lists of one to :data:`~optics.primitive.SELLMEIER_TERMS` entries
+    are accepted and zero padded by :class:`~optics.primitive.Sellmeier`.
+    """
+    if not isinstance(config, dict):
+        raise ValueError("Sellmeier config must be an object")
+    for key in ("refractive_index", "index"):
+        if key in config:
+            raise ValueError(_LEGACY_MATERIAL_MESSAGE)
+    return Sellmeier(
+        b=_require(config, "b", "sellmeier config"),
+        c=_require(config, "c", "sellmeier config"),
+    )
+
+
+def material_from_config(config: object) -> Material:
+    """Element material from a config, which must carry Sellmeier coefficients."""
+    if isinstance(config, dict) and "refractive_index" in config:
+        raise ValueError(_LEGACY_MATERIAL_MESSAGE)
+    if not isinstance(config, dict) or "sellmeier" not in config:
+        raise ValueError(SELLMEIER_REQUIRED_MESSAGE)
+    return Material(sellmeier=sellmeier_from_config(config["sellmeier"]))
+
+
 def _require(mapping: object, key: str, context: str) -> Any:
     if not isinstance(mapping, dict) or key not in mapping:
         raise ValueError(f"Missing required key {key!r} in {context}")
@@ -77,10 +120,7 @@ def refractive_element_from_config(
     surface1 = surface_from_config(_require(config, "surface1", "element config"), transform)
     surface2 = surface_from_config(_require(config, "surface2", "element config"), transform)
 
-    material_config = _require(config, "material", "element config")
-    material = Material(
-        refractive_index=float(_require(material_config, "refractive_index", "material config"))
-    )
+    material = material_from_config(_require(config, "material", "element config"))
 
     return RefractiveElement(
         surface1=surface1,

@@ -11,6 +11,7 @@ from optics.element import RefractiveElement
 from optics.importers.zmx import conic_sag_expression
 from optics.primitive import CircularAperture, Ray, Surface
 from optics.system import OpticalSystem
+from tests.materials import constant_material
 
 
 @contextmanager
@@ -46,7 +47,7 @@ def _element(front: str, rear: str, n: float = 1.5) -> RefractiveElement:
         {
             "surface1": _surface_config(front),
             "surface2": _surface_config(rear),
-            "material": {"refractive_index": n},
+            "material": constant_material(n),
         },
         np.array([0.0, 0.0, 1.0]),
     )

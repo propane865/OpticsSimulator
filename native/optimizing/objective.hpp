@@ -43,9 +43,11 @@ inline double clamp_box(double v, double lo, double hi) {
 }
 
 // The rays one fidelity level traces: either the whole fan in its natural order
-// (bit-identical to the legacy path) or a gathered group-aware subset.
+// (bit-identical to the legacy path) or a gathered group-aware subset. The
+// wavelengths ride along so a gathered subset keeps tracing each ray at its own
+// wavelength.
 struct RayLevel {
-    std::vector<double> origins, dirs, powers;
+    std::vector<double> origins, dirs, powers, wavelengths;
     std::vector<std::int32_t> groups;
     std::size_t count = 0;
     std::size_t points = 0;  // sampled object points (1 when ungrouped)

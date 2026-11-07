@@ -2,6 +2,10 @@
 // exposed through ``OpticalSystem``): nearest-face hits, element containment,
 // internal bounces, the geometric-order stack walk and the single-trace hop
 // recording shared with the measurement kernels.
+//
+// Every walk carries the ray's vacuum wavelength in nanometres: refraction is
+// wavelength-dependent (the material's Sellmeier coefficients), geometry is not,
+// so only the refraction steps read it.
 #pragma once
 
 #include <cstddef>
@@ -54,14 +58,17 @@ struct ElementTrace {
     std::array<Vec3, MAX_INTERNAL_BOUNCES + 2> pts{};  // internal polyline
 };
 
-// Trace one closed element: entry, internal bounces, exit ray.
-ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d);
+// Trace one closed element: entry, internal bounces, exit ray. The material
+// index is evaluated at ``wavelength_nm``; a material with no index there
+// (a pole, or ``n^2 <= 0``) absorbs the ray at its entry point.
+ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
+                           double wavelength_nm);
 
 // As above with the entry hit precomputed (the result of
 // ``element_first_hit(elem, o, d, 0.0)``, e.g. from the stack routing scan),
 // so the walk never intersects the same entry twice.
 ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
-                           const ElementHit& entry);
+                           double wavelength_nm, const ElementHit& entry);
 
 struct StackSegments {
     int count = 0;
@@ -93,11 +100,12 @@ struct RayHop {
 using RayHops = std::vector<RayHop>;
 
 // Walks the stack in geometric order, recording one hop per gap/element.
-RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d);
+RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d, double wavelength_nm);
 
 // As above into a caller-owned ``RayHops`` whose capacity is reused across
 // rays (cleared, never shrunk): the batch kernels keep one buffer per chunk.
-void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3& d);
+void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3& d,
+               double wavelength_nm);
 
 // Rendering segment buffers: incident + internal segments per element, then
 // the trailing gap capped at ``ray_length`` (omitted when the ray is
@@ -120,10 +128,12 @@ inline std::size_t segments_capacity(std::size_t n_elements) {
 // element that absorbed the ray). The ``hops`` overload reuses a caller-owned
 // hop buffer across rays; the plain signature allocates its own.
 StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
-                                   const TraceOptions& options, RayHops& hops, double* starts,
-                                   double* ends, signed char* kinds, std::size_t cap);
-StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
-                                   const TraceOptions& options, double* starts, double* ends,
+                                   double wavelength_nm, const TraceOptions& options,
+                                   RayHops& hops, double* starts, double* ends,
                                    signed char* kinds, std::size_t cap);
+StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
+                                   double wavelength_nm, const TraceOptions& options,
+                                   double* starts, double* ends, signed char* kinds,
+                                   std::size_t cap);
 
 }  // namespace optics::native

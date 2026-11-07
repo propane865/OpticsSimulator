@@ -76,7 +76,7 @@ struct OptimizerSpec {
     // (enforced as a smooth penalty, not by clipping; adjusted per tail_span).
     std::vector<double> gaps;
     std::size_t dest_plane = 1;  // plane whose origin z is the last parameter
-    RayBatchView rays{nullptr, nullptr, nullptr, 0};
+    RayBatchView rays{nullptr, nullptr, nullptr, nullptr, 0};
     PlaneBatchView planes{};  // exactly two planes
     double plane_eps = PLANE_EPS;
     // Per-ray object-point id (``rays.count`` entries in [0, n_groups)) used to

@@ -67,7 +67,7 @@
      <item>
       <widget class="QTabWidget" name="tabWidget">
        <property name="currentIndex">
-        <number>1</number>
+        <number>0</number>
        </property>
        <widget class="QWidget" name="tabEditor">
         <property name="sizePolicy">
@@ -138,75 +138,10 @@
                    <property name="rowWrapPolicy">
                     <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
                    </property>
-                   <item row="4" column="0">
-                    <widget class="QLabel" name="label_2">
-                     <property name="text">
-                      <string>Refractive Index</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item row="4" column="1">
-                    <widget class="QDoubleSpinBox" name="refractiveIndexSpin">
-                     <property name="minimumSize">
-                      <size>
-                       <width>40</width>
-                       <height>0</height>
-                      </size>
-                     </property>
-                     <property name="toolTip">
-                      <string>Refractive index of the lens material (1.0 to 3.0)</string>
-                     </property>
-                     <property name="buttonSymbols">
-                      <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
-                     </property>
-                    </widget>
-                   </item>
-                   <item row="5" column="0">
-                    <widget class="QLabel" name="label_3">
-                     <property name="text">
-                      <string>Aperture Radii</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item row="6" column="0">
-                    <widget class="QLabel" name="label_4">
-                     <property name="text">
-                      <string>Surface 1</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item row="6" column="1">
-                    <widget class="QLineEdit" name="surface1Edit">
-                     <property name="toolTip">
-                      <string>z position of surface 1 as an expression in local coordinates u and v, e.g. '0' or '(u^2+v^2)/100'</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item row="7" column="0">
-                    <widget class="QLabel" name="label_5">
-                     <property name="text">
-                      <string>Surface 2</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item row="7" column="1">
-                    <widget class="QLineEdit" name="surface2Edit">
-                     <property name="toolTip">
-                      <string>z position of surface 2 as an expression in local coordinates u and v, e.g. '0' or '(u^2+v^2)/100'</string>
-                     </property>
-                    </widget>
-                   </item>
                    <item row="2" column="0">
                     <widget class="QLabel" name="label_17">
                      <property name="text">
                       <string>Position</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item row="3" column="0">
-                    <widget class="QLabel" name="label_18">
-                     <property name="text">
-                      <string>Normal</string>
                      </property>
                     </widget>
                    </item>
@@ -276,6 +211,13 @@
                      </layout>
                     </widget>
                    </item>
+                   <item row="3" column="0">
+                    <widget class="QLabel" name="label_18">
+                     <property name="text">
+                      <string>Normal</string>
+                     </property>
+                    </widget>
+                   </item>
                    <item row="3" column="1">
                     <widget class="QWidget" name="widget_10" native="true">
                      <layout class="QHBoxLayout" name="horizontalLayout_5">
@@ -342,7 +284,14 @@
                      </layout>
                     </widget>
                    </item>
-                   <item row="5" column="1">
+                   <item row="4" column="0">
+                    <widget class="QLabel" name="label_3">
+                     <property name="text">
+                      <string>Aperture Radii</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="4" column="1">
                     <widget class="QWidget" name="widget_19" native="true">
                      <layout class="QHBoxLayout" name="horizontalLayout_10">
                       <property name="leftMargin">
@@ -386,6 +335,169 @@
                         </property>
                         <property name="buttonSymbols">
                          <enum>QAbstractSpinBox::ButtonSymbols::NoButtons</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                   <item row="5" column="0">
+                    <widget class="QLabel" name="label_4">
+                     <property name="text">
+                      <string>Surface 1</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="5" column="1">
+                    <widget class="QLineEdit" name="surface1Edit">
+                     <property name="toolTip">
+                      <string>z position of surface 1 as an expression in local coordinates u and v, e.g. '0' or '(u^2+v^2)/100'</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="6" column="0">
+                    <widget class="QLabel" name="label_5">
+                     <property name="text">
+                      <string>Surface 2</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="6" column="1">
+                    <widget class="QLineEdit" name="surface2Edit">
+                     <property name="toolTip">
+                      <string>z position of surface 2 as an expression in local coordinates u and v, e.g. '0' or '(u^2+v^2)/100'</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="label_2">
+                  <property name="text">
+                   <string>Material Properties</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="Line" name="line_9">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QWidget" name="widget_33" native="true">
+                  <layout class="QVBoxLayout" name="verticalLayout_21">
+                   <item>
+                    <widget class="QLabel" name="sellmeierCaption">
+                     <property name="text">
+                      <string>Sellmeier Coefficients:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QTableWidget" name="sellmeierTable">
+                     <property name="toolTip">
+                      <string>n(lam)^2 = 1 + sum_i B_i * lam^2 / (lam^2 - C_i), with lam in um (so C_i is in um^2 and B_i is dimensionless). A zero C_i makes its term a constant: B_1 = n^2 - 1, C_1 = 0 is a wavelength-independent index n.</string>
+                     </property>
+                     <row>
+                      <property name="text">
+                       <string>Bi</string>
+                      </property>
+                     </row>
+                     <row>
+                      <property name="text">
+                       <string>Ci</string>
+                      </property>
+                     </row>
+                     <column>
+                      <property name="text">
+                       <string>i=1</string>
+                      </property>
+                     </column>
+                     <column>
+                      <property name="text">
+                       <string>i=2</string>
+                      </property>
+                     </column>
+                     <column>
+                      <property name="text">
+                       <string>i=3</string>
+                      </property>
+                     </column>
+                     <item row="0" column="0">
+                      <property name="text">
+                       <string>0</string>
+                      </property>
+                     </item>
+                     <item row="0" column="1">
+                      <property name="text">
+                       <string>0</string>
+                      </property>
+                     </item>
+                     <item row="0" column="2">
+                      <property name="text">
+                       <string>0</string>
+                      </property>
+                     </item>
+                     <item row="1" column="0">
+                      <property name="text">
+                       <string>0</string>
+                      </property>
+                     </item>
+                     <item row="1" column="1">
+                      <property name="text">
+                       <string>0</string>
+                      </property>
+                     </item>
+                     <item row="1" column="2">
+                      <property name="text">
+                       <string>0</string>
+                      </property>
+                     </item>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QWidget" name="widget_34" native="true">
+                     <layout class="QFormLayout" name="formLayout_9">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item row="0" column="0">
+                       <widget class="QLabel" name="currentWavelengthLabel">
+                        <property name="text">
+                         <string>Current Wavelength:</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="0" column="1">
+                       <widget class="QLabel" name="currentWavelengthValue">
+                        <property name="text">
+                         <string>-</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="1" column="0">
+                       <widget class="QLabel" name="calculatedIndexLabel">
+                        <property name="text">
+                         <string>Calculated Refractive Index</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="1" column="1">
+                       <widget class="QLabel" name="calculatedIndexValue">
+                        <property name="text">
+                         <string>-</string>
                         </property>
                        </widget>
                       </item>
@@ -1662,38 +1774,38 @@
                         <property name="bottomMargin">
                          <number>0</number>
                         </property>
-                         <item>
-                          <widget class="QCheckBox" name="analysisOptimizeMagnificationCheck">
-                           <property name="toolTip">
-                            <string>Also require the layout to image at the target magnification; the run fails if no focused layout reaches it (meaningful for extended point-array sources -- a point source's fitted scale is a footprint ratio)</string>
-                           </property>
-                           <property name="text">
-                            <string>Optimize Magnification</string>
-                           </property>
-                          </widget>
-                         </item>
-                         <item>
-                          <widget class="QDoubleSpinBox" name="analysisMagnificationTargetSpin">
-                           <property name="toolTip">
-                            <string>Target source-to-image magnification (fitted scale between the two planes)</string>
-                           </property>
-                           <property name="decimals">
-                            <number>3</number>
-                           </property>
-                           <property name="minimum">
-                            <double>0.001000000000000</double>
-                           </property>
-                           <property name="maximum">
-                            <double>1000.000000000000000</double>
-                           </property>
-                           <property name="singleStep">
-                            <double>0.100000000000000</double>
-                           </property>
-                           <property name="value">
-                            <double>1.000000000000000</double>
-                           </property>
-                          </widget>
-                         </item>
+                        <item>
+                         <widget class="QCheckBox" name="analysisOptimizeMagnificationCheck">
+                          <property name="toolTip">
+                           <string>Also require the layout to image at the target magnification; the run fails if no focused layout reaches it (meaningful for extended point-array sources -- a point source's fitted scale is a footprint ratio)</string>
+                          </property>
+                          <property name="text">
+                           <string>Optimize Magnification</string>
+                          </property>
+                         </widget>
+                        </item>
+                        <item>
+                         <widget class="QDoubleSpinBox" name="analysisMagnificationTargetSpin">
+                          <property name="toolTip">
+                           <string>Target source-to-image magnification (fitted scale between the two planes)</string>
+                          </property>
+                          <property name="decimals">
+                           <number>3</number>
+                          </property>
+                          <property name="minimum">
+                           <double>0.001000000000000</double>
+                          </property>
+                          <property name="maximum">
+                           <double>1000.000000000000000</double>
+                          </property>
+                          <property name="singleStep">
+                           <double>0.100000000000000</double>
+                          </property>
+                          <property name="value">
+                           <double>1.000000000000000</double>
+                          </property>
+                         </widget>
+                        </item>
                        </layout>
                       </widget>
                      </item>

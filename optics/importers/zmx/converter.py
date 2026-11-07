@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .expressions import _surface_config
-from .glass import _is_glass, _resolve_index
+from .glass import _is_glass, _resolve_material
 from .model import (
     UnsupportedZmxError,
     ZmxGeometry,
@@ -80,7 +80,7 @@ def zmx_to_elements(
             "surface1": _surface_config(front, 0.0),
             "surface2": _surface_config(rear, -front.thickness),
             "material": {
-                "refractive_index": _resolve_index(
+                "sellmeier": _resolve_material(
                     front.glass,
                     prescription.glasses,
                     warn,

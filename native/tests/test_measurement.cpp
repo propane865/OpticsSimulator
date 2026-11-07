@@ -222,13 +222,15 @@ void test_measure_direct() {
     const double origins[9] = {0.0, 0.0, 2.0, 5.0, 0.0, 1.0, 5.0, 1.0, 1.0};
     const double dirs[9] = {0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 1.0, 0.0, 0.0};
     const double powers[3] = {1.0, 0.25, 8.0};
+    const double wavelengths[3] = {fixture::kTestWavelengthNm, fixture::kTestWavelengthNm,
+                                   fixture::kTestWavelengthNm};
     const Vec3 o = make_vec3(0.0, 0.0, 0.0);
     const Vec3 nrm = make_vec3(0.0, 0.0, 1.0);
     double us[3], vs[3], pws[3];
     for (int i = 0; i < 3; ++i) {
         us[i] = vs[i] = pws[i] = kSentinel;
     }
-    const RayBatchView rays{origins, dirs, powers, 3};
+    const RayBatchView rays{origins, dirs, powers, wavelengths, 3};
     const MeasurementOutputView out{us, vs, pws};
     measure_direct(rays, o, nrm, 1.0, 0.0, 0.0, 1.0, optics::native::PLANE_EPS, out);
     CHECK(close(us[0], 0.0) && close(vs[0], 0.0) && close(pws[0], 1.0));
@@ -245,6 +247,7 @@ void test_measure_direct_compound_frame() {
     const double origins[3] = {1.0, 1.0, 5.0};
     const double dirs[3] = {0.0, 0.0, -1.0};
     const double powers[1] = {2.0};
+    const double wavelengths[1] = {fixture::kTestWavelengthNm};
     const Vec3 o = make_vec3(0.0, 0.0, 0.0);
     const double inv6 = 1.0 / std::sqrt(6.0);
     const Vec3 nrm = make_vec3(inv6, inv6, 2.0 * inv6);
@@ -257,7 +260,7 @@ void test_measure_direct_compound_frame() {
     const double tv = 1.0954451150103321;
     double us[1], vs[1], pws[1];
     us[0] = vs[0] = pws[0] = kSentinel;
-    const RayBatchView rays{origins, dirs, powers, 1};
+    const RayBatchView rays{origins, dirs, powers, wavelengths, 1};
     const MeasurementOutputView out{us, vs, pws};
     measure_direct(rays, o, nrm, su, sv, tu, tv, optics::native::PLANE_EPS, out);
     const double s_expected = e1x * 1.0 - e1z * 1.0;  // e1 . (1, 1, -1)
@@ -296,6 +299,7 @@ void test_planes_multi() {
     const double origins[6] = {0.0, 0.0, 4.0, -0.4, 0.0, 4.0};
     const double dirs[6] = {0.0, 0.0, -1.0, 0.3, 0.0, -kCos1};
     const double powers[2] = {1.0, 0.5};
+    const double wavelengths[2] = {fixture::kTestWavelengthNm, fixture::kTestWavelengthNm};
     const double po[6] = {0.0, 0.0, 2.0, 0.0, 0.0, -3.0};
     const double pn[6] = {0.0, 0.0, 1.0, 0.0, 0.0, 1.0};
     const double u_min[2] = {-10.0, -10.0};
@@ -309,7 +313,7 @@ void test_planes_multi() {
     const std::size_t n = 2;
     const std::size_t p = 2;
     std::vector<double> us(p * n, kNan), vs(p * n, kNan), pws(p * n, 0.0);
-    const RayBatchView rays{origins, dirs, powers, n};
+    const RayBatchView rays{origins, dirs, powers, wavelengths, n};
     const PlaneBatchView planes{po,   pn,    u_min, u_max, v_min, v_max,
                                 s_u,  s_v,   t_u,   t_v,   p};
     const MeasurementOutputView out{us.data(), vs.data(), pws.data()};
@@ -338,6 +342,7 @@ void test_planes_multi() {
     const double trapped_o[3] = {0.0, 0.0, 0.0};
     const double trapped_d[3] = {s, 0.0, s};
     const double trapped_p[1] = {1.0};
+    const double trapped_wl[1] = {fixture::kTestWavelengthNm};
     const double r_min[2] = {-10.0, -10.0};
     const double r_max[2] = {10.0, 10.0};
     const double fr_su[2] = {1.0, 1.0};
@@ -350,7 +355,7 @@ void test_planes_multi() {
         double tu = kSentinel;
         double tv = kSentinel;
         double tp = kSentinel;
-        const RayBatchView rays_t{trapped_o, trapped_d, trapped_p, 1};
+        const RayBatchView rays_t{trapped_o, trapped_d, trapped_p, trapped_wl, 1};
         const PlaneBatchView planes_t{po_t,  pn_t,  r_min, r_max, r_min, r_max,
                                       fr_su, fr_sv, fr_tu, fr_tv, 1};
         const MeasurementOutputView out_t{&tu, &tv, &tp};
@@ -364,6 +369,7 @@ void test_fused_kernel() {
     const double origins[6] = {0.0, 0.0, 6.0, -0.2, 0.0, 6.0};
     const double dirs[6] = {0.0, 0.0, -1.0, 0.1, 0.0, -kCos2};
     const double powers[2] = {1.0, 0.5};
+    const double wavelengths[2] = {fixture::kTestWavelengthNm, fixture::kTestWavelengthNm};
     const double po[3] = {0.0, 0.0, -3.0};
     const double pn[3] = {0.0, 0.0, 1.0};
     const double range_min[1] = {-10.0};
@@ -379,7 +385,7 @@ void test_fused_kernel() {
     std::vector<signed char> f_kinds(n * kCap);
     std::vector<std::int64_t> f_counts(n, 0);
     std::vector<double> f_us(p * n, kNan), f_vs(p * n, kNan), f_pws(p * n, 0.0);
-    const RayBatchView rays{origins, dirs, powers, n};
+    const RayBatchView rays{origins, dirs, powers, wavelengths, n};
     const PlaneBatchView planes{po,    pn,    range_min, range_max, range_min,
                                 range_max, frame_su, frame_sv, frame_tu, frame_tv, p};
     const TraceOptions options{2.0, optics::native::PLANE_EPS};
@@ -445,7 +451,8 @@ void test_serial_trace_matches_pool() {
     const double tu[1] = {0.0};
     const double tv[1] = {1.0};
     const PlaneBatchView planes{po, pn, lo, hi, lo, hi, su, sv, tu, tv, p};
-    const RayBatchView rays{origins.data(), dirs.data(), powers.data(), n};
+    const std::vector<double> wavelengths(n, fixture::kTestWavelengthNm);
+    const RayBatchView rays{origins.data(), dirs.data(), powers.data(), wavelengths.data(), n};
 
     std::vector<double> us_p(p * n, kNan), vs_p(p * n, kNan), pws_p(p * n, 0.0);
     measure_planes_multi(stack, rays, planes, optics::native::PLANE_EPS,

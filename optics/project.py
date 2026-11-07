@@ -18,7 +18,7 @@ from .source import (
     resample_grid,
 )
 
-PROJECT_VERSION = 1
+PROJECT_VERSION = 2
 
 # Default ceiling on each point-array image dimension after downsampling.
 DEFAULT_MAX_GRID_DIM = 64
@@ -38,6 +38,17 @@ DEFAULT_MEASUREMENT_CONFIG: dict[str, Any] = {
     "u_range": [-20.0, 20.0],
     "v_range": [-20.0, 20.0],
     "resolution": [64, 64],
+}
+
+# The material a fresh lens starts with: the published three-term Sellmeier fit
+# of N-BK7, so a new element is a real crown glass (n_d 1.5168, V_d 64.17)
+# instead of a made-up constant index. The UI's interactive add and the warm-up
+# element share this one copy; the bundled examples name their own glasses.
+DEFAULT_ELEMENT_MATERIAL: dict[str, Any] = {
+    "sellmeier": {
+        "b": [1.03961212, 0.231792346, 1.01046945],
+        "c": [0.00600588969, 0.0200179144, 103.560366],
+    }
 }
 
 
@@ -129,9 +140,26 @@ def plane_to_config(name: str, plane: MeasurementPlane) -> dict[str, Any]:
 
 
 def require_project_document(document: object) -> dict[str, Any]:
-    """Shared validation for parsed project documents (used by :mod:`optics.io`)."""
+    """Shared validation for parsed project documents (used by :mod:`optics.io`).
+
+    A document written before Sellmeier materials carries the old constant-index
+    elements, so its declared version is rejected here with the migration note
+    instead of failing element by element later.
+    """
     if not isinstance(document, dict):
         raise ValueError("Optical stack must be a JSON object")
+    declared = document.get("version")
+    if declared is not None:
+        try:
+            version = int(declared)
+        except (TypeError, ValueError):
+            raise ValueError("Project 'version' must be an integer") from None
+        if version < PROJECT_VERSION:
+            raise ValueError(
+                f"Project document version {version} predates Sellmeier materials "
+                f"(version {PROJECT_VERSION}); give every element "
+                'material.sellmeier = {"b": [...], "c": [...]} coefficients'
+            )
     return document
 
 

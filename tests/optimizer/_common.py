@@ -24,6 +24,7 @@ from optics.optimizer import LensOptimization, optimize_layout
 from optics.project import parse_project
 from optics.source import PointSource
 from optics.system import OpticalSystem
+from tests.materials import constant_material
 
 _SOURCE_Z = 150.0
 _BOUNDS = {"lens1": (14.0, 20.0), "lens2": (-15.0, -10.0)}
@@ -80,11 +81,14 @@ def _problem(point_array: bool = False):
     return schema, source, p1, p2
 
 
-def _spot_radius(system, image_plane, origins, dirs, powers, source_plane):
+def _spot_radius(system, image_plane, fan, source_plane):
     """Python mirror of the native focus metric: pooled RMS spot radius of the
     image-plane hits about each object point's own image, without the native
     fit's outlier clipping."""
-    us, vs, pws = system.measure_planes(origins, dirs, powers, [source_plane, image_plane])
+    origins, dirs, powers, wavelengths = fan
+    us, vs, pws = system.measure_planes(
+        origins, dirs, powers, wavelengths, [source_plane, image_plane]
+    )
     u2, v2, w2 = us[1], vs[1], pws[1]
     ok = np.isfinite(u2) & np.isfinite(v2) & (w2 > 0.0)
     _, group = np.unique(np.round(origins, decimals=9), axis=0, return_inverse=True)
@@ -101,10 +105,10 @@ def _spot_radius(system, image_plane, origins, dirs, powers, source_plane):
     return float(np.sqrt(pooled / total))
 
 
-def _sweep_best_z(system, source_plane, image_plane, origins, dirs, powers):
+def _sweep_best_z(system, source_plane, image_plane, fan):
     """Brute-force best image-plane z (elements fixed) over the search window."""
     zs = np.linspace(_IMAGE_BOUNDS[0], _IMAGE_BOUNDS[1], 41)
-    radii = [_spot_radius(system, _plane_at(image_plane, z), origins, dirs, powers, source_plane) for z in zs]
+    radii = [_spot_radius(system, _plane_at(image_plane, z), fan, source_plane) for z in zs]
     best = int(np.argmin(radii))
     return float(zs[best]), float(radii[best])
 
@@ -125,14 +129,11 @@ _PIPELINE = replace(
 
 
 def _optimize_pipeline(schema, source, p1, p2, spec=_PIPELINE):
-    origins, dirs, powers, _ = source.emit_arrays()
     return optimize_layout(
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        source.emit_arrays(),
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=spec,
@@ -199,7 +200,7 @@ def _far_focus_problem():
         "singlet": {
             "surface1": face(_FAR_A),
             "surface2": face(_FAR_B),
-            "material": {"refractive_index": 2.0},
+            "material": constant_material(2.0),
             "position": [0.0, 0.0, -20.0],
             "orientation": [0.0, 0.0, 1.0],
         }
@@ -227,8 +228,7 @@ def _far_focus_problem():
         weights=[[1.0] * 7] * 7,
         pixel_pitch=1.0,
     )
-    origins, dirs, powers, _ = source_points.emit_arrays()
-    return schema, source, image, origins, dirs, powers
+    return schema, source, image, source_points.emit_arrays()
 
 
 _FAR_FOCUS = LensOptimization(

@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from optics.config import refractive_element_from_config
+from tests.materials import constant_material
 from ui.model import ProjectState
 
 
@@ -28,7 +29,7 @@ def _flat_lens(front_z: float, y: float = 0.0) -> dict[str, Any]:
     return {
         "surface1": surface("0"),
         "surface2": surface("-2.0"),
-        "material": {"refractive_index": 1.5},
+        "material": constant_material(1.5),
         "position": [0.0, y, front_z],
         "orientation": [0.0, 0.0, 1.0],
     }

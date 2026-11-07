@@ -1,6 +1,9 @@
+import json
+
 import numpy as np
 import pytest
 
+from optics.config import material_from_config, stack_from_config
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import DEFAULT_WAVELENGTH_NM
 from optics.project import (
@@ -10,10 +13,12 @@ from optics.project import (
     parse_project,
     plane_from_config,
     plane_to_config,
+    require_project_document,
     source_from_config,
     source_to_config,
 )
 from optics.source import PointSource
+from tests.materials import constant_material
 
 
 def _plane(z=-3.0):
@@ -134,7 +139,7 @@ def test_parse_project_rejects_bad_planes():
 
 
 def test_build_project_document_round_trip():
-    schema = {"lens1": {"material": {"refractive_index": 1.5}}}
+    schema = {"lens1": {"material": constant_material(1.5)}}
     source = PointSource(position=[0.0, 0.0, 3.0], power=1.0, num_rays=4)
     planes = [_plane(-3.0), _plane(-4.0)]
     document = build_project_document(schema, source, ["p1", "p2"], planes)
@@ -147,3 +152,58 @@ def test_build_project_document_round_trip():
     assert restored_planes is not None
     assert [name for name, _ in restored_planes] == ["p1", "p2"]
     np.testing.assert_allclose(restored_planes[1][1].o, planes[1].o)
+
+
+class TestSellmeierBreak:
+    """What a document written before Sellmeier materials gets instead of a lens.
+
+    The break is deliberate, so every path that used to accept a fixed index is
+    checked to refuse loudly and name the key to write -- a legacy file must not
+    half-load into a stack of vacuum elements.
+    """
+
+    def test_a_version_one_document_is_refused_with_the_migration_note(self):
+        with pytest.raises(ValueError, match=r"version 1 predates Sellmeier materials"):
+            require_project_document({"version": 1, "elements": {"lens1": {}}})
+
+    def test_the_current_version_is_accepted(self):
+        document = require_project_document({"version": PROJECT_VERSION, "elements": {}})
+        assert document["elements"] == {}
+
+    def test_a_version_that_is_not_a_number_is_named(self):
+        with pytest.raises(ValueError, match="'version' must be an integer"):
+            require_project_document({"version": "two", "elements": {}})
+
+    @pytest.mark.parametrize(
+        "material",
+        [
+            {},
+            {"index": 1.5},
+            {"refractive_index": 1.5},
+            {"sellmeier": []},
+            {"sellmeier": {"b": [1.25]}},
+            None,
+        ],
+    )
+    def test_a_material_without_coefficients_names_the_key_to_write(self, material):
+        with pytest.raises(ValueError) as raised:
+            material_from_config(material)
+        assert "sellmeier" in str(raised.value).lower()
+
+    def test_the_legacy_constant_index_key_is_reported_as_removed(self):
+        """Not a missing-key complaint: the key existed and is gone on purpose."""
+        with pytest.raises(ValueError, match=r'"refractive_index" key was removed'):
+            material_from_config({"refractive_index": 1.5})
+
+    def test_the_constant_index_idiom_is_the_documented_replacement(self):
+        """The message's own recipe -- ``b=[n**2-1], c=[0]`` -- is what loads."""
+        material = material_from_config({"sellmeier": {"b": [1.5**2 - 1.0], "c": [0.0]}})
+        assert material.index_at(DEFAULT_WAVELENGTH_NM) == 1.5
+
+    def test_a_fixture_element_rewritten_with_a_legacy_material_is_refused(self, repo_root):
+        """The refusal survives a whole-document load, not just one config dict."""
+        document = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
+        for entry in document.values():
+            entry["material"] = {"refractive_index": 1.5}
+        with pytest.raises(ValueError, match="key was removed"):
+            stack_from_config(document)

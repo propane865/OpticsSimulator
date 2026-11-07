@@ -149,11 +149,17 @@ void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi) {
 
 std::shared_ptr<const Element> Element::create(std::shared_ptr<const Surface> surface1,
                                                std::shared_ptr<const Surface> surface2,
-                                               double refractive_index,
+                                               SellmeierCoefficients sellmeier_b,
+                                               SellmeierCoefficients sellmeier_c,
                                                std::vector<double> tri,
                                                std::vector<double> normals) {
     if (surface1 == nullptr || surface2 == nullptr) {
         throw std::invalid_argument("element requires both surfaces");
+    }
+    for (std::size_t i = 0; i < SELLMEIER_TERMS; ++i) {
+        if (!std::isfinite(sellmeier_b[i]) || !std::isfinite(sellmeier_c[i])) {
+            throw std::invalid_argument("sellmeier: coefficients must be finite");
+        }
     }
     if (tri.size() % 9 != 0) {
         throw std::invalid_argument("tri: expected shape (K, 3, 3)");
@@ -164,7 +170,8 @@ std::shared_ptr<const Element> Element::create(std::shared_ptr<const Surface> su
     std::shared_ptr<Element> elem(new Element());
     elem->surface1 = std::move(surface1);
     elem->surface2 = std::move(surface2);
-    elem->index = refractive_index;
+    elem->b = sellmeier_b;
+    elem->c = sellmeier_c;
     for (int i = 0; i < 3; ++i) {
         elem->lo[i] = kInf;
         elem->hi[i] = -kInf;
@@ -194,7 +201,8 @@ std::shared_ptr<const Element> Element::translated(const Element& base, const Ve
                         base.surface2->desc().transform.trans + delta};
     elem->surface1 = Surface::with_transform(*base.surface1, tr1);
     elem->surface2 = Surface::with_transform(*base.surface2, tr2);
-    elem->index = base.index;
+    elem->b = base.b;
+    elem->c = base.c;
     // Local sample bounds are transform independent.
     elem->lo = base.lo;
     elem->hi = base.hi;

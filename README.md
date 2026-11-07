@@ -120,9 +120,10 @@ Qt-free core can still emit from an already-decoded grid:
 `wavelength` is the vacuum wavelength in nanometres (default 405), stamped on
 every ray the source emits and carried on each `Ray`; the Light Source panel
 edits the same value, and a document written without the key loads at that
-default. Tracing is achromatic today -- one refractive index per material -- so
-changing it does not move focus: the wavelength is per-ray colour that a future
-dispersion pass reads.
+default. It is the colour the trace refracts at: each element's index is
+evaluated from its own Sellmeier coefficients at the wavelength of the ray being
+traced, so changing it moves focus. A multi-wavelength fan is a per-ray colour,
+not a per-stack setting -- see [Materials and dispersion](#materials-and-dispersion).
 
 ## Optical stack format
 
@@ -152,7 +153,10 @@ A stack is a JSON object mapping element names to element configs:
       }
     },
     "material": {
-      "refractive_index": 1.5
+      "sellmeier": {
+        "b": [1.25],
+        "c": [0.0]
+      }
     },
     "position": [0.0, 0.0, 0.0],
     "orientation": [0.0, 0.0, 1.0]
@@ -163,6 +167,53 @@ A stack is a JSON object mapping element names to element configs:
 Apertures are optional and circular: `radius` is required, `center`
 (`[cx, cy]`, default `(0, 0)`) is optional, and `type` defaults to
 `"circular"`.
+
+### Materials and dispersion
+
+An element's material is its Sellmeier coefficients and nothing else:
+
+```json
+"material": { "sellmeier": { "b": [...], "c": [...] } }
+```
+
+The published three-term form, with `lam` the wavelength in **micrometres**:
+
+```text
+n(lam)^2 = 1 + sum_i B_i * lam^2 / (lam^2 - C_i)
+```
+
+`B_i` is dimensionless and `C_i` is in **um^2** (catalog tables quote the pole
+wavelength `lam_i` in um; `C_i = lam_i^2`). One to three terms are accepted and
+zero padded, so a missing `C_i` is `0` and a zero `B_i` drops its term. Ray
+wavelengths stay in nanometres everywhere else in the codebase; the nm to um
+conversion happens once, where the index is evaluated.
+
+A zero pole makes its term a plain constant, which is how a
+wavelength-independent index is written -- `b = [n**2 - 1]`, `c = [0]` reads back
+as exactly `n` at every wavelength, bit for bit. That idiom is what the bundled
+examples and the test fixtures use for `n = 1.5`.
+
+There is no `refractive_index` key any more: a material config without
+`sellmeier` -- or a project document declaring a version older than 2 -- is
+refused with a message naming the coefficients to write.
+
+What the trace does with the index:
+
+- **Per ray, per element.** Inside an element the colour is fixed, so one
+  Sellmeier evaluation happens per element entry per ray; outside every element
+  is vacuum (`n = 1`), and all-zero coefficients are a legal, optically inert
+  element.
+- **Chromatic focus is real.** A positive lens is stronger in blue, so a
+  polychromatic fan does not share a focus; `tests/test_dispersion.py` pins the
+  axial colour spread to `f / V_d`.
+- **No index means absorbed.** If the coefficients give no real index at a
+  traced wavelength (a pole, or a sum that is not positive), the ray is absorbed
+  by the existing "did not exit" path -- never a NaN in the geometry, never an
+  exception from a parallel kernel. The lens editor quotes the index at the
+  source's wavelength and shows `-` with the reason when there is none.
+- **Imported glasses are dispersed, not flattened.** A Zemax `GLAS` name with
+  published coefficients keeps them; anything else gets coefficients fitted to
+  its `(n_d, V_d)`, and the import report says which route each glass took.
 
 ### Surface expressions
 

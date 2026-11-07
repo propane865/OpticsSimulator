@@ -43,7 +43,7 @@ class TraceBench:
         return finals
 
     def batch(self) -> int:
-        out = self.system.trace_segments(self.origins, self.dirs, bc.RAY_LENGTH)
+        out = self.system.trace_segments(self.origins, self.dirs, bc.RAY_WAVELENGTH_NM, bc.RAY_LENGTH)
         return int(out[3].sum())
 
 

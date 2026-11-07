@@ -29,6 +29,7 @@ OptimizeProblem::OptimizeProblem(const optics::native::TraceStack& stack,
                                  py::array_t<double> lo, py::array_t<double> hi,
                                  py::array_t<double> gaps, py::array_t<double> origins,
                                  py::array_t<double> dirs, py::array_t<double> powers,
+                                 py::array_t<double> wavelengths,
                                  py::array_t<double> po, py::array_t<double> pn,
                                  py::array_t<double> u_min, py::array_t<double> u_max,
                                  py::array_t<double> v_min, py::array_t<double> v_max,
@@ -39,7 +40,8 @@ OptimizeProblem::OptimizeProblem(const optics::native::TraceStack& stack,
                                   py::array_t<double> tail_span)
     : stack_(stack), x_init_(std::move(x_init)), lo_(std::move(lo)), hi_(std::move(hi)),
       gaps_(std::move(gaps)), origins_(std::move(origins)), dirs_(std::move(dirs)),
-      powers_(std::move(powers)), po_(std::move(po)), pn_(std::move(pn)),
+      powers_(std::move(powers)), wavelengths_(std::move(wavelengths)), po_(std::move(po)),
+      pn_(std::move(pn)),
       u_min_(std::move(u_min)), u_max_(std::move(u_max)), v_min_(std::move(v_min)),
       v_max_(std::move(v_max)), s_u_(std::move(s_u)), s_v_(std::move(s_v)),
       t_u_(std::move(t_u)), t_v_(std::move(t_v)), groups_(std::move(groups)) {
@@ -100,7 +102,7 @@ OptimizeProblem::OptimizeProblem(const optics::native::TraceStack& stack,
         }
         tail_span_.assign(spans.data, spans.data + spans.size);
     }
-    rays_ = read_ray_batch(origins_, dirs_, powers_);
+    rays_ = read_ray_batch(origins_, dirs_, powers_, wavelengths_);
     require(rays_.count >= 4, "ray fan must contain at least 4 rays");
     planes_ = read_planes(po_, pn_, u_min_, u_max_, v_min_, v_max_, s_u_, s_v_, t_u_, t_v_);
     require(planes_.p == 2, "optimize_layout needs exactly two measurement planes");

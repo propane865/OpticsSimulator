@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from optics.config import element_position, refractive_element_from_config
 from optics.element import RefractiveElement
+from optics.project import DEFAULT_ELEMENT_MATERIAL
 from optics.system import OpticalSystem
 
 if TYPE_CHECKING:
@@ -36,7 +37,7 @@ DEFAULT_ELEMENT_CONFIG: dict[str, Any] = {
         "v_range": [-20.0, 20.0],
         "aperture": {"radius": 7.5},
     },
-    "material": {"refractive_index": 1.5},
+    "material": copy.deepcopy(DEFAULT_ELEMENT_MATERIAL),
 }
 
 
@@ -64,15 +65,16 @@ _ELEMENT_TRANSFORM_KEYS = ("position", "orientation")
 SUBMODULE_KEY = "submodule"
 
 
-def _only_index_changed(old_material: dict, new_material: dict) -> bool:
+def _only_material_changed(old_material: dict, new_material: dict) -> bool:
+    """Whether two material blocks differ in their coefficients and nothing else.
+
+    A material is its Sellmeier coefficients and nothing else, so a differing
+    ``sellmeier`` block is exactly the material-only edit the caller uses to skip
+    a geometry rebuild; a block that gained or lost a key is not.
+    """
     if set(old_material) != set(new_material):
         return False
-    for key in old_material:
-        if key == "refractive_index":
-            continue
-        if old_material[key] != new_material[key]:
-            return False
-    return old_material.get("refractive_index") != new_material.get("refractive_index")
+    return old_material.get("sellmeier") != new_material.get("sellmeier")
 
 
 def classify_element_edit(
@@ -80,9 +82,10 @@ def classify_element_edit(
 ) -> str:
     """Classify an element-config edit as ``none``, ``index``, ``transform`` or ``geometry``.
 
-    The result lets the UI skip needless work: refractive-index-only edits do
-    not change the rendered surface geometry, and a no-op edit needs no
-    re-trace. Unknown or mixed changes conservatively report ``geometry``.
+    The result lets the UI skip needless work: a material-only edit (the
+    Sellmeier coefficients changed, so only the traced index does) leaves the
+    rendered surface geometry alone, and a no-op edit needs no re-trace. Unknown
+    or mixed changes conservatively report ``geometry``.
     """
     if old == new:
         return "none"
@@ -100,9 +103,9 @@ def classify_element_edit(
 
     old_material = old.get("material") or {}
     new_material = new.get("material") or {}
-    index_changed = old_material.get("refractive_index") != new_material.get("refractive_index")
+    index_changed = old_material.get("sellmeier") != new_material.get("sellmeier")
 
-    other_changed = old_material != new_material and not _only_index_changed(
+    other_changed = old_material != new_material and not _only_material_changed(
         old_material, new_material
     )
     tracked = {"surface1", "surface2", "material", *_ELEMENT_TRANSFORM_KEYS, SUBMODULE_KEY}
@@ -357,9 +360,11 @@ def import_elements(
         built.append(refractive_element_from_config(new_config))
 
     new_system = OpticalSystem([*state._elements, *built])
-    origins, dirs, powers, _wavelengths = state.rays_arrays()
+    origins, dirs, powers, wavelengths = state.rays_arrays()
     new_rows = state._measurements.split_hits(
-        *new_system.measure_planes(origins, dirs, powers, state._measurements.planes)
+        *new_system.measure_planes(
+            origins, dirs, powers, wavelengths, state._measurements.planes
+        )
     )
 
     if state._schema is None:

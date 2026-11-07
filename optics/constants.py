@@ -20,6 +20,19 @@ MAX_INTERNAL_BOUNCES: int = int(_native.MAX_INTERNAL_BOUNCES)
 # sidewall between them.
 SIDEWALL_MATCH_ATOL: float = float(_native.SIDEWALL_MATCH_ATOL)
 
+# --- Refraction / material ----------------------------------------------------
+# Sellmeier terms per material: the width of the native element's coefficient
+# arrays and of the lens editor's Bi/Ci table.
+SELLMEIER_TERMS: int = int(_native.SELLMEIER_TERMS)
+
+# --- Fraunhofer lines ---------------------------------------------------------
+# The reference wavelengths the material model documents itself against, the
+# lens editor evaluates its calculated index at, and the Zemax importer pins its
+# coefficient fit to; nanometres, like every ray wavelength.
+D_LINE_NM: float = 587.56  # helium d line -- the catalog reference index n_d
+F_LINE_NM: float = 486.13  # hydrogen F line -- the blue end of the Abbe number
+C_LINE_NM: float = 656.27  # hydrogen C line -- the red end of the Abbe number
+
 # --- Aperture ----------------------------------------------------------------
 APERTURE_EPS: float = float(_native.APERTURE_EPS)
 APERTURE_BOUNDARY_N: int = int(_native.APERTURE_BOUNDARY_N)

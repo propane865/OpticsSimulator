@@ -9,6 +9,7 @@ from optics.config import (
 from optics.primitive import CircularAperture, LensSidewall, Ray, Surface, Transform
 from optics.system import OpticalSystem
 from rendering.meshing import SurfaceMesher
+from tests.materials import constant_material
 
 APERTURE_RADIUS = 0.5
 
@@ -52,9 +53,7 @@ def make_element(aperture_radius=APERTURE_RADIUS, orientation=None):
                 "radius": aperture_radius,
             },
         },
-        "material": {
-            "refractive_index": 1.5,
-        },
+        "material": constant_material(1.5),
     }
 
     if orientation is None:
@@ -620,7 +619,7 @@ def test_element_sidewall_absent_without_aperture():
             "u_range": [-1.0, 1.0],
             "v_range": [-1.0, 1.0],
         },
-        "material": {"refractive_index": 1.5},
+        "material": constant_material(1.5),
     }
     element = refractive_element_from_config(schema)
 

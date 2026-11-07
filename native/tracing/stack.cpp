@@ -99,7 +99,8 @@ std::pair<int, ElementHit> nearest_unvisited_masked(const TraceStack& stack, std
 // Fills ``hops`` (reused capacity) with one geometric-order walk; the batch
 // callers keep one ``RayHops`` per chunk so the walk allocates at most once
 // per chunk instead of once per ray.
-void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3& d) {
+void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3& d,
+               double wavelength_nm) {
     hops.clear();
     // Visited bookkeeping: a 64-bit mask for the broad-phase fast path, the
     // per-ray byte vector only as the fallback for longer stacks.
@@ -131,7 +132,7 @@ void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3
             visited[static_cast<std::size_t>(best.first)] = 1;
         }
         const ElementTrace tr = trace_element(*stack.elements[static_cast<std::size_t>(best.first)],
-                                              cur_o, cur_d, best.second);
+                                             cur_o, cur_d, wavelength_nm, best.second);
         RayHop h;
         h.o = cur_o;
         h.d = cur_d;
@@ -153,9 +154,9 @@ void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3
     }
 }
 
-RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d) {
+RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d, double wavelength_nm) {
     RayHops hops;
-    fill_hops(hops, stack, o, d);
+    fill_hops(hops, stack, o, d, wavelength_nm);
     return hops;
 }
 
@@ -209,9 +210,10 @@ int format_segments(const RayHops& hops, double ray_length, double* starts, doub
 }
 
 StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
-                                   const TraceOptions& options, RayHops& hops, double* starts,
-                                   double* ends, signed char* kinds, std::size_t cap) {
-    fill_hops(hops, stack, o, d);
+                                   double wavelength_nm, const TraceOptions& options,
+                                   RayHops& hops, double* starts, double* ends,
+                                   signed char* kinds, std::size_t cap) {
+    fill_hops(hops, stack, o, d, wavelength_nm);
     StackSegments seg;
     seg.count = format_segments(hops, options.ray_length, starts, ends, kinds, cap);
     // The final free-travel state is the last hop: a tail gap after the last
@@ -224,10 +226,12 @@ StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const
 }
 
 StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
-                                   const TraceOptions& options, double* starts, double* ends,
-                                   signed char* kinds, std::size_t cap) {
+                                   double wavelength_nm, const TraceOptions& options,
+                                   double* starts, double* ends, signed char* kinds,
+                                   std::size_t cap) {
     RayHops hops;
-    return trace_stack_segments(stack, o, d, options, hops, starts, ends, kinds, cap);
+    return trace_stack_segments(stack, o, d, wavelength_nm, options, hops, starts, ends, kinds,
+                                cap);
 }
 
 }  // namespace optics::native

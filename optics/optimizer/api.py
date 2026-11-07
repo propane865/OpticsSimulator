@@ -9,7 +9,7 @@ from typing import Any, cast
 import numpy as np
 
 from .. import _native
-from .._util import coerce_ray_arrays
+from .._util import coerce_fan
 from ..config import element_position, stack_from_config
 from ..measurement_plane import MeasurementPlane, arrays_to_rays
 from ..plane_transform import PlaneTransform, plane_transform
@@ -33,9 +33,7 @@ def optimize_layout(
     elements_schema: Mapping[str, Any],
     source_plane: MeasurementPlane,
     image_plane: MeasurementPlane,
-    origins: np.ndarray,
-    dirs: np.ndarray,
-    powers: np.ndarray,
+    fan: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
     *,
     free_element_names: Sequence[str] | None = None,
     free_groups: Sequence[tuple[str, Sequence[str]]] | None = None,
@@ -46,10 +44,12 @@ def optimize_layout(
 ) -> OptimizationResult:
     """Optimize free element z's (and the image-plane z) for best focus.
 
-    Traces the given ray fan (contiguous ``(N, 3)`` origins/dirs, ``(N,)``
-    powers) from ``source_plane`` to ``image_plane`` and searches the free z
-    positions minimizing the pooled per-object-point RMS spot radius on the
-    image plane (see :class:`LensOptimization` for weights). Without
+    Traces the given ray fan -- ``(origins, dirs, powers, wavelengths)``, the
+    contiguous ``(N, 3)`` / ``(N,)`` arrays of
+    :func:`~optics.measurement_plane.rays_to_arrays`, wavelengths in nm -- from
+    ``source_plane`` to ``image_plane`` and searches the free z positions
+    minimizing the pooled per-object-point RMS spot radius on the image plane
+    (see :class:`LensOptimization` for weights). Without
     ``LensOptimization.target_magnification`` magnification is not part of the
     cost: it is whatever the focused layout produces, reported as
     :attr:`OptimizationResult.transform`'s ``scale``. With a target set the
@@ -141,7 +141,7 @@ def optimize_layout(
     if len(set(free)) != len(free):
         raise ValueError("free_element_names contains duplicates")
 
-    origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
+    origins, dirs, powers, wavelengths = coerce_fan(*fan)
     n_rays = int(origins.shape[0])
     if n_rays < 4:
         raise ValueError("optimization needs at least 4 rays")
@@ -170,7 +170,9 @@ def optimize_layout(
     gaps = np.full(max(d - 1, 0), float(layout.min_gap), dtype=float)
 
     system = OpticalSystem(stack_from_config(cast("dict[str, dict[str, Any]]", elements_schema)))
-    blur_ref = focus_reference(system, source_plane, image_plane, origins, dirs, powers)
+    blur_ref = focus_reference(
+        system, source_plane, image_plane, origins, dirs, powers, wavelengths
+    )
     groups = object_point_groups(origins)
 
     # Coarse-to-fine only pays off when the coarse budget is genuinely below the
@@ -187,7 +189,7 @@ def optimize_layout(
     # wrapper.
     problem = build_native_problem(
         system, units, x_init, lo, hi, gaps,
-        origins, dirs, powers, source_plane, image_plane, groups,
+        origins, dirs, powers, wavelengths, source_plane, image_plane, groups,
     )
     settings = build_native_settings(layout, blur_ref=blur_ref, pipeline_on=pipeline_on)
     outcome = _native.optimize_layout(problem, settings, progress_callback)
@@ -205,6 +207,7 @@ def optimize_layout(
         origins=origins,
         dirs=dirs,
         powers=powers,
+        wavelengths=wavelengths,
         outcome=outcome,
     )
 
@@ -223,6 +226,7 @@ def _result_from_outcome(
     origins: np.ndarray,
     dirs: np.ndarray,
     powers: np.ndarray,
+    wavelengths: np.ndarray,
     outcome: dict[str, Any],
 ) -> OptimizationResult:
     """Interpret the native outcome: raise on failure, else the applied-ready result."""
@@ -283,11 +287,10 @@ def _result_from_outcome(
 
     new_system = OpticalSystem(stack_from_config(updated))
     new_plane = plane_from_config(plane_config)
-    # Only the geometry arrays survive the search, so the rays rebuilt for the
-    # magnification fit take the default wavelength -- the achromatic trace
-    # never reads it, so no per-ray value was worth threading through the
-    # optimization request.
-    rays = arrays_to_rays(origins, dirs, powers)
+    # The fan survives the search, so the rays rebuilt for the magnification fit
+    # carry the wavelengths they were traced at: the winner's magnification is
+    # measured from the same dispersion as the native cost.
+    rays = arrays_to_rays(origins, dirs, powers, wavelengths)
     try:
         transform = plane_transform(rays, [source_plane, new_plane], new_system)
     except ValueError:

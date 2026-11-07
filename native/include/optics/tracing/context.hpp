@@ -3,14 +3,52 @@
 // trace kernels walk read-only.
 #pragma once
 
+#include <array>
+#include <cmath>
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <vector>
 
+#include "optics/common/constants.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/geometry/surface.hpp"
 
 namespace optics::native {
+
+// Ray wavelengths are nanometres everywhere; the Sellmeier equation is written
+// for micrometres, so ``C_i`` is in um^2 exactly as glass catalogs print it.
+inline constexpr double NM_TO_UM = 1.0e-3;
+
+// One material's Sellmeier coefficients: ``b`` dimensionless, ``c`` in um^2.
+using SellmeierCoefficients = std::array<double, SELLMEIER_TERMS>;
+
+// Refractive index at ``lam_um`` from ``n^2 = 1 + sum_i B_i lam^2/(lam^2 - C_i)``.
+// Returns NaN when the wavelength lands on a pole or the sum is not a positive
+// finite number -- the caller absorbs the ray rather than propagate NaN
+// geometry. A zero pole contributes its coefficient untouched (``lam^2`` over
+// ``lam^2`` is exactly one), which is how a wavelength-independent material
+// stays bit-identical to the constant index it replaces.
+inline double sellmeier_index(const SellmeierCoefficients& b, const SellmeierCoefficients& c,
+                              double lam_um) {
+    const double lam2 = lam_um * lam_um;
+    double total = 1.0;
+    for (std::size_t i = 0; i < SELLMEIER_TERMS; ++i) {
+        if (c[i] == 0.0) {
+            total += b[i];
+            continue;
+        }
+        const double denominator = lam2 - c[i];
+        if (denominator == 0.0) {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        total += b[i] * lam2 / denominator;
+    }
+    if (!std::isfinite(total) || total <= 0.0) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    return std::sqrt(total);
+}
 
 // One closed refractive element: two persistent surfaces (each owning its
 // descriptor, seed grid and graph-over-xy flag, which the kernels read
@@ -23,7 +61,8 @@ class Element {
     // element. Throws ``std::invalid_argument`` on inconsistent inputs.
     static std::shared_ptr<const Element> create(std::shared_ptr<const Surface> surface1,
                                                  std::shared_ptr<const Surface> surface2,
-                                                 double refractive_index,
+                                                 SellmeierCoefficients sellmeier_b,
+                                                 SellmeierCoefficients sellmeier_c,
                                                  std::vector<double> tri,
                                                  std::vector<double> normals);
 
@@ -36,7 +75,10 @@ class Element {
 
     std::shared_ptr<const Surface> surface1;
     std::shared_ptr<const Surface> surface2;
-    double index = 1.0;
+    // Material: Sellmeier coefficients, evaluated per ray at that ray's
+    // wavelength (see ``element_index``).
+    SellmeierCoefficients b{};
+    SellmeierCoefficients c{};
     Vec3 lo{};  // element-local AABB (from the surface models, built once)
     Vec3 hi{};
     std::vector<double> tri;      // (K, 3, 3) flattened row-major
@@ -63,6 +105,12 @@ class Element {
 };
 
 using ElementRef = std::shared_ptr<const Element>;
+
+// Index of ``elem``'s material at ``wavelength_nm``. NaN when the coefficients
+// have no index at that wavelength (a pole, or a non-positive ``n^2``).
+inline double element_index(const Element& elem, double wavelength_nm) {
+    return sellmeier_index(elem.b, elem.c, wavelength_nm * NM_TO_UM);
+}
 
 // Rectangular detector extent in world ``(x, y)`` plane parameters (the
 // ``u``/``v`` ranges a measurement plane accepts hits within).

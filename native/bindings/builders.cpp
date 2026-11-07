@@ -79,11 +79,16 @@ std::shared_ptr<Surface> make_surface(const std::shared_ptr<SurfaceModel>& model
 }
 
 // Persistent element from two native surface handles (AABB + graph flags are
-// derived once inside ``Element::create``).
+// derived once inside ``Element::create``); the material rides along as its
+// Sellmeier coefficient columns.
 std::shared_ptr<Element> build_element(const std::shared_ptr<Surface>& surface1,
-                                       const std::shared_ptr<Surface>& surface2, double index,
+                                       const std::shared_ptr<Surface>& surface2,
+                                       const py::array_t<double>& sellmeier_b,
+                                       const py::array_t<double>& sellmeier_c,
                                        const py::array_t<double>& tri,
                                        const py::array_t<double>& normals) {
+    const optics::native::SellmeierCoefficients b = read_sellmeier(sellmeier_b, "sellmeier_b");
+    const optics::native::SellmeierCoefficients c = read_sellmeier(sellmeier_c, "sellmeier_c");
     const ConstDoubles tri_d = read_tri(tri);
     const std::size_t k = tri_d.size / 9;
     const py::buffer_info nm_info = normals.request();
@@ -95,7 +100,7 @@ std::shared_ptr<Element> build_element(const std::shared_ptr<Surface>& surface1,
     std::vector<double> nm_copy = copy_vector(nm_info);
     const std::shared_ptr<const Element> element = [&] {
         const py::gil_scoped_release release;
-        return Element::create(surface1, surface2, index, std::move(tri_copy), std::move(nm_copy));
+        return Element::create(surface1, surface2, b, c, std::move(tri_copy), std::move(nm_copy));
     }();
     return std::const_pointer_cast<Element>(element);
 }
@@ -292,7 +297,7 @@ void register_builders(py::module_& m) {
           py::arg("ap_cx"), py::arg("ap_cy"), py::arg("rotation"), py::arg("translation"),
           py::arg("grid_n") = optics::native::SEED_GRID_N);
     m.def("build_element", &build_element, py::arg("surface1"), py::arg("surface2"),
-          py::arg("refractive_index"), py::arg("tri"), py::arg("normals"));
+          py::arg("sellmeier_b"), py::arg("sellmeier_c"), py::arg("tri"), py::arg("normals"));
     m.def("build_trace_stack", &build_trace_stack, py::arg("elements"));
     m.def("analytic_surfaces_enabled", &optics::native::analytic_surfaces_enabled);
     m.def("set_analytic_surfaces", &optics::native::set_analytic_surfaces_enabled,

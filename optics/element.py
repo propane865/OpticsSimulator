@@ -59,9 +59,11 @@ class RefractiveElement:
     def native_element(self) -> "_native.Element":
         """Persistent native element, assembled once for this element's life.
 
-        Wraps the two native surfaces, the sidewall mesh and the refractive
-        index; the axis-aligned bounds and graph flags are derived natively
-        at construction, so trace-stack assembly is a pure reference.
+        Wraps the two native surfaces, the sidewall mesh and the Sellmeier
+        coefficient columns; the axis-aligned bounds and graph flags are derived
+        natively at construction, so trace-stack assembly is a pure reference.
+        The material's index is not baked in -- the kernels evaluate it per ray at
+        that ray's wavelength.
         """
         if self._native_element is None:
             s1 = self.surface1.native_surface
@@ -73,10 +75,12 @@ class RefractiveElement:
             else:
                 tri = wall.triangles()
                 normals = wall.face_normals()
+            sellmeier_b, sellmeier_c = self.material.sellmeier.coefficient_arrays()
             self._native_element = _native.build_element(
                 s1,
                 s2,
-                float(self.material.refractive_index),
+                np.ascontiguousarray(sellmeier_b, dtype=float),
+                np.ascontiguousarray(sellmeier_c, dtype=float),
                 np.ascontiguousarray(tri, dtype=float),
                 np.ascontiguousarray(normals, dtype=float),
             )

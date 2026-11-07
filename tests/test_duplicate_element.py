@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from optics.config import refractive_element_from_config
+from tests.materials import constant_material
 from ui.model import ProjectState
 
 
@@ -30,7 +31,7 @@ def _flat_lens(front_z: float, *, radius: float = 1.0, y: float = 0.0) -> dict[s
     return {
         "surface1": surface("0"),
         "surface2": surface("-2.0"),
-        "material": {"refractive_index": 1.5},
+        "material": constant_material(1.5),
         "position": [0.0, y, front_z],
         "orientation": [0.0, 0.0, 1.0],
     }
@@ -77,9 +78,9 @@ def test_duplicate_is_an_independent_copy():
 
     name, index, _element = state.duplicate_element("lens1")
     assert state.schema is not None
-    state.schema[name]["material"]["refractive_index"] = 1.9  # edit only the copy
+    state.schema[name]["material"] = constant_material(1.9)  # edit only the copy
 
-    assert state.schema["lens1"]["material"]["refractive_index"] == 1.5
+    assert state.schema["lens1"]["material"] == constant_material(1.5)
     assert state.elements[0] is not state.elements[index]
 
 

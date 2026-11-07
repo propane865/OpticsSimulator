@@ -95,14 +95,18 @@ def plane_transform(
         raise ValueError("plane_transform needs exactly two measurement planes")
     plane_a, plane_b = plane_list
 
-    # The similarity fit is purely geometric; the per-ray wavelength is not an input.
-    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
+    # The arrays carry the per-ray wavelength even though this fit is purely
+    # geometric: the fan round-trips through the same traced batch entry as
+    # every measurement, and an untraced fan keeps its wavelengths unused.
+    origins, dirs, powers, wavelengths = rays_to_arrays(rays)
     n_total = int(origins.shape[0])
     if system is None:
-        ua, va, pa = _direct_hits(plane_a, origins, dirs, powers)
-        ub, vb, pb = _direct_hits(plane_b, origins, dirs, powers)
+        ua, va, pa = _direct_hits(plane_a, origins, dirs, powers, wavelengths)
+        ub, vb, pb = _direct_hits(plane_b, origins, dirs, powers, wavelengths)
     else:
-        us, vs, pws = system.measure_planes(origins, dirs, powers, [plane_a, plane_b])
+        us, vs, pws = system.measure_planes(
+            origins, dirs, powers, wavelengths, [plane_a, plane_b]
+        )
         ua, ub = us[0], us[1]
         va, vb = vs[0], vs[1]
         pa, pb = pws[0], pws[1]

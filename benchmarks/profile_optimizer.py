@@ -161,7 +161,11 @@ def prepare(problem: Problem, times: "dict[str, float] | None" = None) -> Prep:
     us, vs, pws = timed(
         "base_measure",
         lambda: system.measure_planes(
-            problem.origins, problem.dirs, problem.powers, [problem.source_plane, problem.image_plane]
+            problem.origins,
+            problem.dirs,
+            problem.powers,
+            problem.wavelengths,
+            [problem.source_plane, problem.image_plane],
         ),
         times,
     )
@@ -196,6 +200,7 @@ def prepare(problem: Problem, times: "dict[str, float] | None" = None) -> Prep:
             problem.origins,
             problem.dirs,
             problem.powers,
+            problem.wavelengths,
             np.ascontiguousarray([sp.o, ip.o], dtype=float),
             np.ascontiguousarray([sp.n, ip.n], dtype=float),
             np.ascontiguousarray([sp.u_min, ip.u_min], dtype=float),
@@ -294,9 +299,7 @@ def solve_with_api(problem: Problem, knobs: dict[str, int]) -> Any:
         problem.schema,
         problem.source_plane,
         problem.image_plane,
-        problem.origins,
-        problem.dirs,
-        problem.powers,
+        (problem.origins, problem.dirs, problem.powers, problem.wavelengths),
         free_element_names=problem.free,
         element_bounds=problem.element_bounds,
         image_bounds=_IMAGE_BOUNDS,

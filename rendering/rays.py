@@ -72,16 +72,17 @@ def build_ray_nodes(
     """Draw all rays as one batched line node.
 
     Traces through the given :class:`~optics.system.OpticalSystem` (or wraps
-    a plain element stack).
+    a plain element stack), so each ray is refracted at its own wavelength and
+    the drawn path is the traced one.
     """
     if not rays:
         return []
-    origins, dirs, _powers, _wavelengths = rays_to_arrays(rays)
+    origins, dirs, _powers, wavelengths = rays_to_arrays(rays)
     finite = np.isfinite(origins).all(axis=1) & np.isfinite(dirs).all(axis=1)
     if not finite.any():
         return []
     starts, ends, _kinds, counts = _as_system(system).trace_segments(
-        origins[finite], dirs[finite], ray_length=ray_length
+        origins[finite], dirs[finite], wavelengths[finite], ray_length=ray_length
     )
     return build_ray_nodes_from_segments(view, starts, ends, counts)
 

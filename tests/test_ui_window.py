@@ -11,6 +11,8 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtCore, QtWidgets
 
+from optics.primitive import DEFAULT_WAVELENGTH_NM
+from optics.project import PROJECT_VERSION
 from rendering import demo
 from tests.ui_helpers import (
     OK,
@@ -26,6 +28,8 @@ from tests.ui_helpers import (
     _tree_names,
     _trigger,
     _trigger_measurement_plane,
+    lens_index,
+    set_lens_index,
 )
 from ui.app import make_display
 from ui.project_tree import ProjectTree
@@ -201,7 +205,7 @@ def test_save_as_action_writes_file(stack_window, repo_root, tmp_path, monkeypat
     assert out_path.exists()
     saved = json.loads(out_path.read_text(encoding="utf-8"))
     expected = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
-    assert saved["version"] == 1
+    assert saved["version"] == PROJECT_VERSION
     assert saved["elements"] == expected
     assert saved["source"]["num_rays"] == 16
     assert saved["measurement_planes"] == []
@@ -223,7 +227,8 @@ def test_save_as_round_trip_preserves_edits(stack_window, make_window, tmp_path,
     window = stack_window
 
     editor = _editor(window)
-    editor["index"].setValue(1.8)
+    set_lens_index(editor, 1.8)
+    assert lens_index(editor) == pytest.approx(1.8)
     _click(window, OK)
 
     out_path = tmp_path / "modified_stack.json"
@@ -231,11 +236,14 @@ def test_save_as_round_trip_preserves_edits(stack_window, make_window, tmp_path,
     _trigger_save_as(window)
 
     saved = json.loads(out_path.read_text(encoding="utf-8"))
-    assert saved["elements"]["lens1"]["material"]["refractive_index"] == pytest.approx(1.8)
+    saved_material = saved["elements"]["lens1"]["material"]["sellmeier"]
+    # The table types a fixed index as the constant-index idiom: one term, no poles.
+    assert saved_material["b"] == pytest.approx([1.8**2 - 1.0])
+    assert saved_material["c"] == pytest.approx([0.0])
 
     window2 = make_window()
     elements = window2.load_stack(out_path)
-    assert elements[0].material.refractive_index == pytest.approx(1.8)
+    assert elements[0].material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(1.8)
 
 
 def test_save_load_round_trip_preserves_source_and_planes(stack_window, make_window, tmp_path, monkeypatch):
@@ -311,7 +319,7 @@ def test_unsupported_source_type_is_rejected(stack_window, repo_root, tmp_path):
     elements = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text())
     path = tmp_path / "point_array.json"
     path.write_text(json.dumps({
-        "version": 1,
+        "version": PROJECT_VERSION,
         "elements": elements,
         "source": {
             "position": [0.0, 0.0, 3.0],
@@ -354,7 +362,7 @@ def test_load_project_invalid_source_keeps_state(stack_window, repo_root, tmp_pa
     bad = tmp_path / "bad_project.json"
     stack = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
     bad.write_text(json.dumps({
-        "version": 1,
+        "version": PROJECT_VERSION,
         "elements": stack,
         "source": {"cone_angle": 500.0},
     }), encoding="utf-8")

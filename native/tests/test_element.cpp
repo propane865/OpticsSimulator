@@ -19,8 +19,11 @@ namespace {
 
 using optics::native::element_contains_point;
 using optics::native::element_first_hit;
+using optics::native::element_index;
 using optics::native::make_vec3;
 using optics::native::norm;
+using optics::native::sellmeier_index;
+using optics::native::SellmeierCoefficients;
 using optics::native::Surface;
 using optics::native::trace_element;
 using optics::native::Vec3;
@@ -33,7 +36,7 @@ fixture::Element small_plate() {
 }
 
 // The persistent ``Element::create`` path must derive the AABB, graph flags
-// (owned by the surfaces) and refractive index exactly as configured.
+// (owned by the surfaces) and material exactly as configured.
 void test_create_persists_state() {
     auto face = [](double height, double half) {
         char z_src[64];
@@ -49,10 +52,16 @@ void test_create_persists_state() {
         o.grid_n = 48;
         return Surface::create(std::move(o));
     };
-    const auto elem = optics::native::Element::create(
-        face(0.5, 1.0), face(-0.5, 1.0), 1.5, std::vector<double>{}, std::vector<double>{});
+    const std::pair<SellmeierCoefficients, SellmeierCoefficients> material =
+        fixture::constant_material(1.5);
+    const auto elem = optics::native::Element::create(face(0.5, 1.0), face(-0.5, 1.0),
+                                                     material.first, material.second,
+                                                     std::vector<double>{}, std::vector<double>{});
     CHECK(elem->surface1 != nullptr && elem->surface2 != nullptr);
-    CHECK(close(elem->index, 1.5));
+    CHECK(close(element_index(*elem, fixture::kTestWavelengthNm), 1.5));
+    // A wavelength-independent material holds its index at both ends of the band.
+    CHECK(close(element_index(*elem, 300.0), 1.5));
+    CHECK(close(element_index(*elem, 2000.0), 1.5));
     CHECK(close(elem->lo[0], -1.0) && close(elem->lo[1], -1.0) && close(elem->lo[2], -0.5));
     CHECK(close(elem->hi[0], 1.0) && close(elem->hi[1], 1.0) && close(elem->hi[2], 0.5));
     CHECK(elem->surface1->is_graph_over_xy() && elem->surface2->is_graph_over_xy());
@@ -68,8 +77,9 @@ void test_create_persists_state() {
     // Inconsistent sidewall arrays are rejected.
     bool threw = false;
     try {
-        optics::native::Element::create(face(0.5, 1.0), face(-0.5, 1.0), 1.5,
-                                        std::vector<double>(10, 0.0), std::vector<double>{});
+        optics::native::Element::create(face(0.5, 1.0), face(-0.5, 1.0), material.first,
+                                       material.second, std::vector<double>(10, 0.0),
+                                       std::vector<double>{});
     } catch (const std::invalid_argument&) {
         threw = true;
     }
@@ -117,7 +127,8 @@ void test_trace_straight() {
     const fixture::Element plate = small_plate();
     const Vec3 o = make_vec3(0.0, 0.0, 3.0);
     const Vec3 d = make_vec3(0.0, 0.0, -1.0);
-    const optics::native::ElementTrace tr = trace_element(plate, o, d);
+    const optics::native::ElementTrace tr =
+        trace_element(plate, o, d, fixture::kTestWavelengthNm);
     CHECK(tr.exited);
     CHECK(tr.has_incident);
     CHECK(tr.n_pts == 2);
@@ -131,7 +142,8 @@ void test_trace_oblique() {
     const fixture::Element plate = small_plate();
     const Vec3 o = make_vec3(-0.2, 0.0, 2.0);
     const Vec3 d = make_vec3(0.3, 0.0, -kCos1);
-    const optics::native::ElementTrace tr = trace_element(plate, o, d);
+    const optics::native::ElementTrace tr =
+        trace_element(plate, o, d, fixture::kTestWavelengthNm);
     CHECK(tr.exited);
     CHECK(tr.n_pts == 2);
     // Snell (1.0 -> 1.5): entry point from the free path, lateral drift from
@@ -161,7 +173,8 @@ void test_trace_tir() {
     const Vec3 d = make_vec3(s, 0.0, s);  // > critical angle from the normal
     CHECK(element_contains_point(slab, o));
 
-    const optics::native::ElementTrace tr = trace_element(slab, o, d);
+    const optics::native::ElementTrace tr =
+        trace_element(slab, o, d, fixture::kTestWavelengthNm);
     CHECK(!tr.exited);  // total internal reflection at every bounce
     CHECK(!tr.has_incident);  // the ray started inside the glass
     CHECK(tr.n_pts == optics::native::MAX_INTERNAL_BOUNCES + 1);
@@ -199,14 +212,80 @@ void test_variant_trace_equivalence() {
         CHECK(close(hv.p[j], hs.p[j], 1e-10));
         CHECK(close(hv.n[j], hs.n[j], 1e-10));
     }
-    const auto mv = trace_element(*moved, o, d);
-    const auto ms = trace_element(*scratch, o, d);
+    const auto mv = trace_element(*moved, o, d, fixture::kTestWavelengthNm);
+    const auto ms = trace_element(*scratch, o, d, fixture::kTestWavelengthNm);
     CHECK(mv.exited == ms.exited);
     CHECK(mv.n_pts == ms.n_pts);
     for (int j = 0; j < 3; ++j) {
         CHECK(close(mv.exit_o[j], ms.exit_o[j], 1e-10));
         CHECK(close(mv.exit_d[j], ms.exit_d[j], 1e-12));
     }
+}
+
+// Sellmeier materials: the index follows the coefficients, and a material with
+// no index at a wavelength reports none instead of a nonsense number.
+void test_sellmeier_index() {
+    // A catalog crown (three terms, poles in um^2): the index falls with
+    // wavelength and hits n_d on the d line.
+    const SellmeierCoefficients crown_b{1.03961212, 0.231792346, 1.01046945};
+    const SellmeierCoefficients crown_c{0.00600588969, 0.0200179144, 103.560366};
+    const double n_blue = sellmeier_index(crown_b, crown_c, 0.486134);
+    const double n_green = sellmeier_index(crown_b, crown_c, 0.58756);
+    const double n_red = sellmeier_index(crown_b, crown_c, 0.656279);
+    CHECK(close(n_green, 1.51680, 2e-5));
+    CHECK(n_blue > n_green && n_green > n_red);
+
+    // A wavelength landing exactly on a pole reports no index; one off it does.
+    const SellmeierCoefficients pole_b{1.0};
+    const SellmeierCoefficients pole_c{0.25};  // lam = 0.5 um == 500 nm
+    CHECK(std::isnan(sellmeier_index(pole_b, pole_c, 0.5)));
+    CHECK(std::isfinite(sellmeier_index(pole_b, pole_c, 0.7)));
+
+    // Coefficients summing to a non-positive n^2 report no index either.
+    const SellmeierCoefficients opaque_b{-5.0};
+    const SellmeierCoefficients opaque_c{0.04};
+    CHECK(std::isnan(sellmeier_index(opaque_b, opaque_c, 0.5)));
+}
+
+// A dispersive element: the parallel-plane plate leaves the exit direction
+// untouched but shifts each colour by its own amount, and swallows the ray whose
+// wavelength hits a pole.
+void test_sellmeier_element_trace() {
+    const SellmeierCoefficients b{1.03961212, 0.231792346, 1.01046945};
+    const SellmeierCoefficients c{0.00600588969, 0.0200179144, 103.560366};
+    const auto plate =
+        optics::native::Element::create(fixture::plate_face(0.5, 1.0, 0.0, 48),
+                                       fixture::plate_face(-0.5, 1.0, 0.0, 48), b, c,
+                                       std::vector<double>{}, std::vector<double>{});
+    const Vec3 o = make_vec3(-0.2, 0.0, 2.0);
+    const Vec3 d = make_vec3(0.3, 0.0, -kCos1);
+    const auto blue = trace_element(*plate, o, d, 486.134);
+    const auto red = trace_element(*plate, o, d, 656.279);
+    CHECK(blue.exited && red.exited);
+    CHECK(close(blue.exit_d[0], red.exit_d[0], 1e-12));
+    CHECK(close(norm(blue.exit_d), 1.0, 1e-12));
+    // The stronger index bends the internal ray closer to the normal, so blue
+    // drifts less across the plate than red.
+    CHECK(blue.exit_o[0] < red.exit_o[0]);
+
+    // A plate whose material has a pole at 500 nm stops that ray at the face it
+    // reached and traces normally at any other wavelength.
+    const SellmeierCoefficients pole_b{1.0};
+    const SellmeierCoefficients pole_c{0.25};
+    const auto resonant =
+        optics::native::Element::create(fixture::plate_face(0.5, 1.0, 0.0, 48),
+                                       fixture::plate_face(-0.5, 1.0, 0.0, 48), pole_b, pole_c,
+                                       std::vector<double>{}, std::vector<double>{});
+    const Vec3 straight = make_vec3(0.0, 0.0, 3.0);
+    const Vec3 down = make_vec3(0.0, 0.0, -1.0);
+    const auto trapped = trace_element(*resonant, straight, down, 500.0);
+    CHECK(!trapped.exited);
+    CHECK(trapped.has_incident);
+    CHECK(close(trapped.exit_o[2], 0.5, 1e-12));
+    CHECK(close(trapped.exit_d[2], -1.0, 1e-12));
+    const auto passed = trace_element(*resonant, straight, down, 700.0);
+    CHECK(passed.exited);
+    CHECK(close(passed.exit_o[2], -0.5, 1e-9));
 }
 
 }  // namespace
@@ -219,4 +298,6 @@ void test_element() {
     test_trace_oblique();
     test_trace_tir();
     test_variant_trace_equivalence();
+    test_sellmeier_index();
+    test_sellmeier_element_trace();
 }

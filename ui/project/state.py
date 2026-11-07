@@ -80,8 +80,9 @@ class ProjectState:
         Materialized lazily from :attr:`rays` and cached; the cache is dropped
         whenever the source/rays change, so per-refresh trace/measure passes can
         reuse the arrays without re-marshalling the ``Ray`` list every time. The
-        wavelengths (nm) ride along for wavelength-aware consumers; the trace
-        reads only the first three arrays.
+        wavelengths (nm) are part of the fan: every element index is evaluated
+        at the wavelength of the ray being traced, so no trace pass may drop
+        them.
         """
         arrays = self._rays_arrays
         if arrays is None:

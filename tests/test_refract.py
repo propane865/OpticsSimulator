@@ -3,6 +3,7 @@ import pytest
 
 from optics.primitive import Ray
 from optics.system import OpticalSystem
+from tests.materials import crown_material
 
 BICONE_S1 = "3 - 0.3*sqrt(x**2 + y**2)"
 BICONE_S2 = "-1 + 2*sqrt(x**2 + y**2)"
@@ -77,12 +78,15 @@ def test_sphere_off_axis_matches_reference(sphere):
     hit1 = sphere.surface1.intersect(ray)
     p1, u1, v1 = hit1.point, hit1.u, hit1.v
     n1 = -sphere.surface1.normal(u1, v1)
-    d1 = _refract_direction(ray.direction, n1, 1.0 / sphere.material.refractive_index)
+    # The oracle refracts at the index the kernel evaluates: this element's
+    # coefficients read at this ray's wavelength.
+    index = sphere.material.index_at(ray.wavelength)
+    d1 = _refract_direction(ray.direction, n1, 1.0 / index)
 
     hit2 = sphere.surface2.intersect(Ray(p1, d1, 1.0))
     p2, u2, v2 = hit2.point, hit2.u, hit2.v
     n2 = -sphere.surface2.normal(u2, v2)
-    d2 = _refract_direction(d1, n2, sphere.material.refractive_index)
+    d2 = _refract_direction(d1, n2, index)
 
     np.testing.assert_allclose(out.direction, d2, atol=1e-9)
     np.testing.assert_allclose(out.origin, p2, atol=1e-8)
@@ -267,3 +271,67 @@ def test_sidewall_entry_bends_toward_normal(make_element):
     internal_dir = internal_dir / np.linalg.norm(internal_dir)
     assert abs(internal_dir[2]) < abs(d[2])
     assert out is not None
+
+
+def test_crown_plate_separates_colours(make_element):
+    """One crown plate, two wavelengths: the colours leave parallel but bent apart.
+
+    A parallel-plane plate returns every ray onto its incident direction, so the
+    dispersion shows where it belongs -- inside the glass, where the stronger
+    index of the blue ray bends it further toward the face normal.
+    """
+    elem = make_element("0", "-2", material=crown_material())
+    system = OpticalSystem([elem])
+    d = np.array([0.4, -0.2, -1.0])
+    d = d / np.linalg.norm(d)
+    start = np.array([0.0, 0.0, 2.5])
+
+    transverse = {}
+    for wavelength in (486.13, 656.27):
+        segments, out = system.trace_path(Ray(start, d, 1.0, wavelength), 3.0)
+        assert out is not None
+        np.testing.assert_allclose(out.direction, d, atol=1e-9)
+        internal = _internal_segments(segments)
+        assert internal
+        direction = internal[0][1] - internal[0][0]
+        transverse[wavelength] = float(np.linalg.norm(direction[:2]))
+
+    assert transverse[486.13] < transverse[656.27]
+
+
+def test_internal_path_follows_the_material_index(make_element):
+    """The native drift matches the model's own n(lambda), term by term."""
+    elem = make_element("0", "-2", material=crown_material())
+    system = OpticalSystem([elem])
+    d = np.array([0.4, -0.2, -1.0])
+    d = d / np.linalg.norm(d)
+
+    for wavelength in (486.13, 587.56, 656.27):
+        index = elem.material.index_at(wavelength)
+        sin_t = np.linalg.norm(d[:2]) / index
+        expected = sin_t / np.sqrt(1.0 - sin_t * sin_t)  # internal slope |xy| / |z|
+        segments, _out = system.trace_path(Ray(np.array([0.0, 0.0, 2.5]), d, 1.0, wavelength), 3.0)
+        internal = _internal_segments(segments)
+        assert internal
+        direction = internal[0][1] - internal[0][0]
+        direction = direction / np.linalg.norm(direction)
+        slope = float(np.linalg.norm(direction[:2])) / abs(float(direction[2]))
+        np.testing.assert_allclose(slope, expected, rtol=1e-9)
+
+
+def test_pole_at_the_traced_wavelength_absorbs_the_ray(make_element):
+    """A material with no index where the ray lands stops the ray at that face."""
+    elem = make_element("0", "-2", material={"sellmeier": {"b": [1.0], "c": [0.25]}})
+    system = OpticalSystem([elem])
+    d = np.array([0.0, 0.0, -1.0])
+
+    # The coefficient pole sits at lam = sqrt(0.25) um, i.e. exactly 500 nm.
+    segments, out = system.trace_path(Ray(np.array([0.0, 0.0, 2.5]), d, 1.0, 500.0), 3.0)
+    assert out is None
+    assert [kind for _, _, kind in segments] == ["incident"]
+    np.testing.assert_allclose(segments[0][1], [0.0, 0.0, 0.0], atol=1e-9)
+
+    # The same element traces normally at a wavelength off the pole.
+    _segments, passed = system.trace_path(Ray(np.array([0.0, 0.0, 2.5]), d, 1.0, 700.0), 3.0)
+    assert passed is not None
+    np.testing.assert_allclose(passed.origin[2], -2.0, atol=1e-8)

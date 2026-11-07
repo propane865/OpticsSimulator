@@ -32,6 +32,7 @@ class DriverProblem {
                                    -std::cos(theta)};
             dirs.insert(dirs.end(), dir, dir + 3);
             powers.push_back(1.0);
+            wavelengths.push_back(kTestWavelengthNm);
         }
         // Source plane at z = 11, destination plane below the plate; identity
         // in-plane frames and generous detector extents.
@@ -53,7 +54,7 @@ class DriverProblem {
         spec.hi = {2.0, -6.0};
         spec.gaps = {1.0};
         spec.dest_plane = 1;
-        spec.rays = {origins.data(), dirs.data(), powers.data(), n};
+        spec.rays = {origins.data(), dirs.data(), powers.data(), wavelengths.data(), n};
         spec.planes = {po.data(),  pn.data(),  umin.data(), umax.data(), vmin.data(),
                        vmax.data(), su.data(),  sv.data(),  tu.data(),   tv.data(),
                        2};
@@ -69,7 +70,7 @@ class DriverProblem {
 
   private:
     TraceStack stack;
-    std::vector<double> origins, dirs, powers;
+    std::vector<double> origins, dirs, powers, wavelengths;
     std::vector<double> po, pn, umin, umax, vmin, vmax, su, sv, tu, tv;
 };
 

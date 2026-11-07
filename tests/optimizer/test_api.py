@@ -24,8 +24,8 @@ from tests.optimizer._common import (
 
 def test_converges_to_best_focus(optimized):
     schema, source, p1, p2, _base, (ref_z, ref_radius), result = optimized
-    origins, dirs, powers, _ = source.emit_arrays()
-    base_radius = _spot_radius(_system(schema), p2, origins, dirs, powers, p1)
+    fan = source.emit_arrays()
+    base_radius = _spot_radius(_system(schema), p2, fan, p1)
     assert result.status == "ok"
     # At least as sharp as the best focus reachable with the elements where
     # they are, and a large improvement on the defocused base layout. Which z
@@ -38,9 +38,9 @@ def test_converges_to_best_focus(optimized):
 
 def test_spot_radius_matches_a_retrace(optimized):
     _schema, source, p1, p2, _base, _ref, result = optimized
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     image = _plane_at(p2, result.best_z[-1])
-    recomputed = _spot_radius(_system(result.elements_config), image, origins, dirs, powers, p1)
+    recomputed = _spot_radius(_system(result.elements_config), image, fan, p1)
     assert result.spot_radius_mm > 0.0
     # The native value pools only the hits the similarity fit keeps, so it can
     # never exceed the raw value -- and with nothing clipped it is identical.
@@ -64,16 +64,14 @@ def test_reports_magnification_at_best_focus(optimized):
 
 def test_point_array_reports_a_real_image_magnification():
     schema, source, p1, p2 = _problem(point_array=True)
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     base = plane_transform(source.emit_rays(), [p1, p2], _system(schema))
-    base_radius = _spot_radius(_system(schema), p2, origins, dirs, powers, p1)
+    base_radius = _spot_radius(_system(schema), p2, fan, p1)
     result = optimize_layout(
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=_FAST,
@@ -89,14 +87,12 @@ def test_point_array_reports_a_real_image_magnification():
 
 def test_deterministic(optimized):
     schema, source, p1, p2, _base, _ref, result = optimized
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     again = optimize_layout(
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=_FAST,
@@ -114,7 +110,7 @@ def test_input_schema_untouched(optimized):
 
 def test_unmeetable_focus_threshold_raises():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     # The best focus this doublet can form is a finite spot, so a tolerance of
     # zero can never be met: the finite minimum must raise, not be reported.
     spec = replace(_FAST, max_normalized_blur=0.0)
@@ -123,9 +119,7 @@ def test_unmeetable_focus_threshold_raises():
             schema,
             p1,
             p2,
-            origins,
-            dirs,
-            powers,
+            fan,
             element_bounds=_BOUNDS,
             image_bounds=_IMAGE_BOUNDS,
             optimization=spec,
@@ -134,7 +128,7 @@ def test_unmeetable_focus_threshold_raises():
 
 def test_allow_suboptimal_returns_the_best_effort_layout():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     # Same unmeetable tolerance, but suboptimal convergence is allowed: the
     # budget-exhausted minimum is returned with its non-ok status instead of
     # raising, with usable configs and finite acceptance radii.
@@ -143,9 +137,7 @@ def test_allow_suboptimal_returns_the_best_effort_layout():
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=spec,
@@ -160,7 +152,7 @@ def test_allow_suboptimal_returns_the_best_effort_layout():
 
 def test_allow_suboptimal_still_raises_when_unmeasurable():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     # A plane behind the downward ray fan yields no correspondences anywhere:
     # the run is unmeasurable ("infeasible"), so even an allowed suboptimal
     # convergence has no meaningful layout to return and must raise.
@@ -170,9 +162,7 @@ def test_allow_suboptimal_still_raises_when_unmeasurable():
             schema,
             p1,
             p2,
-            origins,
-            dirs,
-            powers,
+            fan,
             element_bounds=_BOUNDS,
             image_bounds=(200.0, 200.0),
             optimization=spec,
@@ -181,7 +171,7 @@ def test_allow_suboptimal_still_raises_when_unmeasurable():
 
 def test_early_focus_stop_saves_evaluations():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     full = LensOptimization(
         seed=7,
         generations=300,
@@ -193,9 +183,7 @@ def test_early_focus_stop_saves_evaluations():
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=replace(full, stop_on_focus=True),
@@ -204,9 +192,7 @@ def test_early_focus_stop_saves_evaluations():
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=replace(full, stop_on_focus=False),
@@ -223,14 +209,12 @@ def test_early_focus_stop_saves_evaluations():
 
 def test_target_magnification_is_honored():
     schema, source, p1, p2 = _problem(point_array=True)
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     natural = optimize_layout(
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=_FAST,
@@ -244,9 +228,7 @@ def test_target_magnification_is_honored():
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=spec,
@@ -259,7 +241,7 @@ def test_target_magnification_is_honored():
 
 def test_unreachable_target_magnification_raises():
     schema, source, p1, p2 = _problem(point_array=True)
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     # No layout inside these windows images 50x: the focus gates can pass all
     # they like, the magnification contract rejects every candidate.
     spec = replace(_FAST, target_magnification=50.0)
@@ -268,9 +250,7 @@ def test_unreachable_target_magnification_raises():
             schema,
             p1,
             p2,
-            origins,
-            dirs,
-            powers,
+            fan,
             element_bounds=_BOUNDS,
             image_bounds=_IMAGE_BOUNDS,
             optimization=spec,
@@ -279,15 +259,13 @@ def test_unreachable_target_magnification_raises():
 
 def test_unreachable_target_suboptimal_returns_best_effort():
     schema, source, p1, p2 = _problem(point_array=True)
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     spec = replace(_FAST, target_magnification=50.0, allow_suboptimal=True)
     result = optimize_layout(
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=spec,
@@ -299,16 +277,14 @@ def test_unreachable_target_suboptimal_returns_best_effort():
 
 def test_non_positive_target_magnification_rejected():
     schema, source, p1, p2 = _problem(point_array=True)
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     for bad in (0.0, -1.0, float("nan")):
         with pytest.raises(ValueError, match="target_magnification"):
             optimize_layout(
                 schema,
                 p1,
                 p2,
-                origins,
-                dirs,
-                powers,
+                fan,
                 element_bounds=_BOUNDS,
                 image_bounds=_IMAGE_BOUNDS,
                 optimization=replace(_FAST, target_magnification=bad),

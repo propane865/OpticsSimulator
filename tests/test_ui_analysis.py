@@ -145,12 +145,13 @@ def _stub_optimize(lens_z, plane_z, status="ok"):
     a stub emulate the best-effort result an allowed-suboptimal run returns.
     """
 
-    def fake(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):  # noqa: ARG001
+    def fake(elements_schema, source_plane, image_plane, fan, **kwargs):  # noqa: ARG001
         import copy
 
         from optics.optimizer import OptimizationResult
         from optics.plane_transform import PlaneTransform
 
+        _origins, _dirs, powers, _wavelengths = fan
         config = copy.deepcopy(dict(elements_schema))
         free = set(kwargs.get("free_element_names") or config)
         moved = [name for name in config if name in free]
@@ -239,9 +240,9 @@ def _optimize_lock_probe(window, monkeypatch, qt_app, locked):
     captured: dict[str, object] = {}
     stub = _stub_optimize(1.0, 5.0)
 
-    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+    def spy(elements_schema, source_plane, image_plane, fan, **kwargs):
         captured["image_bounds"] = kwargs.get("image_bounds", "MISSING")
-        return stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+        return stub(elements_schema, source_plane, image_plane, fan, **kwargs)
 
     monkeypatch.setattr("ui.optimize.optimize_layout", spy)
     check = window.findChild(QtWidgets.QCheckBox, "analysisLockImageCheck")
@@ -279,9 +280,9 @@ def _suboptimal_probe(window, monkeypatch, qt_app, allowed):
     captured: dict[str, object] = {}
     stub = _stub_optimize(1.0, 5.0)
 
-    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+    def spy(elements_schema, source_plane, image_plane, fan, **kwargs):
         captured["spec"] = kwargs.get("optimization", "MISSING")
-        result = stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+        result = stub(elements_schema, source_plane, image_plane, fan, **kwargs)
         captured["done"] = True
         return result
 
@@ -346,9 +347,9 @@ def test_analysis_magnification_target_reaches_optimizer(window, qt_app, monkeyp
     captured: dict[str, object] = {}
     stub = _stub_optimize(1.0, 5.0)
 
-    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+    def spy(elements_schema, source_plane, image_plane, fan, **kwargs):
         captured["spec"] = kwargs.get("optimization", "MISSING")
-        result = stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+        result = stub(elements_schema, source_plane, image_plane, fan, **kwargs)
         captured["done"] = True
         return result
 
@@ -398,9 +399,9 @@ def _optimize_free_names(window, monkeypatch, qt_app):
     captured: list[list[str]] = []
     stub = _stub_optimize(1.0, 5.0)
 
-    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+    def spy(elements_schema, source_plane, image_plane, fan, **kwargs):
         captured.append(list(kwargs.get("free_element_names") or []))
-        return stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+        return stub(elements_schema, source_plane, image_plane, fan, **kwargs)
 
     monkeypatch.setattr("ui.optimize.optimize_layout", spy)
     window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()
@@ -514,12 +515,12 @@ def _optimize_request_sets(window, monkeypatch, qt_app):
     captured: dict[str, object] = {}
     stub = _stub_optimize(1.0, 5.0)
 
-    def spy(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs):
+    def spy(elements_schema, source_plane, image_plane, fan, **kwargs):
         captured["free"] = list(kwargs.get("free_element_names") or [])
         captured["groups"] = [
             (label, list(members)) for label, members in (kwargs.get("free_groups") or [])
         ]
-        return stub(elements_schema, source_plane, image_plane, origins, dirs, powers, **kwargs)
+        return stub(elements_schema, source_plane, image_plane, fan, **kwargs)
 
     monkeypatch.setattr("ui.optimize.optimize_layout", spy)
     window.findChild(QtWidgets.QPushButton, "analysisOptimizeButton").click()

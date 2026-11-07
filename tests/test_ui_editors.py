@@ -1,5 +1,6 @@
 """Element, source, measurement-plane and submodule editor UI tests."""
 
+import math
 import os
 
 import numpy as np
@@ -11,8 +12,11 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtGui, QtWidgets
 
+from optics.constants import D_LINE_NM, SELLMEIER_TERMS
 from optics.measurement_plane import MeasurementPlane
-from optics.primitive import DEFAULT_WAVELENGTH_NM
+from optics.primitive import DEFAULT_WAVELENGTH_NM, Sellmeier
+from optics.project import DEFAULT_ELEMENT_MATERIAL
+from tests.materials import crown_material
 from tests.ui_helpers import (
     CANCEL,
     OK,
@@ -31,9 +35,15 @@ from tests.ui_helpers import (
     _tree_select,
     _trigger_measurement_plane,
     _trigger_new_element,
+    lens_coefficients,
+    lens_index,
+    lens_wavelength_nm,
+    set_lens_coefficients,
+    set_lens_index,
 )
 from ui.plane_view import PlaneView, _AspectLabel, _fit_rect
 from ui.project_tree import ProjectTree
+from ui.widgets import SELLMEIER_EQUATION_TIP, SELLMEIER_ROW_LABELS, sellmeier_column_labels
 
 
 def test_property_editor_disabled_without_stack(window):
@@ -51,7 +61,7 @@ def test_load_stack_populates_lens_editor(stack_window):
     assert editor["remove"].isEnabled()
     assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2"]
     assert window._element_editor.selected_name() == "lens1"
-    assert editor["index"].value() == pytest.approx(1.5)
+    assert lens_index(editor) == pytest.approx(1.5)
     assert editor["radius"].value() == pytest.approx(0.75)
     assert editor["radius2"].value() == pytest.approx(0.75)
     assert editor["s1"].text() == "-1 + sqrt(9 - (u**2) - (v**2))"
@@ -71,13 +81,13 @@ def test_ok_applies_changes(stack_window):
     window = stack_window
 
     editor = _editor(window)
-    editor["index"].setValue(1.8)
+    set_lens_index(editor, 1.8)
     editor["radius"].setValue(0.5)
     editor["radius2"].setValue(0.5)
     _click(window, OK)
 
     element = window.elements[0]
-    assert element.material.refractive_index == pytest.approx(1.8)
+    assert element.material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(1.8)
     assert element.surface1.aperture.radius == pytest.approx(0.5)
     assert element.surface2.aperture.radius == pytest.approx(0.5)
     assert _mesh_count(window.canvas.view) >= 6
@@ -223,12 +233,18 @@ def test_new_element_default_geometry(window):
     assert element.surface2.z_expr == "2.5"
     assert element.surface1.z_expr == "-2.5"
     assert float(element.surface2.point(0.0, 0.0)[2] - element.surface1.point(0.0, 0.0)[2]) == pytest.approx(5.0)
-    assert element.material.refractive_index == pytest.approx(1.5)
+    # A new lens carries the shared default material -- a real N-BK7 crown, not
+    # a made-up index -- so its coefficients are the document default's exactly.
+    assert element.material.sellmeier == Sellmeier(**DEFAULT_ELEMENT_MATERIAL["sellmeier"])
+    assert element.material.index_at(D_LINE_NM) == pytest.approx(1.5168, abs=1e-4)
     assert element.surface1.aperture.radius == pytest.approx(7.5)
     assert element.surface2.aperture.radius == pytest.approx(7.5)
 
     editor = _editor(window)
-    assert editor["index"].value() == pytest.approx(1.5)
+    # The table shows the same glass the element was built with -- read at the
+    # window's own 405 nm source, where a violet ray sees BK7 denser than its
+    # catalog n_d.
+    assert lens_index(editor) == pytest.approx(1.5302, abs=1e-4)
     assert editor["radius"].value() == pytest.approx(7.5)
     assert editor["s1"].text() == "-2.5"
     assert editor["s2"].text() == "2.5"
@@ -239,11 +255,11 @@ def test_ok_applies_to_new_element(stack_window):
     _trigger_new_element(window)
 
     editor = _editor(window)
-    editor["index"].setValue(1.9)
+    set_lens_index(editor, 1.9)
     _click(window, OK)
 
-    assert window.elements[-1].material.refractive_index == pytest.approx(1.9)
-    assert window.elements[0].material.refractive_index == pytest.approx(1.5)
+    assert window.elements[-1].material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(1.9)
+    assert window.elements[0].material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(1.5)
     assert "Updated properties for lens3" in window.statusBar().currentMessage()
 
 
@@ -1241,3 +1257,114 @@ def test_plane_view_shrinkable_width():
         assert host.heightForWidth(120) == 120
     finally:
         host.close()
+
+
+# -- the lens editor's Sellmeier coefficient table -----------------------------
+
+
+def test_coefficient_table_says_what_its_numbers_are(stack_window):
+    """Rows name the coefficient, columns the term, and the tooltip gives the units."""
+    window = stack_window
+    _trigger_new_element(window)
+    editor = _editor(window)
+    table = editor["sellmeier"]
+
+    assert table.toolTip() == SELLMEIER_EQUATION_TIP
+    assert "um^2" in table.toolTip()
+    rows = [table.verticalHeaderItem(row).text() for row in range(table.rowCount())]
+    assert rows == list(SELLMEIER_ROW_LABELS)
+    columns = [table.horizontalHeaderItem(col).text() for col in range(table.columnCount())]
+    assert columns == list(sellmeier_column_labels(SELLMEIER_TERMS))
+
+
+def test_the_readout_quotes_the_wavelength_being_traced(stack_window):
+    """The index is calculated at the source's colour and moves when it changes."""
+    window = stack_window
+    editor = _editor(window)
+    crown = crown_material()["sellmeier"]
+
+    set_lens_coefficients(editor, crown["b"], crown["c"])
+    blue_first = editor["index"].text()
+
+    _source_editor(window)["wavelength"].setValue(450.0)
+    _click_source(window, OK)
+
+    assert editor["wavelength"].text() == "450.00 nm"
+    assert float(editor["index"].text()) == pytest.approx(
+        Sellmeier(**crown).index_at(450.0), rel=1e-6
+    )
+    # Crown glass is stronger in blue, so the same coefficients read a higher index.
+    assert float(blue_first) > float(editor["index"].text())
+
+
+def test_typing_coefficients_recalculates_the_index(stack_window):
+    """Six typed coefficients, one readout: n at the traced wavelength, from the model."""
+    window = stack_window
+    _trigger_new_element(window)
+    editor = _editor(window)
+    crown = crown_material()["sellmeier"]
+
+    set_lens_coefficients(editor, crown["b"], crown["c"])
+    assert float(editor["index"].text()) == pytest.approx(
+        Sellmeier(**crown).index_at(lens_wavelength_nm(editor)), rel=1e-6
+    )
+
+    # A shorter list is a whole material too: b = [1], c = [0] holds sqrt(2).
+    set_lens_coefficients(editor, [1.0], [0.0])
+    assert float(editor["index"].text()) == pytest.approx(math.sqrt(2.0), rel=1e-6)
+
+
+def test_a_pole_at_the_traced_wavelength_says_so(stack_window):
+    """A material with no index at this colour says which -- and still commits.
+
+    The trace absorbs a ray whose wavelength lands on a pole, so the document is
+    legal and the readout is where the warning belongs; refusing the edit would
+    hide a property of one colour behind a refusal to store the glass at all.
+    """
+    window = stack_window
+    _trigger_new_element(window)
+    editor = _editor(window)
+    pole = (window._state.source.wavelength / 1000.0) ** 2
+
+    set_lens_coefficients(editor, [1.0], [pole])
+    assert editor["index"].text() == "-"
+    assert "pole" in editor["index"].toolTip()
+
+    _click(window, OK)
+
+    assert window.elements[-1].material.sellmeier == Sellmeier(b=[1.0], c=[pole])
+
+
+def test_coefficients_round_trip_through_the_schema(stack_window):
+    """Type, apply, re-select: the cells hold the document's coefficients exactly."""
+    window = stack_window
+    editor = _editor(window)
+    crown = crown_material()["sellmeier"]
+
+    set_lens_coefficients(editor, crown["b"], crown["c"])
+    _click(window, OK)
+
+    stored = window._state.schema["lens1"]["material"]["sellmeier"]
+    assert stored["b"] == pytest.approx(crown["b"])
+    assert stored["c"] == pytest.approx(crown["c"])
+    assert window.elements[0].material.sellmeier == Sellmeier(**crown)
+
+    _tree_select(window, "lens2")
+    assert lens_index(editor) == pytest.approx(1.5)  # the fixture stack stays n = 1.5
+    _tree_select(window, "lens1")
+    coefficients = lens_coefficients(editor)
+    assert coefficients[:SELLMEIER_TERMS] == pytest.approx(crown["b"])
+    assert coefficients[SELLMEIER_TERMS:] == pytest.approx(crown["c"])
+
+
+def test_populating_the_table_is_not_an_edit(stack_window):
+    """Loading a lens into the table never fires the table's own change signal."""
+    window = stack_window
+    editor = _editor(window)
+    edits: list[object] = []
+    editor["sellmeier"].cellChanged.connect(lambda *_: edits.append(object()))
+
+    _tree_select(window, "lens2")
+    _tree_select(window, "lens1")
+
+    assert edits == []

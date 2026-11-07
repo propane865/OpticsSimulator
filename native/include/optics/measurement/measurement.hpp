@@ -21,11 +21,14 @@
 
 namespace optics::native {
 
-// SoA batch input: ``(N, 3)`` origins/directions and ``(N,)`` powers.
+// SoA batch input: ``(N, 3)`` origins/directions and ``(N,)`` powers and vacuum
+// wavelengths in nanometres (the dispersive trace refracts each ray at its own
+// wavelength).
 struct RayBatchView {
     const double* origins;
     const double* directions;
     const double* powers;
+    const double* wavelengths;
     std::size_t count;
 };
 

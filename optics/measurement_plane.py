@@ -5,7 +5,7 @@ import numpy as np
 
 from . import _native
 from . import constants as _c
-from ._util import coerce_ray_arrays, wavelength_array
+from ._util import coerce_fan, wavelength_array
 from .primitive import Ray
 from .primitive.vector import as_finite_vector, normalize
 
@@ -20,9 +20,9 @@ def rays_to_arrays(
 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
     """Contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers/wavelengths for ``rays``.
 
-    Wavelengths (nm) ride along so a ray list survives the array round trip in
-    :func:`arrays_to_rays`; the trace itself takes only the three geometric
-    arrays, since the kernel is achromatic.
+    Wavelengths (nm) ride along both so a ray list survives the array round trip
+    in :func:`arrays_to_rays` and so every traced batch evaluates each element
+    index at the wavelength of the ray being traced.
     """
     if len(rays) > 0:
         origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
@@ -61,12 +61,15 @@ def _direct_hits(
     origins: np.ndarray,
     dirs: np.ndarray,
     powers: np.ndarray,
+    wavelengths: np.ndarray,
 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """Detector-local hit parameters ``(u, v)`` and powers for every straight ray.
 
     Direct (untraced) measurement against ``plane``; rays travelling through
     an optical system are measured via
-    :meth:`~optics.system.OpticalSystem.measure_planes` instead.
+    :meth:`~optics.system.OpticalSystem.measure_planes` instead. The rays go
+    nowhere but straight, so ``wavelengths`` (nm, one per ray) only keeps the
+    fan whole: the native view carries it unchanged.
     """
     n = origins.shape[0]
     us = np.full(n, np.nan)
@@ -74,7 +77,19 @@ def _direct_hits(
     pws = np.zeros(n)
     s_u, s_v, t_u, t_v = plane.frame_coeffs
     _native.measure_direct(
-        origins, dirs, powers, plane.o, plane.n, s_u, s_v, t_u, t_v, us=us, vs=vs, pws=pws
+        origins,
+        dirs,
+        powers,
+        wavelengths,
+        plane.o,
+        plane.n,
+        s_u,
+        s_v,
+        t_u,
+        t_v,
+        us=us,
+        vs=vs,
+        pws=pws,
     )
     return us, vs, pws
 
@@ -284,12 +299,13 @@ class MeasurementPlane:
         ``reconstruct`` fills the image with adaptive-kernel reconstruction
         of the hits instead of the plain per-bin histogram.
         """
-        origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
+        origins, dirs, powers, wavelengths = rays_to_arrays(rays)
         return MeasurementPlane.measure_batch_arrays(
             [self],
             origins,
             dirs,
             powers,
+            wavelengths,
             system,
             reconstruct=reconstruct,
             neighbors=neighbors,
@@ -302,6 +318,7 @@ class MeasurementPlane:
         origins: np.ndarray,
         dirs: np.ndarray,
         powers: np.ndarray,
+        wavelengths: "np.ndarray | Sequence[float] | float | None",
         system: "OpticalSystem | None" = None,
         *,
         reconstruct: bool = False,
@@ -310,27 +327,36 @@ class MeasurementPlane:
     ) -> "list[MeasurementResult]":
         """Measure every plane, tracing the ray fan through ``system`` once.
 
-        ``origins``/``dirs`` are ``(N, 3)`` and ``powers`` is ``(N,)``; the fan
-        is traced through ``system`` once (or measured directly without one),
-        and a fresh result is returned per plane in the order of ``planes``.
+        ``origins``/``dirs`` are ``(N, 3)`` and ``powers``/``wavelengths`` are
+        ``(N,)`` (wavelengths in nm, per ray, a scalar, or ``None`` for the
+        project default); the fan is traced through ``system`` once (or measured
+        directly without one), and a fresh result is returned per plane in the
+        order of ``planes``.
         ``reconstruct`` fills the images through adaptive-kernel
         reconstruction of the hits instead of the plain histogram.
         """
         plane_list = list(planes)
         if not plane_list:
             return []
-        origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
+        origins, dirs, powers, wavelengths = coerce_fan(
+            origins, dirs, powers, wavelengths
+        )
         if origins.shape[0] == 0:
             return [plane.new_result() for plane in plane_list]
         if system is None:
-            direct = [_direct_hits(plane, origins, dirs, powers) for plane in plane_list]
+            direct = [
+                _direct_hits(plane, origins, dirs, powers, wavelengths)
+                for plane in plane_list
+            ]
             us = np.vstack([d[0] for d in direct])
             vs = np.vstack([d[1] for d in direct])
             pws = np.vstack([d[2] for d in direct])
             return results_from_hits(
                 plane_list, us, vs, pws, reconstruct, neighbors, bandwidth_scale
             )
-        us, vs, pws = system.measure_planes(origins, dirs, powers, plane_list)
+        us, vs, pws = system.measure_planes(
+            origins, dirs, powers, wavelengths, plane_list
+        )
         return results_from_hits(
             plane_list, us, vs, pws, reconstruct, neighbors, bandwidth_scale
         )

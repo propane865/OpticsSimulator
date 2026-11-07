@@ -122,20 +122,20 @@ def phase_breakdown(
     t["measure_all"] = time.perf_counter() - mark
 
     mark = time.perf_counter()
-    system.trace_segments(edit.origins, edit.dirs, bc.RAY_LENGTH)
+    system.trace_segments(edit.origins, edit.dirs, bc.RAY_WAVELENGTH_NM, bc.RAY_LENGTH)
     t["trace_batch"] = time.perf_counter() - mark
 
     # New single-trace paths (what the UI now does): measure every plane off one
     # trace, and the combined render+measure walk used by ``_refresh_trace``.
     mark = time.perf_counter()
     MeasurementPlane.measure_batch_arrays(
-        planes, edit.origins, edit.dirs, edit.powers, system
+        planes, edit.origins, edit.dirs, edit.powers, bc.RAY_WAVELENGTH_NM, system
     )
     t["measure_batch"] = time.perf_counter() - mark
 
     mark = time.perf_counter()
     system.trace_segments_and_planes(
-        edit.origins, edit.dirs, edit.powers, bc.RAY_LENGTH, planes
+        edit.origins, edit.dirs, edit.powers, bc.RAY_WAVELENGTH_NM, bc.RAY_LENGTH, planes
     )
     t["combined"] = time.perf_counter() - mark
 
@@ -271,7 +271,7 @@ def unified_apply(edit: LensEdit, planes: "list[MeasurementPlane]", mesh_n: int 
     total += time.perf_counter() - mark
     mark = time.perf_counter()
     out = system.trace_segments_and_planes(
-        edit.origins, edit.dirs, edit.powers, bc.RAY_LENGTH, planes
+        edit.origins, edit.dirs, edit.powers, bc.RAY_WAVELENGTH_NM, bc.RAY_LENGTH, planes
     )
     total += time.perf_counter() - mark
     mark = time.perf_counter()

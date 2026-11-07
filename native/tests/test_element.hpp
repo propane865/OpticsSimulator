@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "optics/common/constants.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/geometry/surface.hpp"
 #include "optics/tracing/context.hpp"
@@ -19,8 +20,13 @@ namespace fixture {
 using optics::native::Element;
 using optics::native::ElementRef;
 using optics::native::make_vec3;
+using optics::native::SellmeierCoefficients;
 using optics::native::Surface;
 using optics::native::TraceStack;
+
+// Test wavelength: the fixtures are wavelength-independent materials, so any
+// value gives the same index -- the tracing kernels always take one.
+inline constexpr double kTestWavelengthNm = 550.0;
 
 // A horizontal plane patch ``z = height`` over ``[-half, half]^2`` shifted to
 // ``trans_z`` in world space. The height is baked into the expression so both
@@ -70,6 +76,16 @@ inline void square_walls(double half, double z_bot, double z_top, std::vector<do
     push(-half, half, z_bot, -half, half, z_top, half, half, z_top, 0.0, 1.0, 0.0);
 }
 
+// The wavelength-independent Sellmeier material holding ``index`` exactly: a
+// zero pole contributes its coefficient untouched, so ``b[0] = n^2 - 1`` is the
+// constant-index idiom of the material model.
+inline std::pair<SellmeierCoefficients, SellmeierCoefficients> constant_material(double index) {
+    SellmeierCoefficients b{};
+    SellmeierCoefficients c{};
+    b[0] = index * index - 1.0;
+    return {b, c};
+}
+
 // One closed plate element: two plane faces at ``z_bot``/``z_top`` (local z),
 // the whole plate optionally shifted to ``trans_z`` in world space.
 inline Element make_plate(double index, double half, double z_bot, double z_top,
@@ -79,9 +95,11 @@ inline Element make_plate(double index, double half, double z_bot, double z_top,
     if (walls) {
         square_walls(half, z_bot + trans_z, z_top + trans_z, tri, normals);
     }
+    const std::pair<SellmeierCoefficients, SellmeierCoefficients> material =
+        constant_material(index);
     return *Element::create(plate_face(z_top, half, trans_z, grid_n),
-                            plate_face(z_bot, half, trans_z, grid_n), index, std::move(tri),
-                            std::move(normals));
+                            plate_face(z_bot, half, trans_z, grid_n), material.first,
+                            material.second, std::move(tri), std::move(normals));
 }
 
 inline ElementRef make_plate_ptr(double index, double half, double z_bot, double z_top,

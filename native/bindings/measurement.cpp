@@ -51,11 +51,12 @@ double py_reconstruct(const py::array_t<double>& grid, const py::array_t<double>
 }
 
 void py_measure_direct(const py::array_t<double>& origins, const py::array_t<double>& dirs,
-                       const py::array_t<double>& powers, const py::array_t<double>& o,
+                       const py::array_t<double>& powers,
+                       const py::array_t<double>& wavelengths, const py::array_t<double>& o,
                        const py::array_t<double>& nrm, double s_u, double s_v, double t_u,
                        double t_v, double eps, const py::array_t<double>& us,
                        const py::array_t<double>& vs, const py::array_t<double>& pws) {
-    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers);
+    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers, wavelengths);
     const Vec3 ov = to_vec3(o, "plane origin");
     const Vec3 nv = to_vec3(nrm, "plane normal");
     double* ud = write_doubles(us, "us");
@@ -110,6 +111,7 @@ py::array_t<bool> py_valid_hits_mask(const py::array_t<double>& us, const py::ar
 
 void py_measure_planes_multi(const TraceStack& stack, const py::array_t<double>& origins,
                              const py::array_t<double>& dirs, const py::array_t<double>& powers,
+                             const py::array_t<double>& wavelengths,
                              const py::array_t<double>& po, const py::array_t<double>& pn,
                              const py::array_t<double>& u_min, const py::array_t<double>& u_max,
                              const py::array_t<double>& v_min, const py::array_t<double>& v_max,
@@ -117,7 +119,7 @@ void py_measure_planes_multi(const TraceStack& stack, const py::array_t<double>&
                              const py::array_t<double>& t_u, const py::array_t<double>& t_v,
                              double eps, const py::array_t<double>& us,
                              const py::array_t<double>& vs, const py::array_t<double>& pws) {
-    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers);
+    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers, wavelengths);
     const std::size_t n = rays.count;
     const PlaneArrays planes =
         read_planes(po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v);
@@ -133,6 +135,7 @@ void py_measure_planes_multi(const TraceStack& stack, const py::array_t<double>&
 
 void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<double>& origins,
                                   const py::array_t<double>& dirs, const py::array_t<double>& powers,
+                                  const py::array_t<double>& wavelengths,
                                   double ray_length, const py::array_t<double>& po,
                                   const py::array_t<double>& pn, const py::array_t<double>& u_min,
                                   const py::array_t<double>& u_max, const py::array_t<double>& v_min,
@@ -144,7 +147,7 @@ void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<dou
                                   const py::array_t<std::int64_t>& counts,
                                   const py::array_t<double>& us, const py::array_t<double>& vs,
                                   const py::array_t<double>& pws) {
-    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers);
+    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers, wavelengths);
     const std::size_t n = rays.count;
     const PlaneArrays planes =
         read_planes(po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v);
@@ -180,16 +183,19 @@ void register_measurement(py::module_& m) {
           py::arg("ru"), py::arg("rv"), py::arg("interval_u"), py::arg("interval_v"),
           py::arg("neighbors"), py::arg("bandwidth_scale"));
     m.def("measure_direct", &py_measure_direct, py::arg("origins"), py::arg("dirs"),
-          py::arg("powers"), py::arg("o"), py::arg("n"), py::arg("s_u"), py::arg("s_v"),
-          py::arg("t_u"), py::arg("t_v"), py::arg("eps") = optics::native::PLANE_EPS,
+          py::arg("powers"), py::arg("wavelengths"), py::arg("o"), py::arg("n"), py::arg("s_u"),
+          py::arg("s_v"), py::arg("t_u"), py::arg("t_v"),
+          py::arg("eps") = optics::native::PLANE_EPS,
           py::arg("us"), py::arg("vs"), py::arg("pws"));
     m.def("measure_planes_multi", &py_measure_planes_multi, py::arg("stack"), py::arg("origins"),
-          py::arg("dirs"), py::arg("powers"), py::arg("po"), py::arg("pn"), py::arg("u_min"),
+          py::arg("dirs"), py::arg("powers"), py::arg("wavelengths"), py::arg("po"), py::arg("pn"),
+          py::arg("u_min"),
           py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("s_u"), py::arg("s_v"),
           py::arg("t_u"), py::arg("t_v"), py::arg("eps") = optics::native::PLANE_EPS,
           py::arg("us"), py::arg("vs"), py::arg("pws"));
     m.def("trace_segments_and_planes", &py_trace_segments_and_planes, py::arg("stack"),
-          py::arg("origins"), py::arg("dirs"), py::arg("powers"), py::arg("ray_length"),
+          py::arg("origins"), py::arg("dirs"), py::arg("powers"), py::arg("wavelengths"),
+          py::arg("ray_length"),
           py::arg("po"), py::arg("pn"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"),
           py::arg("v_max"), py::arg("s_u"), py::arg("s_v"), py::arg("t_u"), py::arg("t_v"),
           py::arg("eps") = optics::native::PLANE_EPS, py::arg("starts"), py::arg("ends"),

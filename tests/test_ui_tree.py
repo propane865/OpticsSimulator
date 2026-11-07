@@ -11,6 +11,7 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtCore, QtWidgets
 
+from optics.primitive import Sellmeier
 from rendering import visualize
 from tests.ui_helpers import (
     OK,
@@ -28,6 +29,8 @@ from tests.ui_helpers import (
     _tree_submodule_members,
     _trigger_measurement_plane,
     _trigger_new_element,
+    lens_index,
+    set_lens_index,
 )
 from ui.project_tree import ProjectTree
 
@@ -149,7 +152,10 @@ def test_tree_selection_edits_that_lens(doublet_window):
 
     assert window._element_editor.selected_name() == "lens2"
     config = window._state.schema["lens2"]
-    assert editor["index"].value() == pytest.approx(config["material"]["refractive_index"])
+    shown = Sellmeier(**config["material"]["sellmeier"]).index_at(
+        window._state.source.wavelength
+    )
+    assert lens_index(editor) == pytest.approx(shown)
     assert editor["s1"].text() == str(config["surface1"]["z"])
 
 
@@ -213,7 +219,7 @@ def test_lens_edit_keeps_the_selection_lit(doublet_window):
     window = doublet_window
     _tree_select(window, "lens1")
     editor = _editor(window)
-    editor["index"].setValue(1.7)
+    set_lens_index(editor, 1.7)
 
     _click(window, OK)
 

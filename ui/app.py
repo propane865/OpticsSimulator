@@ -325,9 +325,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         # persistent stack serves rendering and every measurement plane;
         # otherwise use the separate measure/retrace paths.
         if rays and planes:
-            origins, dirs, powers, _wavelengths = state.rays_arrays()
+            origins, dirs, powers, wavelengths = state.rays_arrays()
             starts, ends, _kinds, counts, us, vs, pws = system.trace_segments_and_planes(
-                origins, dirs, powers, RAY_LENGTH, planes
+                origins, dirs, powers, wavelengths, RAY_LENGTH, planes
             )
             results = state.set_plane_hits(us, vs, pws)
             self._scene.retrace_from_segments(starts, ends, counts)
@@ -339,10 +339,12 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._update_plane_view()
 
     def _refresh_after_source(self) -> None:
-        """Refresh trace and scene, then re-sync the plane form: source-locked
-        planes were pinned to the new source position by ``set_source``."""
+        """Refresh trace and scene, then re-sync the plane and lens forms: source-locked
+        planes were pinned to the new source position by ``set_source``, and the lens
+        form quotes its calculated index at the source's wavelength."""
         self._refresh_trace()
         self._plane_editor.populate_fields()
+        self._element_editor.refresh_material_labels()
 
     def _on_display_mode_changed(self, index: int) -> None:
         """Re-derive every plane image in the selected display mode (no re-trace)."""
@@ -528,11 +530,13 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
     try:
         if not elements:
             elements = [refractive_element_from_config(DEFAULT_ELEMENT_CONFIG)]
-        origins, dirs, powers, _wavelengths = PointSource(**DEFAULT_SOURCE_CONFIG).emit_arrays()
+        origins, dirs, powers, wavelengths = PointSource(**DEFAULT_SOURCE_CONFIG).emit_arrays()
         system = OpticalSystem(list(elements))
-        system.trace_segments(origins, dirs, ray_length=RAY_LENGTH)
+        system.trace_segments(origins, dirs, wavelengths, ray_length=RAY_LENGTH)
         plane = plane_from_config(DEFAULT_MEASUREMENT_CONFIG)
-        MeasurementPlane.measure_batch_arrays([plane], origins, dirs, powers, system)
+        MeasurementPlane.measure_batch_arrays(
+            [plane], origins, dirs, powers, wavelengths, system
+        )
     except Exception:
         logging.getLogger(__name__).debug("warm-up trace skipped", exc_info=True)
 

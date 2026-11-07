@@ -31,7 +31,7 @@ class StackBench:
         self.system = OpticalSystem(self.elements)
 
     def batch(self) -> int:
-        out = self.system.trace_segments(self.origins, self.dirs, bc.RAY_LENGTH)
+        out = self.system.trace_segments(self.origins, self.dirs, bc.RAY_WAVELENGTH_NM, bc.RAY_LENGTH)
         return int(out[3].sum())
 
 
@@ -61,7 +61,12 @@ class PlaneBench:
 
     def batch(self) -> int:
         out = self.system.trace_segments_and_planes(
-            self.origins, self.dirs, self.powers, bc.RAY_LENGTH, self.planes
+            self.origins,
+            self.dirs,
+            self.powers,
+            bc.RAY_WAVELENGTH_NM,
+            bc.RAY_LENGTH,
+            self.planes,
         )
         return int((out[4] == out[4]).sum())
 

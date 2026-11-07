@@ -234,6 +234,7 @@ def focus_reference(
     origins: np.ndarray,
     dirs: np.ndarray,
     powers: np.ndarray,
+    wavelengths: np.ndarray,
 ) -> float:
     """Base-layout check + the focus normalization length.
 
@@ -241,7 +242,9 @@ def focus_reference(
     confirms the ray fan produces correspondences (the native hit-validity
     predicate).
     """
-    us, vs, pws = system.measure_planes(origins, dirs, powers, [source_plane, image_plane])
+    us, vs, pws = system.measure_planes(
+        origins, dirs, powers, wavelengths, [source_plane, image_plane]
+    )
     valid_a = _native.valid_hits_mask(
         np.ascontiguousarray(us[0]),
         np.ascontiguousarray(vs[0]),
@@ -278,6 +281,7 @@ def build_native_problem(
     origins: np.ndarray,
     dirs: np.ndarray,
     powers: np.ndarray,
+    wavelengths: np.ndarray,
     source_plane: MeasurementPlane,
     image_plane: MeasurementPlane,
     groups: np.ndarray,
@@ -305,6 +309,7 @@ def build_native_problem(
         origins,
         dirs,
         powers,
+        wavelengths,
         po,
         pn,
         u_min,

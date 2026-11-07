@@ -85,7 +85,9 @@ class SystemBench:
         assert final is not None
 
     def batch(self, n: int):
-        out = self.system.trace_segments(self.origins[:n], self.dirs[:n], bc.RAY_LENGTH)
+        out = self.system.trace_segments(
+            self.origins[:n], self.dirs[:n], bc.RAY_WAVELENGTH_NM, bc.RAY_LENGTH
+        )
         return out[3]
 
     def fused(self, n: int):
@@ -93,6 +95,7 @@ class SystemBench:
             self.origins[:n],
             self.dirs[:n],
             self.powers[:n],
+            bc.RAY_WAVELENGTH_NM,
             bc.RAY_LENGTH,
             self.planes,
         )
@@ -103,6 +106,7 @@ class SystemBench:
             self.origins[:n],
             self.dirs[:n],
             self.powers[:n],
+            bc.RAY_WAVELENGTH_NM,
             self.planes,
         )
         return out[2]

@@ -2,6 +2,7 @@
 
 import copy
 
+from tests.materials import constant_material
 from ui.model import DEFAULT_ELEMENT_CONFIG, classify_element_edit
 
 
@@ -15,9 +16,10 @@ def test_no_change_is_none():
 
 
 def test_index_only_is_index():
+    """A coefficients-only edit retraces but rebuilds no geometry."""
     old = _base()
     new = copy.deepcopy(old)
-    new["material"]["refractive_index"] = 1.9
+    new["material"] = constant_material(1.9)
     assert classify_element_edit(old, new) == "index"
 
 
@@ -51,10 +53,10 @@ def test_aperture_radius_is_geometry():
 
 def test_index_plus_transform_is_transform():
     # Geometry is unchanged, so the surface mesh only needs repositioning;
-    # the refractive-index change is covered by the mandatory re-trace.
+    # the coefficient change is covered by the mandatory re-trace.
     old = _base()
     new = copy.deepcopy(old)
-    new["material"]["refractive_index"] = 1.7
+    new["material"] = constant_material(1.7)
     new["position"] = [1.0, 0.0, 0.0]
     assert classify_element_edit(old, new) == "transform"
 
@@ -62,7 +64,7 @@ def test_index_plus_transform_is_transform():
 def test_index_plus_geometry_is_geometry():
     old = _base()
     new = copy.deepcopy(old)
-    new["material"]["refractive_index"] = 1.7
+    new["material"] = constant_material(1.7)
     new["surface2"]["z"] = "0.4"
     assert classify_element_edit(old, new) == "geometry"
 

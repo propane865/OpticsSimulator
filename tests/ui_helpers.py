@@ -1,10 +1,14 @@
 """Shared Qt helpers for the UI test modules (Qt fixtures live in conftest)."""
 
+from collections.abc import Sequence
+
 import pytest
 
 PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtCore, QtWidgets
+
+from optics.primitive import Sellmeier
 
 OK = QtWidgets.QDialogButtonBox.StandardButton.Ok
 CANCEL = QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -29,7 +33,9 @@ def _trigger(window, menu_name, action_name):
 def _editor(window):
     return {
         "remove": window.findChild(QtWidgets.QPushButton, "removeElementButton"),
-        "index": window.findChild(QtWidgets.QDoubleSpinBox, "refractiveIndexSpin"),
+        "sellmeier": window.findChild(QtWidgets.QTableWidget, "sellmeierTable"),
+        "wavelength": window.findChild(QtWidgets.QLabel, "currentWavelengthValue"),
+        "index": window.findChild(QtWidgets.QLabel, "calculatedIndexValue"),
         "radius": window.findChild(QtWidgets.QDoubleSpinBox, "apertureRadiusSpin"),
         "radius2": window.findChild(QtWidgets.QDoubleSpinBox, "apertureRadius2Spin"),
         "s1": window.findChild(QtWidgets.QLineEdit, "surface1Edit"),
@@ -50,6 +56,74 @@ def _editor(window):
 
 def _click(window, role):
     _editor(window)["buttons"].button(role).click()
+
+
+# -- the lens editor's Sellmeier coefficient table ----------------------------
+#
+# The table is the only way into the material, so the helpers type coefficients
+# the way a user types digits -- through the cells -- and read the index back
+# through the model at the wavelength the editor itself displays.
+
+
+def _cell(table: QtWidgets.QTableWidget, row: int, column: int) -> float:
+    item = table.item(row, column)
+    text = "" if item is None else item.text().strip()
+    return 0.0 if not text else float(text)
+
+
+def lens_coefficients(editor) -> list[float]:
+    """The coefficient cells row-major: every ``B_i`` then every ``C_i``."""
+    table = editor["sellmeier"]
+    return [
+        _cell(table, row, column)
+        for row in range(table.rowCount())
+        for column in range(table.columnCount())
+    ]
+
+
+def set_lens_coefficients(editor, b: Sequence[float], c: Sequence[float]) -> None:
+    """Type the two coefficient rows into the table, blanking the terms left over.
+
+    ``B_i`` is row 0 and ``C_i`` row 1, so a short coefficient list must be laid
+    out per row -- a one-term ``b`` with a real pole is ``b[0]`` above ``c[0]``, not
+    two cells side by side. Text is ``repr`` so a value typed from a Python float
+    lands in the model bit for bit.
+    """
+    table = editor["sellmeier"]
+    for row, values in enumerate(([float(v) for v in b], [float(v) for v in c])):
+        for column in range(table.columnCount()):
+            value = values[column] if column < len(values) else 0.0
+            item = table.item(row, column) or QtWidgets.QTableWidgetItem()
+            item.setText(repr(value))
+            table.setItem(row, column, item)
+
+
+def set_lens_index(editor, index: float) -> None:
+    """Type a wavelength-independent ``index`` -- the constant-index idiom."""
+    n = float(index)
+    set_lens_coefficients(editor, [n * n - 1.0], [0.0])
+
+
+def lens_wavelength_nm(editor) -> float:
+    """The wavelength the editor quotes its index at, read off its own label.
+
+    The label is the form's claim about which colour is being traced, so reading it
+    here -- rather than importing the editor's private state -- lets a fixture catch
+    a readout that was calculated at some other wavelength.
+    """
+    return float(editor["wavelength"].text().split()[0])
+
+
+def lens_index(editor) -> float:
+    """The index the shown coefficients give at the wavelength being traced.
+
+    Calculated with the same :class:`~optics.primitive.Sellmeier` the editor uses,
+    from the cells as the user sees them: what is asserted is that the readout
+    beside the table agrees with the model at the wavelength above it.
+    """
+    items = lens_coefficients(editor)
+    width = len(items) // 2
+    return Sellmeier(b=items[:width], c=items[width:]).index_at(lens_wavelength_nm(editor))
 
 
 def _trigger_new_element(window):

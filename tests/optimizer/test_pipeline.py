@@ -26,10 +26,10 @@ from tests.optimizer._common import (
 
 def test_pipeline_converges_to_best_focus():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     system = _system(schema)
-    base_radius = _spot_radius(system, p2, origins, dirs, powers, p1)
-    _, ref_radius = _sweep_best_z(system, p1, p2, origins, dirs, powers)
+    base_radius = _spot_radius(system, p2, fan, p1)
+    _, ref_radius = _sweep_best_z(system, p1, p2, fan)
     result = _optimize_pipeline(schema, source, p1, p2)
     assert result.status == "ok"
     assert result.spot_radius_mm <= ref_radius * 1.1
@@ -38,11 +38,11 @@ def test_pipeline_converges_to_best_focus():
 
 def test_pipeline_spot_matches_a_retrace():
     schema, source, p1, p2 = _problem()
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     result = _optimize_pipeline(schema, source, p1, p2)
     assert result.status == "ok"
     image = _plane_at(p2, result.best_z[-1])
-    recomputed = _spot_radius(_system(result.elements_config), image, origins, dirs, powers, p1)
+    recomputed = _spot_radius(_system(result.elements_config), image, fan, p1)
     assert result.spot_radius_mm > 0.0
     assert result.spot_radius_mm <= recomputed * (1.0 + 1e-9)
 
@@ -96,15 +96,13 @@ def test_pipeline_reports_a_structured_failure_reason():
 
 def test_pipeline_converges_on_a_grouped_fan_in_one_run():
     schema, source, p1, p2 = _grouped_problem()
-    origins, dirs, powers, _ = source.emit_arrays()
-    assert origins.shape[0] == 1024  # 64 object points of 16 rays each
+    fan = source.emit_arrays()
+    assert fan[0].shape[0] == 1024  # 64 object points of 16 rays each
     result = optimize_layout(
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_WIDE_BOUNDS,
         image_bounds=_WIDE_IMAGE_BOUNDS,
         optimization=_GROUPED,
@@ -113,9 +111,7 @@ def test_pipeline_converges_on_a_grouped_fan_in_one_run():
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_WIDE_BOUNDS,
         image_bounds=_WIDE_IMAGE_BOUNDS,
         optimization=replace(_GROUPED, enable_pipeline=False, allow_suboptimal=True),

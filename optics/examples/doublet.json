@@ -1,162 +1,176 @@
 {
-    "version": 1,
-    "elements": {
-        "lens1": {
-            "surface1": {
-                "x": "u",
-                "y": "v",
-                "z": "-28 + sqrt(900 - (u**2) - (v**2))",
-                "u_range": [
-                    -20.0,
-                    20.0
-                ],
-                "v_range": [
-                    -20.0,
-                    20.0
-                ],
-                "aperture": {
-                    "radius": 7.5
-                }
-            },
-            "surface2": {
-                "x": "u",
-                "y": "v",
-                "z": "28 - sqrt(900 - (u**2) - (v**2))",
-                "u_range": [
-                    -20.0,
-                    20.0
-                ],
-                "v_range": [
-                    -20.0,
-                    20.0
-                ],
-                "aperture": {
-                    "radius": 7.5
-                }
-            },
-            "material": {
-                "refractive_index": 1.5
-            },
-            "position": [
-                0.0,
-                0.0,
-                18.0
-            ],
-            "orientation": [
-                0.0,
-                0.0,
-                1.0
-            ]
-        },
-        "lens2": {
-            "surface1": {
-                "x": "u",
-                "y": "v",
-                "z": "20.5 - sqrt(400 - (u**2) - (v**2))",
-                "u_range": [
-                    -20.0,
-                    20.0
-                ],
-                "v_range": [
-                    -20.0,
-                    20.0
-                ],
-                "aperture": {
-                    "radius": 7.5
-                }
-            },
-            "surface2": {
-                "x": "u",
-                "y": "v",
-                "z": "-20.5 + sqrt(400 - (u**2) - (v**2))",
-                "u_range": [
-                    -20.0,
-                    20.0
-                ],
-                "v_range": [
-                    -20.0,
-                    20.0
-                ],
-                "aperture": {
-                    "radius": 7.5
-                }
-            },
-            "material": {
-                "refractive_index": 1.5
-            },
-            "position": [
-                0.0,
-                0.0,
-                -12.5
-            ],
-            "orientation": [
-                0.0,
-                0.0,
-                1.0
-            ]
-        }
-    },
-    "source": {
-        "position": [
-            0.0,
-            0.0,
-            50.0
+  "version": 2,
+  "elements": {
+    "lens1": {
+      "surface1": {
+        "x": "u",
+        "y": "v",
+        "z": "-28 + sqrt(900 - (u**2) - (v**2))",
+        "u_range": [
+          -20.0,
+          20.0
         ],
-        "power": 1.0,
-        "num_rays": 512,
-        "source_type": "single_point",
-        "cone_angle": 10.0
-    },
-    "measurement_planes": [
-        {
-            "name": "plane1",
-            "origin": [
-                0.0,
-                0.0,
-                25.0
-            ],
-            "normal": [
-                0.0,
-                0.0,
-                1.0
-            ],
-            "u_range": [
-                -20.0,
-                20.0
-            ],
-            "v_range": [
-                -20.0,
-                20.0
-            ],
-            "resolution": [
-                512,
-                512
-            ]
-        },
-        {
-            "name": "plane2",
-            "origin": [
-                0.0,
-                0.0,
-                -40.0
-            ],
-            "normal": [
-                0.0,
-                0.0,
-                1.0
-            ],
-            "u_range": [
-                -20.0,
-                20.0
-            ],
-            "v_range": [
-                -20.0,
-                20.0
-            ],
-            "resolution": [
-                512,
-                512
-            ]
+        "v_range": [
+          -20.0,
+          20.0
+        ],
+        "aperture": {
+          "radius": 7.5
         }
-    ]
+      },
+      "surface2": {
+        "x": "u",
+        "y": "v",
+        "z": "28 - sqrt(900 - (u**2) - (v**2))",
+        "u_range": [
+          -20.0,
+          20.0
+        ],
+        "v_range": [
+          -20.0,
+          20.0
+        ],
+        "aperture": {
+          "radius": 7.5
+        }
+      },
+      "material": {
+        "sellmeier": {
+          "b": [
+            1.25
+          ],
+          "c": [
+            0.0
+          ]
+        }
+      },
+      "position": [
+        0.0,
+        0.0,
+        18.0
+      ],
+      "orientation": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "lens2": {
+      "surface1": {
+        "x": "u",
+        "y": "v",
+        "z": "20.5 - sqrt(400 - (u**2) - (v**2))",
+        "u_range": [
+          -20.0,
+          20.0
+        ],
+        "v_range": [
+          -20.0,
+          20.0
+        ],
+        "aperture": {
+          "radius": 7.5
+        }
+      },
+      "surface2": {
+        "x": "u",
+        "y": "v",
+        "z": "-20.5 + sqrt(400 - (u**2) - (v**2))",
+        "u_range": [
+          -20.0,
+          20.0
+        ],
+        "v_range": [
+          -20.0,
+          20.0
+        ],
+        "aperture": {
+          "radius": 7.5
+        }
+      },
+      "material": {
+        "sellmeier": {
+          "b": [
+            1.25
+          ],
+          "c": [
+            0.0
+          ]
+        }
+      },
+      "position": [
+        0.0,
+        0.0,
+        -12.5
+      ],
+      "orientation": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  },
+  "source": {
+    "position": [
+      0.0,
+      0.0,
+      50.0
+    ],
+    "power": 1.0,
+    "num_rays": 512,
+    "source_type": "single_point",
+    "cone_angle": 10.0
+  },
+  "measurement_planes": [
+    {
+      "name": "plane1",
+      "origin": [
+        0.0,
+        0.0,
+        25.0
+      ],
+      "normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "u_range": [
+        -20.0,
+        20.0
+      ],
+      "v_range": [
+        -20.0,
+        20.0
+      ],
+      "resolution": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "plane2",
+      "origin": [
+        0.0,
+        0.0,
+        -40.0
+      ],
+      "normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "u_range": [
+        -20.0,
+        20.0
+      ],
+      "v_range": [
+        -20.0,
+        20.0
+      ],
+      "resolution": [
+        512,
+        512
+      ]
+    }
+  ]
 }

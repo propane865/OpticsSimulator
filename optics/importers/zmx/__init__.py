@@ -35,16 +35,18 @@ normalized). Glass is either a catalog name in the short form
 model flags, e.g. ``GLAS C79-80 0 0 1.5 40 ...``), or an anonymous blank
 (``GLAS ___BLANK 1 0 nd abbe ...``) whose index is attached to the surface.
 A catalog record written with a zero ``nd`` (e.g. ``F_SILICA 0 0 0 0 ...``)
-falls back to the built-in index table.
+falls back to the built-in ``(n_d, V_d)`` table.
 
 Supported subset (v1): sequential mode, STANDARD (spherical/conic), EVENASPH
 and ODDASPHE surfaces, air-spaced and cemented singlets/doublets/triplets,
-constant reference index from ``GLAS`` ``nd`` (or a small built-in table).
-Everything else (mirrors, toroids, coordinate breaks, diffractive surfaces,
-non-sequential mode, ...) is rejected with an explicit error.
+Sellmeier coefficients resolved from ``GLAS`` ``nd``/``abbe`` (a published
+catalog row where one exists, otherwise a deterministic fit; or a small
+built-in ``(n_d, V_d)`` table). Everything else (mirrors, toroids, coordinate
+breaks, diffractive surfaces, non-sequential mode, ...) is rejected with an
+explicit error.
 
 Pipeline: ``parser`` (ZMX syntax) -> ``normalize`` (Zemax-space semantics) ->
-``glass`` (name -> constant index) and ``expressions`` (sag emission) ->
+``glass`` (name -> Sellmeier coefficients) and ``expressions`` (sag emission) ->
 ``converter`` (element configs); ``model`` carries the IR shared by all
 stages.
 """

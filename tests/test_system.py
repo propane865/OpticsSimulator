@@ -4,7 +4,7 @@ traces across independently constructed systems."""
 import numpy as np
 
 from optics.measurement_plane import MeasurementPlane
-from optics.primitive import Ray
+from optics.primitive import DEFAULT_WAVELENGTH_NM, Ray
 from optics.system import OpticalSystem
 
 RAY_LENGTH = 2.5
@@ -20,7 +20,12 @@ def _rays(n=16, seed=7):
         d /= np.linalg.norm(d)
         origins.append([x, y, 3.0])
         dirs.append(d)
-    return np.asarray(origins), np.asarray(dirs), np.full(n, 1.0)
+    return (
+        np.asarray(origins),
+        np.asarray(dirs),
+        np.full(n, 1.0),
+        np.full(n, DEFAULT_WAVELENGTH_NM),
+    )
 
 
 def _plane():
@@ -41,14 +46,17 @@ class TestConstruction:
         assert list(system) == [sphere]
         stack = system._stack
         assert stack is system._stack
-        assert system.trace_segments(*_rays()[:2], RAY_LENGTH) is not None
+        origins, dirs, _powers, wavelengths = _rays()
+        assert system.trace_segments(origins, dirs, wavelengths, RAY_LENGTH) is not None
         assert system._stack is stack  # reused, not rebuilt
 
     def test_empty_system_traces_straight(self):
         system = OpticalSystem()
         assert len(system) == 0
-        origins, dirs, _powers = _rays()
-        starts, ends, kinds, counts = system.trace_segments(origins, dirs, RAY_LENGTH)
+        origins, dirs, _powers, wavelengths = _rays()
+        starts, ends, kinds, counts = system.trace_segments(
+            origins, dirs, wavelengths, RAY_LENGTH
+        )
         assert [int(kinds[0, k]) for k in range(int(counts[0]))] == [0]
         np.testing.assert_allclose(starts[0, 0], origins[0], rtol=0.0, atol=0.0)
         np.testing.assert_allclose(
@@ -56,13 +64,13 @@ class TestConstruction:
         )
 
     def test_empty_system_measure_equals_direct(self):
-        origins, dirs, powers = _rays()
+        origins, dirs, powers, wavelengths = _rays()
         rays = _as_rays(origins, dirs, powers)
         direct_plane = _plane()
         direct_total = direct_plane.measure(rays).total
         system = OpticalSystem()
         plane = _plane()
-        us, vs, pws = system.measure_planes(origins, dirs, powers, [plane])
+        us, vs, pws = system.measure_planes(origins, dirs, powers, wavelengths, [plane])
         result = plane.new_result()
         system_total = result.accumulate(us[0], vs[0], pws[0])
         assert direct_total > 0.0
@@ -72,23 +80,29 @@ class TestConstruction:
 class TestDeterminism:
     def test_repeat_trace_matches_across_constructions(self, sphere):
         system = OpticalSystem([sphere])
-        origins, dirs, powers = _rays()
+        origins, dirs, powers, wavelengths = _rays()
         planes = [_plane(), _plane()]
         other = OpticalSystem([sphere])
-        a = system.trace_segments(origins, dirs, RAY_LENGTH)
-        b = other.trace_segments(origins, dirs, RAY_LENGTH)
+        a = system.trace_segments(origins, dirs, wavelengths, RAY_LENGTH)
+        b = other.trace_segments(origins, dirs, wavelengths, RAY_LENGTH)
         np.testing.assert_array_equal(a[3], b[3])  # counts
         for x, y in zip(_segments_prefix(*a), _segments_prefix(*b)):
             np.testing.assert_array_equal(x[0], y[0])
             np.testing.assert_array_equal(x[1], y[1])
             np.testing.assert_array_equal(x[2], y[2])
-        us1, vs1, pws1 = system.measure_planes(origins, dirs, powers, planes)
-        us2, vs2, pws2 = other.measure_planes(origins, dirs, powers, planes)
+        us1, vs1, pws1 = system.measure_planes(origins, dirs, powers, wavelengths, planes)
+        us2, vs2, pws2 = other.measure_planes(
+            origins, dirs, powers, wavelengths, planes
+        )
         np.testing.assert_array_equal(us1, us2)
         np.testing.assert_array_equal(vs1, vs2)
         np.testing.assert_array_equal(pws1, pws2)
-        c1 = system.trace_segments_and_planes(origins, dirs, powers, RAY_LENGTH, planes)
-        c2 = other.trace_segments_and_planes(origins, dirs, powers, RAY_LENGTH, planes)
+        c1 = system.trace_segments_and_planes(
+            origins, dirs, powers, wavelengths, RAY_LENGTH, planes
+        )
+        c2 = other.trace_segments_and_planes(
+            origins, dirs, powers, wavelengths, RAY_LENGTH, planes
+        )
         np.testing.assert_array_equal(c1[3], c2[3])  # counts
         for x, y in zip(_segments_prefix(*c1[:4]), _segments_prefix(*c2[:4])):
             np.testing.assert_array_equal(x[0], y[0])

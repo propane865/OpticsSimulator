@@ -4,6 +4,7 @@ from optics.config import refractive_element_from_config
 from optics.primitive import Ray, Surface, Transform
 from optics.primitive.vector import rotation_from_z
 from rendering.meshing import SurfaceMesher
+from tests.materials import constant_material
 
 ROT = rotation_from_z([1.0, 1.0, 1.0])
 TRANS = np.array([1.0, -2.0, 0.5])
@@ -82,7 +83,7 @@ def _lens_schema():
             "u_range": [-1.0, 1.0],
             "v_range": [-1.0, 1.0],
         },
-        "material": {"refractive_index": 1.5},
+        "material": constant_material(1.5),
     }
 
 

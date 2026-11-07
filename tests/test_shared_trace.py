@@ -16,6 +16,7 @@ import pytest
 
 from optics.config import stack_from_config
 from optics.measurement_plane import MeasurementPlane, rays_to_arrays
+from optics.primitive import DEFAULT_WAVELENGTH_NM
 from optics.system import OpticalSystem
 
 RAY_LENGTH = 3.0
@@ -67,10 +68,13 @@ def test_measure_planes_matches_per_plane_measure(name):
     elements = _stack(name)
     origins, dirs = _rays()
     powers = np.ones(origins.shape[0])
+    # The per-ray objects below take the project default wavelength, so the
+    # array fan has to resolve to the same column for the two paths to agree.
+    wavelengths = np.full(origins.shape[0], DEFAULT_WAVELENGTH_NM)
     planes = _planes([-1.5, -3.0, -5.5])
 
     system = OpticalSystem(elements)
-    us, vs, pws = system.measure_planes(origins, dirs, powers, planes)
+    us, vs, pws = system.measure_planes(origins, dirs, powers, wavelengths, planes)
     for q, plane in enumerate(planes):
         ref = plane.measure(_rays_as_objects(origins, dirs), system)
         check = plane.new_result()
@@ -86,11 +90,11 @@ def test_measure_batch_matches_per_plane_measure(name):
     planes = _planes([-1.5, -3.0, -5.5])
     system = OpticalSystem(elements)
 
-    # The batch measure takes only the geometric arrays; wavelength is not an
-    # input to an achromatic trace.
-    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
+    # The batch measure takes the whole fan, wavelengths included -- the same
+    # per-ray colours the object list carries into ``plane.measure``.
+    origins, dirs, powers, wavelengths = rays_to_arrays(rays)
     batch_results = MeasurementPlane.measure_batch_arrays(
-        planes, origins, dirs, powers, system
+        planes, origins, dirs, powers, wavelengths, system
     )
     batch_grids = [r.grid.copy() for r in batch_results]
 
@@ -114,11 +118,12 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
     elements = _stack(name)
     origins, dirs = _rays()
     powers = np.ones(origins.shape[0])
+    wavelengths = np.full(origins.shape[0], DEFAULT_WAVELENGTH_NM)
     planes = _planes([-1.5, -3.0, -5.5])
 
     # Reference rendering buffers.
     system = OpticalSystem(elements)
-    rs, re, rk, rc = system.trace_segments(origins, dirs, RAY_LENGTH)
+    rs, re, rk, rc = system.trace_segments(origins, dirs, wavelengths, RAY_LENGTH)
 
     # Reference plane hits.
     ref_grids = []
@@ -128,7 +133,7 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
         )
 
     starts, ends, kinds, counts, us, vs, pws = system.trace_segments_and_planes(
-        origins, dirs, powers, RAY_LENGTH, planes
+        origins, dirs, powers, wavelengths, RAY_LENGTH, planes
     )
 
     np.testing.assert_array_equal(counts, rc)
@@ -149,10 +154,10 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
 def test_measure_batch_arrays_empty_and_no_planes():
     empty3 = np.empty((0, 3), dtype=float)
     empty1 = np.empty((0,), dtype=float)
-    assert MeasurementPlane.measure_batch_arrays([], empty3, empty3, empty1) == []
+    assert MeasurementPlane.measure_batch_arrays([], empty3, empty3, empty1, None) == []
     planes = _planes([-3.0])
     results = MeasurementPlane.measure_batch_arrays(
-        planes, empty3, empty3, empty1, OpticalSystem()
+        planes, empty3, empty3, empty1, None, OpticalSystem()
     )
     assert [r.total for r in results] == [0.0]
     assert all(r.grid.sum() == 0.0 for r in results)

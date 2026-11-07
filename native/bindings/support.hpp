@@ -5,6 +5,7 @@
 
 #include <pybind11/numpy.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -112,36 +113,61 @@ inline ConstDoubles read_tri(const py::array_t<double>& tri) {
     return {static_cast<const double*>(info.ptr), static_cast<std::size_t>(info.size)};
 }
 
+// Sellmeier coefficient column (``b`` or ``c``): up to ``SELLMEIER_TERMS``
+// finite numbers, zero padded into the element's fixed-width arrays.
+inline optics::native::SellmeierCoefficients read_sellmeier(const py::array_t<double>& values,
+                                                            const std::string& what) {
+    const ConstDoubles d = read_doubles(values, 1, what);
+    require(d.size <= optics::native::SELLMEIER_TERMS,
+            what + ": expected at most " + std::to_string(optics::native::SELLMEIER_TERMS) +
+                " coefficients");
+    optics::native::SellmeierCoefficients out{};
+    for (std::size_t i = 0; i < d.size; ++i) {
+        require(std::isfinite(d.data[i]), what + ": coefficients must be finite");
+        out[i] = d.data[i];
+    }
+    return out;
+}
+
 // Shared ray-fan validation: ``(N, 3)`` origins/directions and ``(N,)``
-// powers read into an SoA view.
+// powers and wavelengths read into an SoA view.
 inline optics::native::RayBatchView read_ray_batch(const py::array_t<double>& origins,
                                                    const py::array_t<double>& dirs,
-                                                   const py::array_t<double>& powers) {
+                                                   const py::array_t<double>& powers,
+                                                   const py::array_t<double>& wavelengths) {
     const ConstDoubles od = read_doubles(origins, 2, "origins");
     const ConstDoubles dd = read_doubles(dirs, 2, "dirs");
     const ConstDoubles pw = read_doubles(powers, 1, "powers");
+    const ConstDoubles wl = read_doubles(wavelengths, 1, "wavelengths");
     const std::size_t n = pw.size;
     require(od.size == 3 * n && dd.size == 3 * n, "origins/dirs: expected (N, 3)");
-    return {od.data, dd.data, pw.data, n};
+    require(wl.size == n, "wavelengths: expected (N,)");
+    return {od.data, dd.data, pw.data, wl.data, n};
 }
 
 // Ray-fan ``(N, 3)`` origins/directions pair without powers (the tracer does
-// not consume them), read into raw pointers and the ray count.
+// not consume them), read into raw pointers and the ray count. Wavelengths
+// (nm) are required: the trace refracts each ray at its own wavelength.
 struct RayPairView {
     const double* origins;
-    const double* dirs;
+    const double* directions;
+    const double* wavelengths;
     std::size_t n;
 };
 
 inline RayPairView read_ray_pair(const py::array_t<double>& origins,
-                                 const py::array_t<double>& dirs) {
+                                 const py::array_t<double>& dirs,
+                                 const py::array_t<double>& wavelengths) {
     const py::buffer_info o_info = origins.request();
     const py::buffer_info d_info = dirs.request();
+    const py::buffer_info wl_info = wavelengths.request();
     require(o_info.ndim == 2 && o_info.shape[1] == 3, "origins: expected shape (N, 3)");
     require(d_info.ndim == 2 && d_info.shape[1] == 3 && d_info.size == o_info.size,
             "dirs: expected shape (N, 3)");
+    require(wl_info.ndim == 1 && wl_info.size == o_info.shape[0], "wavelengths: expected shape (N,)");
+    require(is_contiguous(wl_info), "wavelengths: array must be contiguous");
     return {static_cast<const double*>(o_info.ptr), static_cast<const double*>(d_info.ptr),
-            static_cast<std::size_t>(o_info.shape[0])};
+            static_cast<const double*>(wl_info.ptr), static_cast<std::size_t>(o_info.shape[0])};
 }
 
 // Shared plane-array validation: ``(P, 3)`` origins/normals, ``(P,)`` range

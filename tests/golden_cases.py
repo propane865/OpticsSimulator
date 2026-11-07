@@ -19,6 +19,7 @@ from optics.primitive import CircularAperture, Ray, Surface, Transform
 from optics.primitive.vector import rotation_from_z
 from optics.source import PointSource
 from optics.system import OpticalSystem
+from tests.materials import constant_material
 from tests.oracle import fibonacci_cone_directions
 
 DEFAULT_RTOL = 1e-8
@@ -80,7 +81,7 @@ def _element(s1: str, s2: str, n: float = 1.5, aperture_radius=None):
     config = {
         "surface1": _surface_config(s1, aperture),
         "surface2": _surface_config(s2, aperture),
-        "material": {"refractive_index": n},
+        "material": constant_material(n),
     }
     return refractive_element_from_config(config, np.array([0.0, 0.0, 1.0]))
 
@@ -344,16 +345,18 @@ def case_measurement() -> dict:
     plane_b = MeasurementPlane(
         [0.0, 0.0, -2.0], [0.0, 0.0, 1.0], [-4.0, 4.0], [-4.0, 4.0], [8, 8]
     )
-    # Only the three geometric arrays reach the (achromatic) trace; the
-    # per-ray wavelengths are dropped here on purpose.
-    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
+    # The whole fan reaches the trace, wavelengths included: the golden is the
+    # index the material gives each ray at its own colour.
+    origins, dirs, powers, wavelengths = rays_to_arrays(rays)
     results = MeasurementPlane.measure_batch_arrays(
-        [plane, plane_b], origins, dirs, powers, system
+        [plane, plane_b], origins, dirs, powers, wavelengths, system
     )
 
     # Distance of every measured hit to the nearest detector bin boundary:
     # keeps the golden immune to 1-ulp platform wobble flipping a bin.
-    us, vs, pws = system.measure_planes(origins, dirs, powers, [plane, plane_b])
+    us, vs, pws = system.measure_planes(
+        origins, dirs, powers, wavelengths, [plane, plane_b]
+    )
     margins: list[float | None] = []
     for q, det in enumerate([plane, plane_b]):
         finite = np.isfinite(us[q]) & np.isfinite(vs[q]) & (pws[q] > 0.0)
@@ -388,9 +391,14 @@ def case_batch() -> dict:
     origins = np.tile(np.array([[0.0, 0.0, 3.0]]), (n, 1))
     dirs = fibonacci_cone_directions(n, 20.0)
     powers = np.full(n, 1.0)
+    # One colour per ray index, so the batch golden covers the wavelength column
+    # of the fan as well as the geometry.
+    wavelengths = 486.13 + 170.14 * (np.arange(n) % 3) / 2.0
 
     system = OpticalSystem(elements)
-    starts, ends, kinds, counts = system.trace_segments(origins, dirs, ray_length=2.0)
+    starts, ends, kinds, counts = system.trace_segments(
+        origins, dirs, wavelengths, ray_length=2.0
+    )
     valid_starts = np.concatenate([starts[i, : counts[i]] for i in range(n)])
     valid_ends = np.concatenate([ends[i, : counts[i]] for i in range(n)])
     valid_kinds = np.concatenate([kinds[i, : counts[i]] for i in range(n)])
@@ -402,7 +410,7 @@ def case_batch() -> dict:
         [0.0, 0.0, -8.0], [0.0, 0.0, 1.0], [-8.0, 8.0], [-8.0, 8.0], [4, 4]
     )
     s2, _e2, _k2, c2, us, vs, pws = system.trace_segments_and_planes(
-        origins, dirs, powers, 2.0, [plane_a, plane_b]
+        origins, dirs, powers, wavelengths, 2.0, [plane_a, plane_b]
     )
     fused_starts = np.concatenate([s2[i, : c2[i]] for i in range(n)])
 

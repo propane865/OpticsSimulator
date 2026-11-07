@@ -345,8 +345,8 @@ def test_measure_records_traced_crossing_at_any_plane_z(make_element, z):
     system, rays = _plate_stack(make_element)
     plane = _axis_plane(z)
 
-    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
-    us, vs, pws = system.measure_planes(origins, dirs, powers, [plane])
+    origins, dirs, powers, wavelengths = rays_to_arrays(rays)
+    us, vs, pws = system.measure_planes(origins, dirs, powers, wavelengths, [plane])
 
     for i, ray in enumerate(rays):
         crossing = _walk_crossing(system, ray, plane)
@@ -368,12 +368,12 @@ def test_plane_above_zero_does_not_collapse_onto_the_axis(make_element):
 
 def test_fused_trace_measure_matches_above_zero(make_element):
     system, rays = _plate_stack(make_element)
-    origins, dirs, powers, _wavelengths = rays_to_arrays(rays)
+    origins, dirs, powers, wavelengths = rays_to_arrays(rays)
     plane = _axis_plane(1.0)
 
-    us, vs, pws = system.measure_planes(origins, dirs, powers, [plane])
+    us, vs, pws = system.measure_planes(origins, dirs, powers, wavelengths, [plane])
     _, _, _, _, fused_us, fused_vs, fused_pws = system.trace_segments_and_planes(
-        origins, dirs, powers, 200.0, [plane]
+        origins, dirs, powers, wavelengths, 200.0, [plane]
     )
 
     np.testing.assert_array_equal(fused_us, us)

@@ -16,6 +16,7 @@ from optics.config import (
 )
 from optics.element import RefractiveElement
 from optics.source import register_image_codec
+from tests.materials import constant_material
 
 
 @pytest.fixture
@@ -84,7 +85,13 @@ def make_element():
         n: float = 1.5,
         orientation=None,
         aperture_radius=None,
+        material: dict | None = None,
     ) -> RefractiveElement:
+        """One element from surface equations, at ``n`` unless ``material`` says otherwise.
+
+        ``material`` is a config material block (see :mod:`tests.materials`), for
+        the fixtures that need real dispersion instead of a fixed index.
+        """
         orientation = (
             np.array([0.0, 0.0, 1.0])
             if orientation is None
@@ -111,7 +118,7 @@ def make_element():
         config = {
             "surface1": _surface(surface1),
             "surface2": _surface(surface2),
-            "material": {"refractive_index": n},
+            "material": constant_material(n) if material is None else material,
         }
         return refractive_element_from_config(config, orientation)
 

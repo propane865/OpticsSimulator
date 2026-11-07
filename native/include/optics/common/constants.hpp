@@ -50,6 +50,9 @@ inline constexpr double POINT_MATCH_TOL = 1e-8;
 inline constexpr double RAY_EPSILON = 1e-9;
 inline constexpr double MIN_HIT_T = 1e-7;
 inline constexpr int MAX_INTERNAL_BOUNCES = 8;
+// Sellmeier terms per material: the coefficient-array width of the native
+// element, the Python material model and the lens editor's Bi/Ci table.
+inline constexpr std::size_t SELLMEIER_TERMS = 3;
 // Grid resolution used to bound an element's local volume for containment tests.
 inline constexpr int CONTAINMENT_BOUNDS_N = 16;
 

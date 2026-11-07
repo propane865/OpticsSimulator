@@ -27,7 +27,7 @@ import numpy as np
 from optics.config import refractive_element_from_config
 from optics.element import RefractiveElement
 from optics.importers.zmx import conic_sag_expression
-from optics.primitive import CircularAperture, Ray, Surface
+from optics.primitive import DEFAULT_WAVELENGTH_NM, CircularAperture, Ray, Surface
 
 # --- Geometry shared by all scenarios ---------------------------------------
 # Meniscus element from the bundled doublet example: the body spans local
@@ -35,6 +35,20 @@ from optics.primitive import CircularAperture, Ray, Surface
 # RAY_START_Z and a stack places later elements further along -z.
 APERTURE_RADIUS = 0.75
 REFRACTIVE_INDEX = 1.5
+# The colour every benchmark ray carries. Materials are wavelength-dependent now,
+# so the scripts say which one they measure instead of leaving it implicit.
+RAY_WAVELENGTH_NM = DEFAULT_WAVELENGTH_NM
+
+
+def constant_index_material(index: float = REFRACTIVE_INDEX) -> "dict[str, Any]":
+    """The ``material`` config block holding a wavelength-independent ``index``.
+
+    The benchmark lens stays the plain n = 1.5 glass it always was: a Sellmeier
+    term with a zero pole contributes its coefficient at every wavelength, so
+    ``b = [n^2 - 1]``, ``c = [0]`` reads back as exactly ``index`` for any ray.
+    """
+    n = float(index)
+    return {"sellmeier": {"b": [n * n - 1.0], "c": [0.0]}}
 Z_SPACING = 2.0
 RAY_START_Z = 3.6
 RAY_LENGTH = 3.0
@@ -51,7 +65,7 @@ def element_config() -> dict[str, Any]:
     return {
         "surface1": dict(base, z="-1 + sqrt(9 - u**2 - v**2)"),
         "surface2": dict(base, z="4.6 - sqrt(9 - u**2 - v**2)"),
-        "material": {"refractive_index": REFRACTIVE_INDEX},
+        "material": constant_index_material(),
     }
 
 
@@ -115,7 +129,7 @@ def make_element_for(kind: str, z: float = 0.0) -> RefractiveElement:
             "v_range": [-2.0, 2.0],
             "aperture": {"radius": APERTURE_RADIUS},
         },
-        "material": {"refractive_index": REFRACTIVE_INDEX},
+        "material": constant_index_material(),
     }
     return refractive_element_from_config(config, position=[0.0, 0.0, float(z)])
 

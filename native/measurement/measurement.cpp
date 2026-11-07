@@ -202,7 +202,8 @@ void measure_planes_multi(const TraceStack& stack, const RayBatchView& rays,
     run_chunks(rays.count, [&](std::size_t lo, std::size_t hi) {
         RayHops hops;
         for (std::size_t i = lo; i < hi; ++i) {
-            fill_hops(hops, stack, as_vec3(rays.origins + 3 * i), as_vec3(rays.directions + 3 * i));
+            fill_hops(hops, stack, as_vec3(rays.origins + 3 * i), as_vec3(rays.directions + 3 * i),
+                      rays.wavelengths[i]);
             measure_all_planes(hops, rays, i, planes, eps, out);
         }
     });
@@ -214,7 +215,8 @@ void trace_segments_and_planes(const TraceStack& stack, const RayBatchView& rays
     run_chunks(rays.count, [&](std::size_t lo, std::size_t hi) {
         RayHops hops;
         for (std::size_t i = lo; i < hi; ++i) {
-            fill_hops(hops, stack, as_vec3(rays.origins + 3 * i), as_vec3(rays.directions + 3 * i));
+            fill_hops(hops, stack, as_vec3(rays.origins + 3 * i), as_vec3(rays.directions + 3 * i),
+                      rays.wavelengths[i]);
             segments.counts[i] =
                 format_segments(hops, options.ray_length, segments.starts + 3 * segments.capacity * i,
                                 segments.ends + 3 * segments.capacity * i,

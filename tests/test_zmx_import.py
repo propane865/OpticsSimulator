@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from optics.config import stack_from_config
+from optics.constants import D_LINE_NM
 from optics.expression import compile_parametric_surface
 from optics.importers.zmx import (
     UnsupportedZmxError,
@@ -20,12 +21,22 @@ from optics.importers.zmx import (
 )
 from optics.io import load_project
 from optics.measurement_plane import MeasurementPlane
+from optics.primitive import Sellmeier
 from optics.source import PointSource
 from optics.system import OpticalSystem
 
 ZMX_DIR = Path(__file__).parent / "zmx"
 
 N_BK7 = '"N-BK7" 1.5168 64.17 "N-BK7"'
+
+
+def _material_index(config: dict[str, Any], wavelength_nm: float = D_LINE_NM) -> float:
+    """The index an imported element's ``material`` block gives at ``wavelength_nm``.
+
+    Imported glasses are asserted where the catalog publishes them -- at the d
+    line -- because that is the datum the coefficients were fitted to.
+    """
+    return Sellmeier(**config["material"]["sellmeier"]).index_at(wavelength_nm)
 
 
 def _load_quiet_elements(path: Path) -> tuple[dict[str, Any], Any]:
@@ -122,7 +133,8 @@ def test_element_geometry() -> None:
     assert list(elements) == ["lens1"]
     lens = elements["lens1"]
     assert lens["position"][2] == pytest.approx(-25.0)
-    assert lens["material"]["refractive_index"] == pytest.approx(1.51679364)
+    # N-BK7 is in the built-in coefficient table, so n_d is the published one.
+    assert _material_index(lens) == pytest.approx(1.5168, abs=2e-5)
     assert lens["surface1"]["aperture"]["radius"] == pytest.approx(12.5)
     assert lens["surface1"]["u_range"][0] == pytest.approx(-15.625)
     # The stack spans one Zemax thickness in mirrored simulator z.
@@ -142,7 +154,7 @@ def test_elements_only_has_no_project() -> None:
 
 
 def test_load_zmx_elements_emits_warnings() -> None:
-    with pytest.warns(UserWarning, match="dispersion"):
+    with pytest.warns(UserWarning, match="dispersed"):
         load_zmx_elements(ZMX_DIR / "biconvex.zmx")
 
 
@@ -170,9 +182,9 @@ def test_doublet_pairing_and_materials() -> None:
     lens1, lens2 = elements.values()
     assert lens1["position"][2] == pytest.approx(-25.0)
     assert lens2["position"][2] == pytest.approx(-34.0)
-    assert lens1["material"]["refractive_index"] == pytest.approx(1.5168)
+    assert _material_index(lens1) == pytest.approx(1.5168, abs=2e-5)
     # N-F2 has no GLAS entry in the fixture: it must come from the built-in table.
-    assert lens2["material"]["refractive_index"] == pytest.approx(1.64997)
+    assert _material_index(lens2) == pytest.approx(1.64997)
     assert lens2["surface2"]["z"].startswith("-2.0 + ")
 
 
@@ -186,7 +198,7 @@ def test_cemented_doublet_shares_the_interface() -> None:
     assert np.allclose(shared_rear, shared_front, atol=1e-12)
     assert shared_rear[2] == pytest.approx(-24.0)
     assert first.transform.translation[2] == pytest.approx(-20.0)
-    assert second.material.refractive_index == pytest.approx(1.64997)
+    assert second.material.index_at(D_LINE_NM) == pytest.approx(1.64997)
 
 
 # -- glass index resolution ----------------------------------------------------
@@ -201,7 +213,7 @@ def test_blank_glass_uses_inline_index(tmp_path: Path) -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         elements, _ = load_zmx_elements(path)
-    assert elements["lens1"]["material"]["refractive_index"] == pytest.approx(1.62)
+    assert _material_index(elements["lens1"]) == pytest.approx(1.62)
     assert any("dispersion" in str(w.message) for w in caught)
 
 
@@ -221,7 +233,7 @@ def test_parse_reads_utf16_without_warnings(tmp_path: Path) -> None:
 
 # -- warnings ------------------------------------------------------------------
 def test_monochromatic_import_warning() -> None:
-    with pytest.warns(UserWarning, match="dispersion"):
+    with pytest.warns(UserWarning, match="dispersed"):
         load_zmx_elements(ZMX_DIR / "biconvex.zmx")
 
 
@@ -361,7 +373,7 @@ def test_glas_long_form_record(tmp_path: Path) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         elements, _ = load_zmx_elements(path)
-    assert elements["lens1"]["material"]["refractive_index"] == pytest.approx(1.5)
+    assert _material_index(elements["lens1"]) == pytest.approx(1.5)
 
 
 def test_evenasph_sag_mirrored_into_element(tmp_path: Path) -> None:
@@ -412,15 +424,15 @@ def test_odd_asph_cone_sag_mirrored(tmp_path: Path) -> None:
 
 def test_catalog_record_with_zero_nd_uses_builtin_table(tmp_path: Path) -> None:
     # Catalog models are written with a zero nd column (e.g. F_SILICA); the
-    # index must fall back to the built-in table instead of the zeros.
+    # coefficients must come from the name instead of turning the zeros into n=0.
     path = _modern_case(
         tmp_path,
         _surf(1, curv=0.02, disz=5.0, glass="F_SILICA 0 0 0 0 0 0 0 0 0 0")
         + _surf(2, curv=-0.02, disz=10.0),
     )
-    with pytest.warns(UserWarning, match="built-in table"):
+    with pytest.warns(UserWarning, match="F_SILICA"):
         elements, _ = load_zmx_elements(path)
-    assert elements["lens1"]["material"]["refractive_index"] == pytest.approx(1.4585)
+    assert _material_index(elements["lens1"]) == pytest.approx(1.4585, abs=1e-4)
 
 
 def test_reject_conic_on_rear_standard_surface(tmp_path: Path) -> None:
@@ -456,9 +468,9 @@ def _trace_total(elements: dict[str, Any], geometry: Any) -> float:
         v_range=[-half, half],
         resolution=[64, 64],
     )
-    origins, dirs, powers, _ = source.emit_arrays()
+    origins, dirs, powers, wavelengths = source.emit_arrays()
     result = MeasurementPlane.measure_batch_arrays(
-        [plane], origins, dirs, powers, system
+        [plane], origins, dirs, powers, wavelengths, system
     )[0]
     return result.total
 

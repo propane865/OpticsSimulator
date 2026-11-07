@@ -17,9 +17,10 @@ d2 diagrams/native-modules.d2 diagrams/native-modules.svg
 **1. Layers and the Python/native boundary.** The domain layer sends contiguous
 NumPy buffers and opaque native handles across pybind11 and receives arrays
 back: per-ray work never enters the interpreter. The trace and measure kernels
-are handed only the `(origins, dirs, powers)` buffers - a ray's wavelength (nm)
-stays Python-side, carried on `Ray` and the emitted fan, until the kernel gains
-dispersion. The native test binary links `optics_core` directly (ctest); the
+are handed the `(origins, dirs, powers, wavelengths)` buffers -- a ray's
+wavelength (nm) crosses with them, because each element's index is evaluated
+natively from its Sellmeier coefficients at the wavelength of the ray being
+traced. The native test binary links `optics_core` directly (ctest); the
 Python `tests/` and `benchmarks/` reach the same kernels through `_native`
 where they test kernel behavior rather than the Python API. The picture draws
 that boundary once - one arrow between the bands, labelled with what crosses
@@ -79,8 +80,8 @@ through Qt signals.
 measure/retrace paths only run when there are no rays or no planes). Downstream
 work (meshes, detector images, the 2D view) is derived and cached by a geometry
 key, so unchanged lenses are neither remeshed nor retraced. An editor apply
-classifies its own edit (`classify_element_edit`): a no-op stops there, an
-index-only edit retraces without touching meshes, and a transform/geometry edit
+classifies its own edit (`classify_element_edit`): a no-op stops there, a
+material-only edit retraces without touching meshes, and a transform/geometry edit
 also remeshes that element - the persistent native stack is dropped on any
 element edit and rebuilt lazily on the next refresh.
 
@@ -153,10 +154,20 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
 - `optics/`: numerics core, no GUI/OpenGL dependencies:
   - `primitive/`: geometric primitives - `ray.py` (origin, direction, power,
     wavelength in nm), `transform.py`, `hit.py`,
-    `material.py`, `aperture.py`, `sidewall.py` (lens rims intersected by the
-    native Moller-Trumbore mesh kernel), `vector.py` (native vector helpers),
-    `surface.py` (parametric surfaces delegating every numerical operation to
-    the persistent native surface)
+    `material.py` (`Sellmeier` coefficients and the `Material` that is nothing
+    but those coefficients), `aperture.py`, `sidewall.py` (lens rims intersected
+    by the native Moller-Trumbore mesh kernel), `vector.py` (native vector
+    helpers), `surface.py` (parametric surfaces delegating every numerical
+    operation to the persistent native surface)
+  - Materials and dispersion: `Sellmeier.index_at(wavelength_nm)` is the single
+    Python-side evaluation (the lens editor's calculated index, the importer's
+    self-checks, the tests); the native element carries the same `B_i`/`C_i`
+    arrays and evaluates `n` once per element entry per ray, so a polychromatic
+    fan really does lose a common focus. `C_i` is in um^2 with `lam` in um while
+    ray wavelengths stay in nm, and a zero pole makes its term a constant -- the
+    `b = [n**2 - 1]`, `c = [0]` idiom that holds a fixed index exactly.
+    Coefficients with no real index at a traced wavelength take the existing
+    absorb path, never a NaN into the geometry.
   - `expression.py`: restricted, safe surface-expression grammar enforced by the
     native parser; expression strings -> native surface model via
     `_native.compile_surface`, lru-cached
@@ -164,19 +175,23 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     persistent native element for its lifetime)
   - `system.py`: `OpticalSystem`, the only public tracing entry point -
     immutable element stack owning one persistent native trace stack; batched
-    parallel tracing, measurement, fused segments+planes pass
+    parallel tracing, measurement, fused segments+planes pass, each taking the
+    per-ray wavelengths alongside the origins/directions/powers
   - `measurement_plane.py`: planar detector accumulating ray power (native
     accumulation, adaptive-kernel reconstruction)
   - `plane_transform.py`: best 2D similarity (magnification, rotation, offset)
     fitted to the per-ray hit correspondence between two planes
   - `constants.py`: numerical tolerances, solver defaults (mirrored from the
-    native module)
+    native module) and the Fraunhofer d/F/C wavelengths the material model and
+    the lens editor document themselves against
   - `_util.py`: shared helpers - the `cached_lru` seam, ray-array coercion,
     wavelength arrays
   - `source.py`: point sources, ray emission (every ray carries the source's
     wavelength in nm); point-array grids arrive through the PNG codec seam
     `ui/imagecodec.py` registers, so the core stays Qt-free
-  - `config.py`: JSON -> element/stack loading
+  - `config.py`: JSON -> element/stack loading (a material must carry
+    Sellmeier coefficients; the removed `refractive_index` key is a diagnostic,
+    not a compatibility path)
   - `io.py`: JSON project-document loading (Zemax `.zmx` is import-only)
   - `project.py`: versioned project documents (elements + source + measurement
     planes)
@@ -193,7 +208,9 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
   - `importers/zmx/`: Zemax `.zmx` prescription import as a pipeline -
     `parser.py` (ZMX text syntax), `model.py` (IR dataclasses and shared value
     atoms), `normalize.py` (vertex accumulation, dummy-surface flattening),
-    `glass.py` (GLAS records, index resolution), `expressions.py` (IR surface ->
+    `glass.py` (GLAS records, Sellmeier resolution -- published coefficients for
+    catalog glasses, a two-pole fit to `(n_d, V_d)` for everything else),
+    `expressions.py` (IR surface ->
     sag-expression config), `converter.py` (IR -> the project `elements` map and
     placement geometry) - merged into an open project (never a project loader)
   - `examples/`: bundled example stacks (`doublet.json`, `triplet.json`)

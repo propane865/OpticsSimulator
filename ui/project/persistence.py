@@ -48,12 +48,17 @@ def apply_document(state: ProjectState, document: object) -> tuple[list[Refracti
             used.add(name)
             new_names.append(name)
         new_rows = state._measurements.split_hits(
-            *new_system.measure_planes(ray_arrays[0], ray_arrays[1], ray_arrays[2], new_planes)
+            *new_system.measure_planes(
+                ray_arrays[0], ray_arrays[1], ray_arrays[2], ray_arrays[3], new_planes
+            )
         )
         replaced = True
     else:
         new_rows = state._measurements.split_hits(
-            *new_system.measure_planes(ray_arrays[0], ray_arrays[1], ray_arrays[2], state._measurements.planes)
+            *new_system.measure_planes(
+                ray_arrays[0], ray_arrays[1], ray_arrays[2], ray_arrays[3],
+                state._measurements.planes,
+            )
         )
         new_planes = state._measurements.planes
         new_names = state._measurements.names

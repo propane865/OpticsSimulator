@@ -16,6 +16,7 @@ import numpy as np
 # (``optics/constants.py`` derives its values from these).
 SEED_GRID_N: int
 MAX_INTERNAL_BOUNCES: int
+SELLMEIER_TERMS: int
 SIDEWALL_MATCH_ATOL: float
 APERTURE_EPS: float
 APERTURE_BOUNDARY_N: int
@@ -44,7 +45,7 @@ class NativeSurface:
     def rim(self, radius: float, cx: float, cy: float, n: int) -> np.ndarray: ...
 
 class Element:
-    """Opaque persistent native element (two surfaces + sidewall + bounds)."""
+    """Opaque persistent native element (two surfaces + sidewall + material)."""
 
 class TraceStack:
     def __len__(self) -> int: ...
@@ -71,7 +72,8 @@ def make_surface(
 def build_element(
     surface1: NativeSurface,
     surface2: NativeSurface,
-    refractive_index: float,
+    sellmeier_b: np.ndarray,
+    sellmeier_c: np.ndarray,
     tri: np.ndarray,
     normals: np.ndarray,
 ) -> Element: ...
@@ -110,6 +112,7 @@ def trace_stack_segments(
     stack: TraceStack,
     o: np.ndarray,
     d: np.ndarray,
+    wavelength: float,
     ray_length: float,
     starts: np.ndarray,
     ends: np.ndarray,
@@ -119,6 +122,7 @@ def trace_segments_batch(
     stack: TraceStack,
     origins: np.ndarray,
     dirs: np.ndarray,
+    wavelengths: np.ndarray,
     ray_length: float,
     starts: np.ndarray,
     ends: np.ndarray,
@@ -180,6 +184,7 @@ def measure_direct(
     origins: np.ndarray,
     dirs: np.ndarray,
     powers: np.ndarray,
+    wavelengths: np.ndarray,
     o: np.ndarray,
     n: np.ndarray,
     s_u: float,
@@ -197,6 +202,7 @@ def measure_planes_multi(
     origins: np.ndarray,
     dirs: np.ndarray,
     powers: np.ndarray,
+    wavelengths: np.ndarray,
     po: np.ndarray,
     pn: np.ndarray,
     u_min: np.ndarray,
@@ -218,7 +224,8 @@ def fit_clipped_similarity(
 ) -> dict[str, Any]: ...
 class OptimizeProblem:
     """Traced optimization problem: stack, parameter box, two planes and the
-    ray fan (with per-ray object-point ids). Validates at construction."""
+    ray fan -- wavelengths in nm, with per-ray object-point ids. Validates at
+    construction."""
 
     def __init__(
         self,
@@ -231,6 +238,7 @@ class OptimizeProblem:
         origins: np.ndarray,
         dirs: np.ndarray,
         powers: np.ndarray,
+        wavelengths: np.ndarray,
         po: np.ndarray,
         pn: np.ndarray,
         u_min: np.ndarray,
@@ -301,6 +309,7 @@ def trace_segments_and_planes(
     origins: np.ndarray,
     dirs: np.ndarray,
     powers: np.ndarray,
+    wavelengths: np.ndarray,
     ray_length: float,
     po: np.ndarray,
     pn: np.ndarray,

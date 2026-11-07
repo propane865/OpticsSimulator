@@ -20,16 +20,14 @@ from tests.optimizer._common import (
 def optimized():
     schema, source, p1, p2 = _problem()
     base = plane_transform(source.emit_rays(), [p1, p2], _system(schema))
-    origins, dirs, powers, _ = source.emit_arrays()
+    fan = source.emit_arrays()
     system = _system(schema)
-    ref_z, ref_radius = _sweep_best_z(system, p1, p2, origins, dirs, powers)
+    ref_z, ref_radius = _sweep_best_z(system, p1, p2, fan)
     result = optimize_layout(
         schema,
         p1,
         p2,
-        origins,
-        dirs,
-        powers,
+        fan,
         element_bounds=_BOUNDS,
         image_bounds=_IMAGE_BOUNDS,
         optimization=_FAST,
