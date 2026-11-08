@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable, Sequence
+from functools import partial
 from typing import Any, TypeVar
 
 from PySide6 import QtCore, QtWidgets
@@ -16,6 +17,7 @@ __all__ = [
     "configure_spin",
     "enable_widgets",
     "find_child",
+    "fit_sellmeier_table_height",
     "read_sellmeier_cells",
     "run_validated",
     "sellmeier_column_labels",
@@ -103,12 +105,48 @@ def configure_sellmeier_table(table: QtWidgets.QTableWidget, terms: int) -> None
     whole frame, so a hand-edited copy of the form cannot quietly change what the
     numbers mean -- the table always shows ``terms`` columns, labelled rows and the
     equation the coefficients belong to.
+
+    The columns are stretched, not left at the style's fixed default section size:
+    a coefficient table lives in a dock the user resizes, and fixed sections wider
+    than the viewport would push the last term behind a horizontal scrollbar.
+    Stretching hands the whole viewport to the terms, evenly, and re-divides it
+    whenever the dock changes width. The row header takes only its labels' width so
+    the terms get the rest. A scrollbar is still allowed at widths where the columns
+    cannot shrink further -- no term is ever unreachable.
     """
     table.setRowCount(len(SELLMEIER_ROW_LABELS))
     table.setColumnCount(int(terms))
     table.setVerticalHeaderLabels(list(SELLMEIER_ROW_LABELS))
     table.setHorizontalHeaderLabels(list(sellmeier_column_labels(terms)))
     table.setToolTip(SELLMEIER_EQUATION_TIP)
+    header = table.horizontalHeader()
+    header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+    header.setStretchLastSection(False)
+    table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+    # Row and column header heights follow the font and the style, so the fitted
+    # height is restated whenever either header re-measures its sections.
+    refit = partial(fit_sellmeier_table_height, table)
+    header.geometriesChanged.connect(refit)
+    table.verticalHeader().geometriesChanged.connect(refit)
+    fit_sellmeier_table_height(table)
+
+
+def _sellmeier_table_height(table: QtWidgets.QTableWidget) -> int:
+    """The height that shows the column header and every row, and nothing else."""
+    rows = sum(table.verticalHeader().sectionSize(row) for row in range(table.rowCount()))
+    return table.horizontalHeader().sizeHint().height() + rows + 2 * table.frameWidth()
+
+
+def fit_sellmeier_table_height(table: QtWidgets.QTableWidget) -> None:
+    """Make the coefficient table exactly as tall as its header plus its rows.
+
+    A table asks for a ten-row viewport, which in a two-row material form reads as a
+    blank strip under the coefficients -- and the strip is what the sidebar's leftover
+    height gets spent on. The height is owned here instead, so the table is as tall as
+    its coefficients and the slack goes back to the page.
+    """
+    table.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Fixed)
+    table.setFixedHeight(_sellmeier_table_height(table))
 
 
 def read_sellmeier_cells(table: QtWidgets.QTableWidget) -> list[float]:

@@ -1279,6 +1279,50 @@ def test_coefficient_table_says_what_its_numbers_are(stack_window):
     assert columns == list(sellmeier_column_labels(SELLMEIER_TERMS))
 
 
+def test_coefficient_table_columns_split_the_sidebar_width(stack_window, qt_app):
+    """The terms tile the table's width, so none of them hides behind a scrollbar."""
+    window = stack_window
+    _trigger_new_element(window)
+    table = _editor(window)["sellmeier"]
+    window.show()
+    qt_app.processEvents()
+
+    header = table.horizontalHeader()
+    assert header.sectionResizeMode(0) == QtWidgets.QHeaderView.ResizeMode.Stretch
+    assert header.stretchLastSection() is False
+
+    def tile() -> list[int]:
+        widths = [table.columnWidth(column) for column in range(table.columnCount())]
+        assert min(widths) > 0
+        assert max(widths) - min(widths) <= 1  # evenly spaced, no leftover slack column
+        assert abs(sum(widths) - table.viewport().width()) <= 1
+        assert table.horizontalScrollBar().maximum() == 0
+        return widths
+
+    widest = tile()
+    sidebar_width, max_width = table.width(), table.maximumWidth()
+    try:
+        table.setMaximumWidth(sidebar_width - 120)  # a much narrower sidebar
+        qt_app.processEvents()
+        assert tile() < widest
+    finally:
+        table.setMaximumWidth(max_width)
+
+
+def test_coefficient_table_is_only_as_tall_as_its_rows(stack_window, qt_app):
+    """The table ends with its last row, instead of padding out a ten-row viewport."""
+    window = stack_window
+    _trigger_new_element(window)
+    table = _editor(window)["sellmeier"]
+    window.show()
+    qt_app.processEvents()
+
+    rows = sum(table.rowHeight(row) for row in range(table.rowCount()))
+    assert rows <= table.viewport().height() <= rows + 1
+    assert table.verticalScrollBar().maximum() == 0
+    assert table.sizePolicy().verticalPolicy() == QtWidgets.QSizePolicy.Policy.Fixed
+
+
 def test_the_readout_quotes_the_wavelength_being_traced(stack_window):
     """The index is calculated at the source's colour and moves when it changes."""
     window = stack_window
