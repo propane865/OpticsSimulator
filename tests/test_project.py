@@ -159,12 +159,13 @@ def test_build_project_document_round_trip():
     np.testing.assert_allclose(restored_planes[1][1].o, planes[1].o)
 
 
-class TestSellmeierBreak:
-    """What a document whose elements carry a fixed index gets instead of a lens.
+class TestLorentzBreak:
+    """What a document whose elements carry another material shape gets instead of a lens.
 
-    The break is deliberate, so every path that used to accept a fixed index is
-    checked to refuse loudly and name the key to write -- such a file must not
-    half-load into a stack of vacuum elements.
+    The break is deliberate, so every path that used to accept a fixed index or
+    Sellmeier coefficients is checked to refuse loudly and name the key to write --
+    such a file must not half-load into a stack of vacuum elements, and must never
+    be quietly converted into absorption nobody fitted.
     """
 
     @pytest.mark.parametrize(
@@ -173,30 +174,74 @@ class TestSellmeierBreak:
             {},
             {"index": 1.5},
             {"refractive_index": 1.5},
-            {"sellmeier": []},
-            {"sellmeier": {"b": [1.25]}},
+            {"lorentz": {}},
+            {"lorentz": {"epsilon_inf": 2.25}},
+            {"lorentz": {"oscillators": []}},
+            {"lorentz": {"epsilon_inf": 2.25, "oscillators": [{"strength": 1.0}]}},
+            {"lorentz": {"epsilon_inf": 2.25, "oscillators": 2.25}},
             None,
         ],
     )
-    def test_a_material_without_coefficients_names_the_key_to_write(self, material):
+    def test_a_material_that_is_not_a_dielectric_model_names_the_key_to_write(
+        self, material
+    ):
         with pytest.raises(ValueError) as raised:
             material_from_config(material)
-        assert "sellmeier" in str(raised.value).lower()
+        assert "material.lorentz" in str(raised.value)
 
-    def test_the_legacy_constant_index_key_is_reported_as_removed(self):
-        """Not a missing-key complaint: the key existed and is gone on purpose."""
-        with pytest.raises(ValueError, match=r'"refractive_index" key was removed'):
-            material_from_config({"refractive_index": 1.5})
+    @pytest.mark.parametrize(
+        "material",
+        [
+            {"sellmeier": []},
+            {"sellmeier": {"b": [1.25], "c": [0.0]}},
+            {"sellmeier": {"b": [1.25], "c": [0.0]}, "lorentz": {"epsilon_inf": 2.25}},
+        ],
+    )
+    def test_sellmeier_coefficients_are_refused_by_name(self, material):
+        """The retired model is not read, not converted, and says so.
 
-    def test_the_constant_index_idiom_is_the_documented_replacement(self):
-        """The message's own recipe -- ``b=[n**2-1], c=[0]`` -- is what loads."""
-        material = material_from_config({"sellmeier": {"b": [1.5**2 - 1.0], "c": [0.0]}})
+        Sellmeier coefficients carry no damping, so the honest answer is that the
+        absorption cannot be recovered -- a silently transparent material would be
+        the worst possible outcome of a schema change.
+        """
+        with pytest.raises(ValueError, match="Sellmeier-only materials are no longer supported"):
+            material_from_config(material)
+
+    def test_the_constant_index_spelling_is_the_documented_replacement(self):
+        """The message's own recipe -- ``epsilon_inf=n**2``, no oscillators -- loads."""
+        material = material_from_config({"lorentz": {"epsilon_inf": 1.5**2, "oscillators": []}})
         assert material.index_at(DEFAULT_WAVELENGTH_NM) == 1.5
+        assert material.extinction_at(DEFAULT_WAVELENGTH_NM) == 0.0
+
+    def test_a_damped_model_loads_every_oscillator_it_states(self):
+        material = material_from_config(
+            {
+                "lorentz": {
+                    "epsilon_inf": 2.0,
+                    "oscillators": [
+                        {"strength": 1.0, "resonance_ev": 10.0, "damping_ev": 0.01},
+                        {"strength": 0.5, "resonance_ev": 0.12, "damping_ev": 0.0},
+                    ],
+                }
+            }
+        )
+        assert [oscillator.resonance_ev for oscillator in material.model.oscillators] == [
+            10.0,
+            0.12,
+        ]
+        assert material.extinction_at(DEFAULT_WAVELENGTH_NM) > 0.0
 
     def test_a_fixture_element_rewritten_with_a_legacy_material_is_refused(self, repo_root):
         """The refusal survives a whole-document load, not just one config dict."""
         document = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
         for entry in document["elements"].values():
             entry["material"] = {"refractive_index": 1.5}
-        with pytest.raises(ValueError, match="key was removed"):
+        with pytest.raises(ValueError, match=r"material\.lorentz"):
+            stack_from_config(document["elements"])
+
+    def test_a_fixture_element_with_sellmeier_coefficients_is_refused(self, repo_root):
+        document = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))
+        for entry in document["elements"].values():
+            entry["material"] = {"sellmeier": {"b": [1.25], "c": [0.0]}}
+        with pytest.raises(ValueError, match="Sellmeier-only"):
             stack_from_config(document["elements"])

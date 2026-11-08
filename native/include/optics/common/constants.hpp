@@ -50,9 +50,16 @@ inline constexpr double POINT_MATCH_TOL = 1e-8;
 inline constexpr double RAY_EPSILON = 1e-9;
 inline constexpr double MIN_HIT_T = 1e-7;
 inline constexpr int MAX_INTERNAL_BOUNCES = 8;
-// Sellmeier terms per material: the coefficient-array width of the native
-// element, the Python material model and the lens editor's Bi/Ci table.
-inline constexpr std::size_t SELLMEIER_TERMS = 3;
+// Photon energy of a vacuum wavelength, in eV per nanometre: ``h c`` built from
+// the exact SI definitions of the Planck constant, the elementary charge and the
+// speed of light, so ``HC_EV_NM / lambda_nm`` is the photon energy the Lorentz
+// dielectric model is written in. Python reads this value rather than restating
+// it, which is what keeps the two material evaluations bit-identical.
+inline constexpr double HC_EV_NM = (6.62607015e-34 / 1.602176634e-19) * 299792458.0 * 1.0e9;
+// Circle constant for the Beer-Lambert coefficient ``4 pi k / lambda``. Written as
+// the nearest double to pi, which is the value ``math.pi`` gives Python, so both
+// material evaluations divide by the same number.
+inline constexpr double PI = 3.14159265358979323846;
 // Grid resolution used to bound an element's local volume for containment tests.
 inline constexpr int CONTAINMENT_BOUNDS_N = 16;
 

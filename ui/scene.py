@@ -158,10 +158,17 @@ class SceneController:
         starts: Any,
         ends: Any,
         counts: Any,
+        transmissions: Any = None,
     ) -> None:
-        """Redraw rays from a precomputed trace (shared with plane measurement)."""
+        """Redraw rays from a precomputed trace (shared with plane measurement).
+
+        ``transmissions`` dims each drawn segment by the power still travelling on
+        it, so the picture and the detector readings come from one walk and cannot
+        disagree about how much light a dark element let through."""
         visualize.remove_nodes(self._ray_nodes)
-        self._ray_nodes = visualize.build_ray_nodes_from_segments(self._view, starts, ends, counts)
+        self._ray_nodes = visualize.build_ray_nodes_from_segments(
+            self._view, starts, ends, counts, transmissions
+        )
 
     # -- elements ------------------------------------------------------------
     def add_element_nodes(self, element: RefractiveElement) -> None:

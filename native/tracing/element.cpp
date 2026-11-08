@@ -1,8 +1,11 @@
 // The internal-bounce loop for one closed refractive element: entry
 // refraction followed by refraction-or-internal-reflection at each face until
 // the ray leaves the glass (see ``element_hit.cpp`` for the face assembly and
-// ``element_build.cpp`` for the persistent element itself). The glass index is
-// the Sellmeier index at the ray's wavelength, evaluated once per walk.
+// ``element_build.cpp`` for the persistent element itself). The glass response is
+// the complex index of the element's Lorentz model at the ray's wavelength,
+// evaluated once per walk by the caller and passed in: ``response.n`` bends the
+// ray, and ``!(response.n > 0.0)`` -- what a resonance above the probe leaves
+// behind -- is what absorbs it.
 
 #include <cmath>
 #include <cstddef>
@@ -15,11 +18,12 @@ namespace optics::native {
 
 ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
                            double wavelength_nm) {
-    return trace_element(elem, o, d, wavelength_nm, element_first_hit(elem, o, d, 0.0));
+    return trace_element(elem, o, d, element_optical_response(elem, wavelength_nm),
+                         element_first_hit(elem, o, d, 0.0));
 }
 
-ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d, double wavelength_nm,
-                           const ElementHit& entry) {
+ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
+                           const OpticalResponse& response, const ElementHit& entry) {
     const bool inside = element_contains_point(elem, o);
     ElementTrace out;
     if (!entry.found) {
@@ -41,12 +45,16 @@ ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d, do
         out.incident_pt = o;
         return out;
     }
-    const double n = element_index(elem, wavelength_nm);
-    if (std::isnan(n)) {
-        // The material has no refractive index at this wavelength (a Sellmeier
-        // pole, or a non-positive n^2): treat it as opaque. The ray stops at the
-        // face it reached and reports no exit, exactly like a ray swallowed
-        // inside the glass.
+    const double n = response.n;
+    if (!(n > 0.0)) {
+        // The material has no refractive index to refract with at this wavelength
+        // -- NaN where the dielectric function has no answer (an undamped
+        // resonance landed on, a wavelength that is not a wavelength), or exactly
+        // zero where the permittivity has gone negative above a resonance. Either
+        // way the medium is opaque: the ray stops at the face it reached and
+        // reports no exit, exactly like a ray swallowed inside the glass.
+        // ``!(n > 0)`` rather than ``isnan(n)`` so a zero index cannot reach
+        // ``refract_or_reflect`` and produce a direction out of a division by it.
         out.exit_o = inside ? o : entry.p;
         out.exit_d = d;
         out.exited = false;

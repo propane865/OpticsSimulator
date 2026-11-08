@@ -59,11 +59,13 @@ class RefractiveElement:
     def native_element(self) -> "_native.Element":
         """Persistent native element, assembled once for this element's life.
 
-        Wraps the two native surfaces, the sidewall mesh and the Sellmeier
-        coefficient columns; the axis-aligned bounds and graph flags are derived
-        natively at construction, so trace-stack assembly is a pure reference.
-        The material's index is not baked in -- the kernels evaluate it per ray at
-        that ray's wavelength.
+        Wraps the two native surfaces, the sidewall mesh and the material's
+        Lorentz dielectric response -- the background permittivity plus one
+        ``(strength, resonance_ev, damping_ev)`` row per oscillator; the axis-
+        aligned bounds and graph flags are derived natively at construction, so
+        trace-stack assembly is a pure reference.
+        The material's response is not baked in -- the kernels evaluate it per ray
+        at that ray's wavelength.
         """
         if self._native_element is None:
             s1 = self.surface1.native_surface
@@ -75,12 +77,19 @@ class RefractiveElement:
             else:
                 tri = wall.triangles()
                 normals = wall.face_normals()
-            sellmeier_b, sellmeier_c = self.material.sellmeier.coefficient_arrays()
+            model = self.material.model
+            oscillators = np.asarray(
+                [
+                    [oscillator.strength, oscillator.resonance_ev, oscillator.damping_ev]
+                    for oscillator in model.oscillators
+                ],
+                dtype=float,
+            ).reshape((-1, 3))
             self._native_element = _native.build_element(
                 s1,
                 s2,
-                np.ascontiguousarray(sellmeier_b, dtype=float),
-                np.ascontiguousarray(sellmeier_c, dtype=float),
+                float(model.epsilon_inf),
+                np.ascontiguousarray(oscillators, dtype=float),
                 np.ascontiguousarray(tri, dtype=float),
                 np.ascontiguousarray(normals, dtype=float),
             )

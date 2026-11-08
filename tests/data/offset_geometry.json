@@ -32,13 +32,9 @@
         }
     },
     "material": {
-        "sellmeier": {
-            "b": [
-                1.25
-            ],
-            "c": [
-                0.0
-            ]
+        "lorentz": {
+            "epsilon_inf": 2.25,
+            "oscillators": []
         }
     }
 }

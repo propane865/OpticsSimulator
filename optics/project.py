@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 from .config import _require
+from .materials import DEFAULT_MATERIAL_NAME, material_block
 from .measurement_plane import MeasurementPlane
 from .primitive import DEFAULT_WAVELENGTH_NM
 from .source import (
@@ -38,16 +39,13 @@ DEFAULT_MEASUREMENT_CONFIG: dict[str, Any] = {
     "resolution": [64, 64],
 }
 
-# The material a fresh lens starts with: the published three-term Sellmeier fit
-# of N-BK7, so a new element is a real crown glass (n_d 1.5168, V_d 64.17)
-# instead of a made-up constant index. The UI's interactive add and the warm-up
-# element share this one copy; the bundled examples name their own glasses.
-DEFAULT_ELEMENT_MATERIAL: dict[str, Any] = {
-    "sellmeier": {
-        "b": [1.03961212, 0.231792346, 1.01046945],
-        "c": [0.00600588969, 0.0200179144, 103.560366],
-    }
-}
+# The material a fresh lens starts with: the catalog's default glass, so a new
+# element is a real crown (n_d 1.5168, V_d 64.17) instead of a made-up constant
+# index. The UI's interactive add and the warm-up element share this one copy, and
+# it is written out inline -- a project document carries its material parameters
+# rather than a name, so it stays readable if the catalog changes. The parameters
+# themselves are provisional placeholders (see optics.materials.catalog).
+DEFAULT_ELEMENT_MATERIAL: "dict[str, Any]" = material_block(DEFAULT_MATERIAL_NAME)
 
 
 def source_from_config(config: object) -> PointSource:

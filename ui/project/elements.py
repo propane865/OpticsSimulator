@@ -66,15 +66,15 @@ SUBMODULE_KEY = "submodule"
 
 
 def _only_material_changed(old_material: dict, new_material: dict) -> bool:
-    """Whether two material blocks differ in their coefficients and nothing else.
+    """Whether two material blocks differ in their dielectric model and nothing else.
 
-    A material is its Sellmeier coefficients and nothing else, so a differing
-    ``sellmeier`` block is exactly the material-only edit the caller uses to skip
-    a geometry rebuild; a block that gained or lost a key is not.
+    A material is its Lorentz model and nothing else, so a differing ``lorentz``
+    block is exactly the material-only edit the caller uses to skip a geometry
+    rebuild; a block that gained or lost a key is not.
     """
     if set(old_material) != set(new_material):
         return False
-    return old_material.get("sellmeier") != new_material.get("sellmeier")
+    return old_material.get("lorentz") != new_material.get("lorentz")
 
 
 def classify_element_edit(
@@ -82,8 +82,8 @@ def classify_element_edit(
 ) -> str:
     """Classify an element-config edit as ``none``, ``index``, ``transform`` or ``geometry``.
 
-    The result lets the UI skip needless work: a material-only edit (the
-    Sellmeier coefficients changed, so only the traced index does) leaves the
+    The result lets the UI skip needless work: a material-only edit (the Lorentz
+    parameters changed, so only the traced index and absorption do) leaves the
     rendered surface geometry alone, and a no-op edit needs no re-trace. Unknown
     or mixed changes conservatively report ``geometry``.
     """
@@ -103,7 +103,7 @@ def classify_element_edit(
 
     old_material = old.get("material") or {}
     new_material = new.get("material") or {}
-    index_changed = old_material.get("sellmeier") != new_material.get("sellmeier")
+    index_changed = old_material.get("lorentz") != new_material.get("lorentz")
 
     other_changed = old_material != new_material and not _only_material_changed(
         old_material, new_material

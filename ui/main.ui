@@ -390,72 +390,94 @@
                  <widget class="QWidget" name="widget_33" native="true">
                   <layout class="QVBoxLayout" name="verticalLayout_21">
                    <item>
-                    <widget class="QLabel" name="sellmeierCaption">
+                    <widget class="QWidget" name="widget_35" native="true">
+                     <layout class="QFormLayout" name="formLayout_10">
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                      <item row="0" column="0">
+                       <widget class="QLabel" name="materialSelectionLabel">
+                        <property name="text">
+                         <string>Material:</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="0" column="1">
+                       <widget class="QComboBox" name="materialSelection">
+                        <item>
+                         <property name="text">
+                          <string>Custom</string>
+                         </property>
+                        </item>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="loadMaterialButton">
                      <property name="text">
-                      <string>Sellmeier Coefficients:</string>
+                      <string>Load Custom Material...</string>
+                     </property>
+                     <property name="toolTip">
+                      <string>Choose a material JSON file whose eps_inf and oscillators replace this element's parameters; the file never joins the catalog.</string>
                      </property>
                     </widget>
                    </item>
                    <item>
-                    <widget class="QTableWidget" name="sellmeierTable">
-                     <property name="toolTip">
-                      <string>n(lam)^2 = 1 + sum_i B_i * lam^2 / (lam^2 - C_i), with lam in um (so C_i is in um^2 and B_i is dimensionless). A zero C_i makes its term a constant: B_1 = n^2 - 1, C_1 = 0 is a wavelength-independent index n.</string>
+                    <widget class="QLabel" name="materialParametersCaption">
+                     <property name="text">
+                      <string>Material Parameters:</string>
                      </property>
-                     <row>
-                      <property name="text">
-                       <string>Bi</string>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPlainTextEdit" name="materialParameters">
+                     <property name="readOnly">
+                      <bool>true</bool>
+                     </property>
+                     <property name="lineWrapMode">
+                      <enum>QPlainTextEdit::LineWrapMode::NoWrap</enum>
+                     </property>
+                     <property name="maximumBlockCount">
+                      <number>64</number>
+                     </property>
+                     <property name="plainText">
+                      <string notr="true"/>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QWidget" name="materialPreviewHost" native="true">
+                     <property name="minimumSize">
+                      <size>
+                       <width>0</width>
+                       <height>160</height>
+                      </size>
+                     </property>
+                     <layout class="QVBoxLayout" name="materialPreviewLayout">
+                      <property name="leftMargin">
+                       <number>0</number>
                       </property>
-                     </row>
-                     <row>
-                      <property name="text">
-                       <string>Ci</string>
+                      <property name="topMargin">
+                       <number>0</number>
                       </property>
-                     </row>
-                     <column>
-                      <property name="text">
-                       <string>i=1</string>
+                      <property name="rightMargin">
+                       <number>0</number>
                       </property>
-                     </column>
-                     <column>
-                      <property name="text">
-                       <string>i=2</string>
+                      <property name="bottomMargin">
+                       <number>0</number>
                       </property>
-                     </column>
-                     <column>
-                      <property name="text">
-                       <string>i=3</string>
-                      </property>
-                     </column>
-                     <item row="0" column="0">
-                      <property name="text">
-                       <string>0</string>
-                      </property>
-                     </item>
-                     <item row="0" column="1">
-                      <property name="text">
-                       <string>0</string>
-                      </property>
-                     </item>
-                     <item row="0" column="2">
-                      <property name="text">
-                       <string>0</string>
-                      </property>
-                     </item>
-                     <item row="1" column="0">
-                      <property name="text">
-                       <string>0</string>
-                      </property>
-                     </item>
-                     <item row="1" column="1">
-                      <property name="text">
-                       <string>0</string>
-                      </property>
-                     </item>
-                     <item row="1" column="2">
-                      <property name="text">
-                       <string>0</string>
-                      </property>
-                     </item>
+                     </layout>
                     </widget>
                    </item>
                    <item>
@@ -490,12 +512,40 @@
                       <item row="1" column="0">
                        <widget class="QLabel" name="calculatedIndexLabel">
                         <property name="text">
-                         <string>Calculated Refractive Index</string>
+                         <string>Calculated Refractive Index:</string>
                         </property>
                        </widget>
                       </item>
                       <item row="1" column="1">
                        <widget class="QLabel" name="calculatedIndexValue">
+                        <property name="text">
+                         <string>-</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="2" column="0">
+                       <widget class="QLabel" name="calculatedExtinctionLabel">
+                        <property name="text">
+                         <string>Calculated Extinction (k):</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="2" column="1">
+                       <widget class="QLabel" name="calculatedExtinctionValue">
+                        <property name="text">
+                         <string>-</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="3" column="0">
+                       <widget class="QLabel" name="calculatedAbsorptionLabel">
+                        <property name="text">
+                         <string>Absorption Coefficient:</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="3" column="1">
+                       <widget class="QLabel" name="calculatedAbsorptionValue">
                         <property name="text">
                          <string>-</string>
                         </property>

@@ -21,7 +21,10 @@
 namespace {
 
 using optics::native::accumulate_power;
+using optics::native::element_optical_response;
+using optics::native::LorentzOscillator;
 using optics::native::make_vec3;
+using optics::native::MaterialResponse;
 using optics::native::measure_direct;
 using optics::native::measure_planes_multi;
 using optics::native::MeasurementOutputView;
@@ -383,13 +386,18 @@ void test_fused_kernel() {
 
     std::vector<double> f_starts(n * kCap * 3), f_ends(n * kCap * 3);
     std::vector<signed char> f_kinds(n * kCap);
+    std::vector<double> f_transmissions(n * kCap, -1.0);
     std::vector<std::int64_t> f_counts(n, 0);
     std::vector<double> f_us(p * n, kNan), f_vs(p * n, kNan), f_pws(p * n, 0.0);
     const RayBatchView rays{origins, dirs, powers, wavelengths, n};
     const PlaneBatchView planes{po,    pn,    range_min, range_max, range_min,
                                 range_max, frame_su, frame_sv, frame_tu, frame_tv, p};
     const TraceOptions options{2.0, optics::native::PLANE_EPS};
-    const SegmentOutputView segs{f_starts.data(), f_ends.data(), f_kinds.data(), f_counts.data(),
+    const SegmentOutputView segs{f_starts.data(),
+                                 f_ends.data(),
+                                 f_kinds.data(),
+                                 f_transmissions.data(),
+                                 f_counts.data(),
                                  kCap};
     const MeasurementOutputView measurement{f_us.data(), f_vs.data(), f_pws.data()};
     trace_segments_and_planes(stack, rays, options, planes, segs, measurement);
@@ -408,6 +416,13 @@ void test_fused_kernel() {
                 CHECK(close(f_ends[3 * (kCap * i + k) + cc],
                             f_starts[3 * (kCap * i + k + 1) + cc], 1e-12));
             }
+        }
+    }
+    // Clear glass never dims: the fused kernel's per-segment transmissions are all
+    // exactly 1.0, which is what keeps every rendered golden drawn at full strength.
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::int64_t k = 0; k < f_counts[i]; ++k) {
+            CHECK(f_transmissions[kCap * i + k] == 1.0);
         }
     }
     // Straight ray through both parallel plates stays on axis.
@@ -478,6 +493,84 @@ void test_serial_trace_matches_pool() {
     CHECK(hit > 0);   // sanity: the fan actually crosses the plane
 }
 
+
+// Detector power with absorbing glass: whatever survives the path it travelled
+// arrives, and nothing else does. The expected fractions come from the model's own
+// coefficient and the geometric distance to each plane, so the check is the
+// integral, not a restatement of the kernel.
+void test_absorbed_power() {
+    // Catalogue-grade dispersion, damped enough that a millimetre of glass matters.
+    const auto dark = std::make_shared<MaterialResponse>(
+        MaterialResponse{1.64143538,
+                         {LorentzOscillator{0.42758017, 10.2, 1.0e-5},
+                          LorentzOscillator{0.2, 8.2, 1.0e-5},
+                          LorentzOscillator{0.6, 0.11, 0.03}}});
+    const auto plate = optics::native::Element::create(
+        fixture::plate_face(0.5, 1.0, 0.0, 48), fixture::plate_face(-0.5, 1.0, 0.0, 48), dark,
+        std::vector<double>{}, std::vector<double>{});
+    const double alpha = element_optical_response(*plate, 550.0).alpha_per_mm;
+    CHECK(alpha > 0.0);
+    const TraceStack stack = fixture::make_stack({plate});
+
+    // Three planes: in front of the plate, inside its glass, behind it.
+    const double origins[3] = {0.0, 0.0, 4.0};
+    const double dirs[3] = {0.0, 0.0, -1.0};
+    const double powers[1] = {2.0};
+    const double wavelengths[1] = {550.0};
+    const double po[9] = {0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, -3.0};
+    const double pn[9] = {0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0};
+    const double range_min[3] = {-10.0, -10.0, -10.0};
+    const double range_max[3] = {10.0, 10.0, 10.0};
+    const double frame_su[3] = {1.0, 1.0, 1.0};
+    const double frame_sv[3] = {0.0, 0.0, 0.0};
+    const double frame_tu[3] = {0.0, 0.0, 0.0};
+    const double frame_tv[3] = {1.0, 1.0, 1.0};
+    std::vector<double> us(3, kNan), vs(3, kNan), pws(3, 0.0);
+    const RayBatchView rays{origins, dirs, powers, wavelengths, 1};
+    const PlaneBatchView planes{po,    pn,    range_min, range_max, range_min,
+                                range_max, frame_su, frame_sv, frame_tu, frame_tv, 3};
+    const MeasurementOutputView out{us.data(), vs.data(), pws.data()};
+    measure_planes_multi(stack, rays, planes, optics::native::PLANE_EPS, out);
+
+    for (std::size_t q = 0; q < 3; ++q) {
+        CHECK(std::isfinite(us[q]));  // every plane is crossed
+    }
+    CHECK(close(pws[0], 2.0, 1e-15));  // nothing absorbed yet
+    CHECK(close(pws[1], 2.0 * std::exp(-alpha * 0.5), 1e-12));  // half way through
+    CHECK(close(pws[2], 2.0 * std::exp(-alpha * 1.0), 1e-12));  // the whole thickness
+    CHECK(pws[0] > pws[1] && pws[1] > pws[2]);
+
+    // A ray stopped at a face reaches no plane at all, so its power never appears.
+    const auto opaque = fixture::oscillator_material(1.0, {LorentzOscillator{3.0, 1.0, 0.0}});
+    const auto metal = optics::native::Element::create(
+        fixture::plate_face(0.5, 1.0, 0.0, 48), fixture::plate_face(-0.5, 1.0, 0.0, 48), opaque,
+        std::vector<double>{}, std::vector<double>{});
+    const TraceStack metal_stack = fixture::make_stack({metal});
+    const double metal_wavelength = optics::native::HC_EV_NM / 1.5;
+    std::vector<double> m_us(3, kSentinel), m_vs(3, kSentinel), m_pws(3, kSentinel);
+    const RayBatchView metal_rays{origins, dirs, powers, &metal_wavelength, 1};
+    const MeasurementOutputView metal_out{m_us.data(), m_vs.data(), m_pws.data()};
+    measure_planes_multi(metal_stack, metal_rays, planes, optics::native::PLANE_EPS, metal_out);
+    // The planes in front of and inside the glass are still crossed -- the ray gets
+    // to the front face and stops there -- but nothing is measured beyond it.
+    CHECK(close(m_pws[0], 2.0, 1e-15));
+    CHECK(m_pws[1] == kSentinel);
+    CHECK(m_pws[2] == kSentinel);
+
+    // Clear glass measures the launched power exactly: the same kernel, no damping.
+    const auto clear = fixture::constant_material(1.5);
+    const auto clear_plate = optics::native::Element::create(
+        fixture::plate_face(0.5, 1.0, 0.0, 48), fixture::plate_face(-0.5, 1.0, 0.0, 48), clear,
+        std::vector<double>{}, std::vector<double>{});
+    const TraceStack clear_stack = fixture::make_stack({clear_plate});
+    std::vector<double> c_us(3, kNan), c_vs(3, kNan), c_pws(3, 0.0);
+    const MeasurementOutputView clear_out{c_us.data(), c_vs.data(), c_pws.data()};
+    measure_planes_multi(clear_stack, rays, planes, optics::native::PLANE_EPS, clear_out);
+    for (std::size_t q = 0; q < 3; ++q) {
+        CHECK(c_pws[q] == 2.0);
+    }
+}
+
 }  // namespace
 
 void test_measurement() {
@@ -488,4 +581,5 @@ void test_measurement() {
     test_planes_multi();
     test_fused_kernel();
     test_serial_trace_matches_pool();
+    test_absorbed_power();
 }

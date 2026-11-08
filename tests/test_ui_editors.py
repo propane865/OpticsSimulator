@@ -1,6 +1,5 @@
 """Element, source, measurement-plane and submodule editor UI tests."""
 
-import math
 import os
 
 import numpy as np
@@ -12,11 +11,12 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtGui, QtWidgets
 
-from optics.constants import D_LINE_NM, SELLMEIER_TERMS
+from optics.constants import D_LINE_NM, HC_EV_NM
+from optics.materials import material_block, material_block_for, material_for_name, material_names
 from optics.measurement_plane import MeasurementPlane
-from optics.primitive import DEFAULT_WAVELENGTH_NM, Sellmeier
+from optics.primitive import DEFAULT_WAVELENGTH_NM
 from optics.project import DEFAULT_ELEMENT_MATERIAL
-from tests.materials import crown_material
+from tests.materials import dark_material
 from tests.ui_helpers import (
     CANCEL,
     OK,
@@ -35,15 +35,20 @@ from tests.ui_helpers import (
     _tree_select,
     _trigger_measurement_plane,
     _trigger_new_element,
-    lens_coefficients,
+    import_lens_material,
+    lens_absorption,
+    lens_extinction,
     lens_index,
+    lens_material_block,
+    lens_material_name,
+    lens_model,
     lens_wavelength_nm,
-    set_lens_coefficients,
-    set_lens_index,
+    set_lens_material,
+    write_material_file,
 )
 from ui.plane_view import PlaneView, _AspectLabel, _fit_rect
 from ui.project_tree import ProjectTree
-from ui.widgets import SELLMEIER_EQUATION_TIP, SELLMEIER_ROW_LABELS, sellmeier_column_labels
+from ui.widgets import CUSTOM_MATERIAL_LABEL, MATERIAL_EQUATION_TIP, material_combo_options
 
 
 def test_property_editor_disabled_without_stack(window):
@@ -81,13 +86,15 @@ def test_ok_applies_changes(stack_window):
     window = stack_window
 
     editor = _editor(window)
-    set_lens_index(editor, 1.8)
+    set_lens_material(editor, "N-SF11")
     editor["radius"].setValue(0.5)
     editor["radius2"].setValue(0.5)
     _click(window, OK)
 
     element = window.elements[0]
-    assert element.material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(1.8)
+    assert element.material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(
+        material_for_name("N-SF11").index_at(DEFAULT_WAVELENGTH_NM)
+    )
     assert element.surface1.aperture.radius == pytest.approx(0.5)
     assert element.surface2.aperture.radius == pytest.approx(0.5)
     assert _mesh_count(window.canvas.view) >= 6
@@ -234,8 +241,8 @@ def test_new_element_default_geometry(window):
     assert element.surface1.z_expr == "-2.5"
     assert float(element.surface2.point(0.0, 0.0)[2] - element.surface1.point(0.0, 0.0)[2]) == pytest.approx(5.0)
     # A new lens carries the shared default material -- a real N-BK7 crown, not
-    # a made-up index -- so its coefficients are the document default's exactly.
-    assert element.material.sellmeier == Sellmeier(**DEFAULT_ELEMENT_MATERIAL["sellmeier"])
+    # a made-up index -- so its parameters are the document default's exactly.
+    assert material_block_for(element.material) == DEFAULT_ELEMENT_MATERIAL
     assert element.material.index_at(D_LINE_NM) == pytest.approx(1.5168, abs=1e-4)
     assert element.surface1.aperture.radius == pytest.approx(7.5)
     assert element.surface2.aperture.radius == pytest.approx(7.5)
@@ -244,7 +251,7 @@ def test_new_element_default_geometry(window):
     # The table shows the same glass the element was built with -- read at the
     # window's own 405 nm source, where a violet ray sees BK7 denser than its
     # catalog n_d.
-    assert lens_index(editor) == pytest.approx(1.5302, abs=1e-4)
+    assert lens_index(editor) == pytest.approx(1.5307, abs=1e-4)
     assert editor["radius"].value() == pytest.approx(7.5)
     assert editor["s1"].text() == "-2.5"
     assert editor["s2"].text() == "2.5"
@@ -255,10 +262,12 @@ def test_ok_applies_to_new_element(stack_window):
     _trigger_new_element(window)
 
     editor = _editor(window)
-    set_lens_index(editor, 1.9)
+    set_lens_material(editor, "N-SF11")
     _click(window, OK)
 
-    assert window.elements[-1].material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(1.9)
+    assert window.elements[-1].material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(
+        material_for_name("N-SF11").index_at(DEFAULT_WAVELENGTH_NM)
+    )
     assert window.elements[0].material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(1.5)
     assert "Updated properties for lens3" in window.statusBar().currentMessage()
 
@@ -1261,156 +1270,296 @@ def test_plane_view_shrinkable_width():
         host.close()
 
 
-# -- the lens editor's Sellmeier coefficient table -----------------------------
+# -- the lens editor's material picker -------------------------------------------
 
 
-def test_coefficient_table_says_what_its_numbers_are(stack_window):
-    """Rows name the coefficient, columns the term, and the tooltip gives the units."""
+def test_the_picker_offers_the_catalog_then_custom(stack_window):
+    """Catalog names in order, ``Custom`` last, and the model's equation as the tip."""
     window = stack_window
-    _trigger_new_element(window)
-    editor = _editor(window)
-    table = editor["sellmeier"]
+    combo = _editor(window)["material"]
 
-    assert table.toolTip() == SELLMEIER_EQUATION_TIP
-    assert "um^2" in table.toolTip()
-    rows = [table.verticalHeaderItem(row).text() for row in range(table.rowCount())]
-    assert rows == list(SELLMEIER_ROW_LABELS)
-    columns = [table.horizontalHeaderItem(col).text() for col in range(table.columnCount())]
-    assert columns == list(sellmeier_column_labels(SELLMEIER_TERMS))
-
-
-def test_coefficient_table_columns_split_the_sidebar_width(stack_window, qt_app):
-    """The terms tile the table's width, so none of them hides behind a scrollbar."""
-    window = stack_window
-    _trigger_new_element(window)
-    table = _editor(window)["sellmeier"]
-    window.show()
-    qt_app.processEvents()
-
-    header = table.horizontalHeader()
-    assert header.sectionResizeMode(0) == QtWidgets.QHeaderView.ResizeMode.Stretch
-    assert header.stretchLastSection() is False
-
-    def tile() -> list[int]:
-        widths = [table.columnWidth(column) for column in range(table.columnCount())]
-        assert min(widths) > 0
-        assert max(widths) - min(widths) <= 1  # evenly spaced, no leftover slack column
-        assert abs(sum(widths) - table.viewport().width()) <= 1
-        assert table.horizontalScrollBar().maximum() == 0
-        return widths
-
-    widest = tile()
-    sidebar_width, max_width = table.width(), table.maximumWidth()
-    try:
-        table.setMaximumWidth(sidebar_width - 120)  # a much narrower sidebar
-        qt_app.processEvents()
-        assert tile() < widest
-    finally:
-        table.setMaximumWidth(max_width)
+    names = [combo.itemText(row) for row in range(combo.count())]
+    assert names == list(material_combo_options(material_names()))
+    assert names[-1] == CUSTOM_MATERIAL_LABEL
+    assert "N-BK7" in names
+    assert combo.toolTip() == MATERIAL_EQUATION_TIP
+    # Damping is the whole reason the model can absorb, so the tip has to say so.
+    assert "Gamma_j" in combo.toolTip() and "absorbs" in combo.toolTip()
 
 
-def test_coefficient_table_is_only_as_tall_as_its_rows(stack_window, qt_app):
-    """The table ends with its last row, instead of padding out a ten-row viewport."""
-    window = stack_window
-    _trigger_new_element(window)
-    table = _editor(window)["sellmeier"]
-    window.show()
-    qt_app.processEvents()
-
-    rows = sum(table.rowHeight(row) for row in range(table.rowCount()))
-    assert rows <= table.viewport().height() <= rows + 1
-    assert table.verticalScrollBar().maximum() == 0
-    assert table.sizePolicy().verticalPolicy() == QtWidgets.QSizePolicy.Policy.Fixed
-
-
-def test_the_readout_quotes_the_wavelength_being_traced(stack_window):
-    """The index is calculated at the source's colour and moves when it changes."""
+def test_the_parameter_view_shows_the_active_material(stack_window):
+    """Read-only, and holding exactly the numbers the element was built with."""
     window = stack_window
     editor = _editor(window)
-    crown = crown_material()["sellmeier"]
+    view = editor["parameters"]
 
-    set_lens_coefficients(editor, crown["b"], crown["c"])
-    blue_first = editor["index"].text()
+    assert view.isReadOnly()
+    assert lens_material_block(editor) == window._state.schema["lens1"]["material"]["lorentz"]
+    # The fixture stack is a constant-index lens: a background permittivity, no poles.
+    assert lens_material_block(editor) == {"epsilon_inf": 2.25, "oscillators": []}
+
+
+def test_a_constant_index_reads_as_custom(stack_window):
+    """Nothing in the catalog is a flat index, so the picker cannot name this one."""
+    window = stack_window
+    assert lens_material_name(_editor(window)) == CUSTOM_MATERIAL_LABEL
+
+
+def test_picking_a_catalog_glass_replaces_the_element_material(stack_window):
+    """One dropdown choice: parameters, config block and traced index all move."""
+    window = stack_window
+    editor = _editor(window)
+
+    set_lens_material(editor, "N-BK7")
+
+    assert lens_material_name(editor) == "N-BK7"
+    assert lens_material_block(editor) == material_block("N-BK7")["lorentz"]
+    _click(window, OK)
+
+    element = window.elements[0]
+    assert material_block_for(element.material) == material_block("N-BK7")
+    assert element.material.index_at(D_LINE_NM) == pytest.approx(1.5168, abs=1e-4)
+    # A flint disperses far harder, which is what the Abbe number is for.
+    set_lens_material(editor, "N-SF11")
+    _click(window, OK)
+    assert window.elements[0].material.abbe_number() < 40.0
+
+
+def test_a_catalog_glass_matches_back_to_its_name_on_reload(stack_window):
+    """The project stores parameters, and the picker re-derives the name from them."""
+    window = stack_window
+    editor = _editor(window)
+
+    set_lens_material(editor, "N-BK7")
+    _click(window, OK)
+    _tree_select(window, "lens2")
+    assert lens_material_name(editor) == CUSTOM_MATERIAL_LABEL  # the fixture's n = 1.5
+    _tree_select(window, "lens1")
+
+    assert lens_material_name(editor) == "N-BK7"
+
+
+def test_a_matching_glass_is_named_even_when_the_file_writes_integers(stack_window):
+    """``epsilon_inf: 1`` is the same material as ``1.0``, and the picker says so."""
+    window = stack_window
+    window._state.schema["lens2"]["material"] = {"lorentz": {"epsilon_inf": 1, "oscillators": []}}
+
+    _tree_select(window, "lens2")
+
+    assert lens_material_name(_editor(window)) == "AIR"
+
+
+def test_a_custom_import_becomes_the_elements_material(stack_window, tmp_path, monkeypatch):
+    """A JSON file replaces this element's parameters and is named in the status bar."""
+    window = stack_window
+    editor = _editor(window)
+    block = {"epsilon_inf": 2.25, "oscillators": []}
+    path = write_material_file(tmp_path / "glass.json", block, "FlatGlass")
+
+    import_lens_material(editor, path, monkeypatch)
+
+    assert lens_material_block(editor) == block
+    assert lens_material_name(editor) == CUSTOM_MATERIAL_LABEL
+    assert float(editor["index"].text()) == pytest.approx(1.5)
+    # The import names what it loaded -- and says where it put it.
+    assert "Loaded material FlatGlass into lens1" in window.statusBar().currentMessage()
+
+    _click(window, OK)
+
+    assert window.elements[0].material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(1.5)
+    assert window._state.schema["lens1"]["material"]["lorentz"] == block
+
+
+def test_an_import_never_extends_the_catalog(stack_window, tmp_path, monkeypatch):
+    """An imported name labels the import; it does not become a menu entry."""
+    window = stack_window
+    editor = _editor(window)
+    rows = editor["material"].count()
+    path = write_material_file(
+        tmp_path / "dark.json", dark_material()["lorentz"], "MyDarkCrown"
+    )
+
+    import_lens_material(editor, path, monkeypatch)
+
+    assert editor["material"].count() == rows
+    assert [editor["material"].itemText(row) for row in range(rows)].count("MyDarkCrown") == 0
+    # A dark glass is exactly where k stops being noise: orders of magnitude above
+    # the clear placeholder catalog glass at the same colour.
+    dark_k = lens_extinction(editor)
+    clear_k = material_for_name("N-BK7").extinction_at(lens_wavelength_nm(editor))
+    assert dark_k > 10.0 * clear_k
+    assert lens_absorption(editor) > 0.05  # a twentieth of the power per millimetre
+    assert editor["absorption"].text().endswith("1/mm")
+    assert float(editor["absorption"].text().split()[0]) == pytest.approx(
+        lens_absorption(editor), rel=1e-3
+    )
+
+
+def test_an_unreadable_material_file_leaves_the_form_alone(
+    stack_window, tmp_path, monkeypatch, captured_warnings
+):
+    """A bad file is refused with its reason, over an unchanged element and picker."""
+    window = stack_window
+    editor = _editor(window)
+    set_lens_material(editor, "N-BK7")
+    before = lens_material_block(editor)
+    (tmp_path / "junk.json").write_text("{not json", encoding="utf-8")
+
+    import_lens_material(editor, tmp_path / "junk.json", monkeypatch)
+
+    assert captured_warnings and "not valid JSON" in captured_warnings[-1][2]
+    assert lens_material_block(editor) == before
+    assert lens_material_name(editor) == "N-BK7"
+    assert "Loaded material" not in window.statusBar().currentMessage()
+
+
+def test_material_parameters_the_model_refuses_are_refused_by_name(
+    stack_window, tmp_path, monkeypatch, captured_warnings
+):
+    """The import goes through the loader's validator, so nothing half-written lands."""
+    window = stack_window
+    editor = _editor(window)
+    path = tmp_path / "bad.json"
+    path.write_text(
+        '{"lorentz": {"epsilon_inf": -1.0, "oscillators": [], "extra": 1}}', encoding="utf-8"
+    )
+
+    import_lens_material(editor, path, monkeypatch)
+
+    assert captured_warnings and "epsilon_inf" in captured_warnings[-1][2]
+    assert lens_material_name(editor) == CUSTOM_MATERIAL_LABEL
+
+
+def test_a_material_with_no_oscillator_block_is_refused_by_name(
+    stack_window, tmp_path, monkeypatch, captured_warnings
+):
+    """The refusal names the shape a valid document has, so the file is fixable."""
+    window = stack_window
+    path = tmp_path / "bare.json"
+    path.write_text('{"name": "Nope"}', encoding="utf-8")
+
+    import_lens_material(_editor(window), path, monkeypatch)
+
+    text = captured_warnings[-1][2]
+    assert captured_warnings and "lorentz" in text and "oscillators" in text
+
+
+def test_picking_custom_is_not_a_way_to_lose_parameters(stack_window, tmp_path, monkeypatch):
+    """``Custom`` describes what is in the form, so choosing it changes nothing."""
+    window = stack_window
+    editor = _editor(window)
+    block = {"epsilon_inf": 2.25, "oscillators": []}
+    import_lens_material(
+        editor, write_material_file(tmp_path / "glass.json", block), monkeypatch
+    )
+
+    editor["material"].setCurrentText(CUSTOM_MATERIAL_LABEL)
+
+    assert lens_material_block(editor) == block
+
+
+def test_the_readouts_quote_n_k_and_alpha_at_the_traced_wavelength(stack_window):
+    """Three numbers, one wavelength: the form must not quietly disagree with itself."""
+    window = stack_window
+    editor = _editor(window)
+    set_lens_material(editor, "N-BK7")
+    wavelength = lens_wavelength_nm(editor)
+    crown = material_for_name("N-BK7")
+
+    # The readout is a display of the model, to six decimals -- not a re-derivation,
+    # so the tolerance is the printed precision, not the arithmetic's.
+    assert float(editor["index"].text()) == pytest.approx(
+        crown.index_at(wavelength), rel=1e-6
+    )
+    assert float(editor["extinction"].text()) == pytest.approx(
+        crown.extinction_at(wavelength), rel=1e-3
+    )
+    assert float(editor["absorption"].text().split()[0]) == pytest.approx(
+        crown.absorption_coefficient_at(wavelength), rel=1e-3
+    )
+    assert editor["index"].toolTip() == ""
+
+
+def test_the_readouts_move_with_the_source_wavelength(stack_window):
+    """The colour belongs to the source, so a source edit moves the readouts."""
+    window = stack_window
+    editor = _editor(window)
+    set_lens_material(editor, "N-BK7")
+    violet = float(editor["index"].text())
 
     _source_editor(window)["wavelength"].setValue(450.0)
     _click_source(window, OK)
 
     assert editor["wavelength"].text() == "450.00 nm"
     assert float(editor["index"].text()) == pytest.approx(
-        Sellmeier(**crown).index_at(450.0), rel=1e-6
+        material_for_name("N-BK7").index_at(450.0), rel=1e-6
     )
-    # Crown glass is stronger in blue, so the same coefficients read a higher index.
-    assert float(blue_first) > float(editor["index"].text())
+    # Normal dispersion: a shorter wavelength sees a denser glass.
+    assert violet > float(editor["index"].text())
 
 
-def test_typing_coefficients_recalculates_the_index(stack_window):
-    """Six typed coefficients, one readout: n at the traced wavelength, from the model."""
-    window = stack_window
-    _trigger_new_element(window)
-    editor = _editor(window)
-    crown = crown_material()["sellmeier"]
+def test_a_resonance_at_the_traced_wavelength_says_so(stack_window, tmp_path, monkeypatch):
+    """An undamped oscillator exactly on the colour has no index -- and the form says why.
 
-    set_lens_coefficients(editor, crown["b"], crown["c"])
-    assert float(editor["index"].text()) == pytest.approx(
-        Sellmeier(**crown).index_at(lens_wavelength_nm(editor)), rel=1e-6
-    )
-
-    # A shorter list is a whole material too: b = [1], c = [0] holds sqrt(2).
-    set_lens_coefficients(editor, [1.0], [0.0])
-    assert float(editor["index"].text()) == pytest.approx(math.sqrt(2.0), rel=1e-6)
-
-
-def test_a_pole_at_the_traced_wavelength_says_so(stack_window):
-    """A material with no index at this colour says which -- and still commits.
-
-    The trace absorbs a ray whose wavelength lands on a pole, so the document is
-    legal and the readout is where the warning belongs; refusing the edit would
-    hide a property of one colour behind a refusal to store the glass at all.
+    The trace absorbs such a ray rather than refracting it into nonsense, so the
+    document stays legal and the refusal belongs in the readout, not in a dialog.
     """
     window = stack_window
-    _trigger_new_element(window)
     editor = _editor(window)
-    pole = (window._state.source.wavelength / 1000.0) ** 2
+    resonance_ev = HC_EV_NM / lens_wavelength_nm(editor)
+    path = write_material_file(
+        tmp_path /
+        "resonant.json",
+        {
+            "epsilon_inf": 2.0,
+            "oscillators": [
+                {"strength": 1.0, "resonance_ev": resonance_ev, "damping_ev": 0.0}
+            ],
+        },
+    )
 
-    set_lens_coefficients(editor, [1.0], [pole])
+    import_lens_material(editor, path, monkeypatch)
+
     assert editor["index"].text() == "-"
-    assert "pole" in editor["index"].toolTip()
+    assert "resonates exactly" in editor["index"].toolTip()
+    assert editor["extinction"].text() == "-"
 
     _click(window, OK)
 
-    assert window.elements[-1].material.sellmeier == Sellmeier(b=[1.0], c=[pole])
+    assert lens_model(editor).model.oscillators[0].damping_ev == 0.0
+    assert window.elements[0].material.absorption_coefficient_at(
+        lens_wavelength_nm(editor) + 100.0
+    ) >= 0.0
 
 
-def test_coefficients_round_trip_through_the_schema(stack_window):
-    """Type, apply, re-select: the cells hold the document's coefficients exactly."""
+def test_loading_a_lens_is_not_a_material_edit(stack_window):
+    """Selecting lenses repopulates the picker without firing a user choice."""
     window = stack_window
     editor = _editor(window)
-    crown = crown_material()["sellmeier"]
-
-    set_lens_coefficients(editor, crown["b"], crown["c"])
-    _click(window, OK)
-
-    stored = window._state.schema["lens1"]["material"]["sellmeier"]
-    assert stored["b"] == pytest.approx(crown["b"])
-    assert stored["c"] == pytest.approx(crown["c"])
-    assert window.elements[0].material.sellmeier == Sellmeier(**crown)
-
-    _tree_select(window, "lens2")
-    assert lens_index(editor) == pytest.approx(1.5)  # the fixture stack stays n = 1.5
-    _tree_select(window, "lens1")
-    coefficients = lens_coefficients(editor)
-    assert coefficients[:SELLMEIER_TERMS] == pytest.approx(crown["b"])
-    assert coefficients[SELLMEIER_TERMS:] == pytest.approx(crown["c"])
-
-
-def test_populating_the_table_is_not_an_edit(stack_window):
-    """Loading a lens into the table never fires the table's own change signal."""
-    window = stack_window
-    editor = _editor(window)
-    edits: list[object] = []
-    editor["sellmeier"].cellChanged.connect(lambda *_: edits.append(object()))
+    picks: list[str] = []
+    editor["material"].currentTextChanged.connect(picks.append)
 
     _tree_select(window, "lens2")
     _tree_select(window, "lens1")
 
-    assert edits == []
+    assert picks == []
+
+
+def test_the_preview_panel_is_embedded_and_redraws(stack_window):
+    """The panel is hosted in the form and plots the material the picker holds."""
+    window = stack_window
+    editor = _editor(window)
+    host = editor["preview"]
+    assert host.layout().count() >= 1  # vispy's Qt widget lives inside the host
+
+    panel = window._element_editor._preview
+    n, log_k = panel.set_material(material_for_name("N-BK7"))
+
+    assert n.shape == panel.wavelengths_nm.shape
+    assert np.all(n > 1.45) and np.all(n < 1.60)  # a crown, across the plotted band
+    assert np.all(np.isfinite(log_k))
+    assert n[0] > n[-1]  # normal dispersion, drawn the same way the readout says
+
+    set_lens_material(editor, "N-SF11")
+    flint_n, _ = panel.set_material(material_for_name("N-SF11"))
+    assert np.all(flint_n > n)  # the flint is denser everywhere in the band

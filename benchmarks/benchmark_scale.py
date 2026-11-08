@@ -68,7 +68,7 @@ class PlaneBench:
             bc.RAY_LENGTH,
             self.planes,
         )
-        return int((out[4] == out[4]).sum())
+        return int((out[5] == out[5]).sum())  # us: NaN where a ray missed
 
 
 def main(argv: "list[str] | None" = None) -> int:

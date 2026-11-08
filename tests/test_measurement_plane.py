@@ -372,7 +372,7 @@ def test_fused_trace_measure_matches_above_zero(make_element):
     plane = _axis_plane(1.0)
 
     us, vs, pws = system.measure_planes(origins, dirs, powers, wavelengths, [plane])
-    _, _, _, _, fused_us, fused_vs, fused_pws = system.trace_segments_and_planes(
+    _, _, _, _, _, fused_us, fused_vs, fused_pws = system.trace_segments_and_planes(
         origins, dirs, powers, wavelengths, 200.0, [plane]
     )
 

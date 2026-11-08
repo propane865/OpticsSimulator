@@ -120,9 +120,9 @@ Qt-free core can still emit from an already-decoded grid:
 `wavelength` is the vacuum wavelength in nanometres (default 405), stamped on
 every ray the source emits and carried on each `Ray`; the Light Source panel
 edits the same value, and a document written without the key loads at that
-default. It is the colour the trace refracts at: each element's index is
-evaluated from its own Sellmeier coefficients at the wavelength of the ray being
-traced, so changing it moves focus. A multi-wavelength fan is a per-ray colour,
+default. It is the colour the trace refracts at: each element's complex index is
+evaluated from its own Lorentz dielectric model at the wavelength of the ray being
+traced, so changing it moves focus and changes how much glass the ray crosses. A multi-wavelength fan is a per-ray colour,
 not a per-stack setting -- see [Materials and dispersion](#materials-and-dispersion).
 
 ## Optical stack format
@@ -153,9 +153,9 @@ A stack is a JSON object mapping element names to element configs:
       }
     },
     "material": {
-      "sellmeier": {
-        "b": [1.25],
-        "c": [0.0]
+      "lorentz": {
+        "epsilon_inf": 2.25,
+        "oscillators": []
       }
     },
     "position": [0.0, 0.0, 0.0],
@@ -170,49 +170,90 @@ Apertures are optional and circular: `radius` is required, `center`
 
 ### Materials and dispersion
 
-An element's material is its Sellmeier coefficients and nothing else:
+An element's material is a complex Lorentz dielectric model and nothing else:
 
 ```json
-"material": { "sellmeier": { "b": [...], "c": [...] } }
+"material": {
+  "lorentz": {
+    "epsilon_inf": 1.68085047,
+    "oscillators": [
+      { "strength": 0.58818591, "resonance_ev": 9.11918305, "damping_ev": 9.995155e-06 },
+      { "strength": 0.60894586, "resonance_ev": 0.10926037, "damping_ev": 2.998139e-04 }
+    ]
+  }
+}
 ```
 
-The published three-term form, with `lam` the wavelength in **micrometres**:
+`epsilon_inf` is the background permittivity left when nothing resonates; each
+oscillator contributes a resonance of `strength` at photon energy `resonance_ev`
+electronvolts with damping (width) `damping_ev`. At photon energy
+`E = hc / lambda` the response is
 
 ```text
-n(lam)^2 = 1 + sum_i B_i * lam^2 / (lam^2 - C_i)
+epsilon(E) = epsilon_inf + sum_j S_j * E_j^2 / (E_j^2 - E^2 - i * Gamma_j * E)
 ```
 
-`B_i` is dimensionless and `C_i` is in **um^2** (catalog tables quote the pole
-wavelength `lam_i` in um; `C_i = lam_i^2`). One to three terms are accepted and
-zero padded, so a missing `C_i` is `0` and a zero `B_i` drops its term. Ray
-wavelengths stay in nanometres everywhere else in the codebase; the nm to um
-conversion happens once, where the index is evaluated.
+and one complex square root of it gives the whole optical response,
+`n + i * k`, always on the passive branch (`n >= 0`, `k >= 0`). Index and
+extinction are therefore two views of one number: no separate `k` table to
+maintain, and no way for a material to claim a dispersion its absorption does not
+imply. Ray wavelengths stay in nanometres everywhere else in the codebase; the nm
+to eV conversion happens once, where the response is evaluated.
 
-A zero pole makes its term a plain constant, which is how a
-wavelength-independent index is written -- `b = [n**2 - 1]`, `c = [0]` reads back
-as exactly `n` at every wavelength, bit for bit. That idiom is what the bundled
-examples and the test fixtures use for `n = 1.5`.
+With no oscillator the model is a constant index, which is how a
+wavelength-independent glass is written -- `epsilon_inf: 2.25` with
+`"oscillators": []` reads back as exactly `1.5` at every wavelength, bit for bit.
+That idiom is what the bundled examples and the test fixtures use for `n = 1.5`,
+and it is why `AIR` needs no special case: `epsilon_inf: 1.0` and nothing else is
+an optically inert element.
 
-There is no `refractive_index` key any more: a material config without
-`sellmeier` is refused with a message naming the coefficients to write.
+Names the app offers -- `AIR`, `N-BK7`, `F_SILICA`, `N-SF11`, `N-SF5`, `N-F2`,
+`N-BAK4`, `N-SK16`, `N-LAK22`, `N-LASF9` -- live in `optics/materials/catalog.py`
+and are inlined into an element when picked, so a project file stays readable
+without the catalog. **Those parameters are provisional placeholders** tuned to
+published `(n_d, V_d)` pairs; only `N-BK7` comes from a fit to tabulated data, and
+even its tables are synthetic (see `tools/data/PLACEHOLDER.md`). Nothing here is
+quoted as a transmittance percentage for a real part. A material the catalog does
+not carry is imported through the lens editor's **Load Custom Material...** as the
+same `lorentz` block, inline in that one element, after which the editor labels it
+`Custom`.
 
-What the trace does with the index:
+There is no `refractive_index` key any more, and a `sellmeier` block is refused by
+name rather than converted: Sellmeier coefficients state no damping, so there is
+no `k` to recover from them and inventing one would be a silent fabrication.
+
+What the trace does with the response:
 
 - **Per ray, per element.** Inside an element the colour is fixed, so one
-  Sellmeier evaluation happens per element entry per ray; outside every element
-  is vacuum (`n = 1`), and all-zero coefficients are a legal, optically inert
-  element.
+  dielectric evaluation happens per element entry per ray; outside every element
+  is vacuum (`n = 1`).
+- **Refraction uses `n`, absorption uses `k`.** The real part bends the ray and
+  the imaginary part costs it power -- the standard weakly-absorbing
+  approximation. It also marks where the model stops being quantitative: near a
+  strong resonance the real permittivity turns negative and `n` falls toward
+  zero, where the traced geometry is qualitative rather than correct.
 - **Chromatic focus is real.** A positive lens is stronger in blue, so a
   polychromatic fan does not share a focus; `tests/test_dispersion.py` pins the
-  axial colour spread to `f / V_d`.
-- **No index means absorbed.** If the coefficients give no real index at a
-  traced wavelength (a pole, or a sum that is not positive), the ray is absorbed
-  by the existing "did not exit" path -- never a NaN in the geometry, never an
-  exception from a parallel kernel. The lens editor quotes the index at the
-  source's wavelength and shows `-` with the reason when there is none.
-- **Imported glasses are dispersed, not flattened.** A Zemax `GLAS` name with
-  published coefficients keeps them; anything else gets coefficients fitted to
-  its `(n_d, V_d)`, and the import report says which route each glass took.
+  axial colour spread to the ratio of the glasses' Abbe numbers.
+- **No index means absorbed.** If the response gives no positive real index at a
+  traced wavelength -- what happens above an undamped resonance -- the ray is
+  absorbed by the existing "did not exit" path: never a NaN in the geometry,
+  never an exception from a parallel kernel. The lens editor quotes `n`, `k` and
+  the absorption coefficient at the source's wavelength and shows `-` with the
+  reason when there is none.
+- **Power is spent, not forgotten.** Inside glass a ray loses power by
+  Beer-Lambert, `exp(-alpha * length)` with `alpha = 4 * pi * k / lambda` per mm
+  integrated along the path actually travelled inside, so detector readings and
+  drawn ray brightness both fall below what the source launched -- and an
+  absorbed ray arrives with nothing. Only bulk absorption is modelled: surfaces
+  are assumed anti-reflection coated, so no power is reflected at a boundary.
+- **Imported glasses are dispersed with the shipped model, and named glasses
+  only.** A Zemax `GLAS` record is resolved by *name* to a catalog glass (`BK7`
+  and a few other short forms are known aliases); the import report quotes the
+  shipped `n_d` against the file's `nd`. A glass the catalog does not carry, or
+  one the file describes only by an index, fails the import: `nd` and `V_d` do
+  not determine resonances and damping, and fitting them would be guesswork
+  dressed as data.
 
 ### Surface expressions
 

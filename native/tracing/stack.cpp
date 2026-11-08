@@ -2,6 +2,7 @@
 // the rendering segment writer shared with the measurement kernels.
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -112,6 +113,12 @@ void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3
     std::uint64_t visited_mask = 0;
     Vec3 cur_o = o;
     Vec3 cur_d = d;
+    // Beer-Lambert carried along the walk: the power a ray still has when it
+    // enters an element, multiplied by the transmission through every element it
+    // has already crossed. The internal polyline is the path length -- curved
+    // faces, oblique paths, thick lenses and internal bounces are all already in
+    // it -- so no separate geometric formula is needed here.
+    double transmission = 1.0;
     hops.reserve(stack.size() + 1);
     for (;;) {
         const std::pair<int, ElementHit> best =
@@ -123,6 +130,7 @@ void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3
             tail.o = cur_o;
             tail.d = cur_d;
             tail.has_element = false;
+            tail.transmission_at_entry = transmission;
             hops.push_back(std::move(tail));
             return;
         }
@@ -131,13 +139,23 @@ void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3
         } else {
             visited[static_cast<std::size_t>(best.first)] = 1;
         }
-        const ElementTrace tr = trace_element(*stack.elements[static_cast<std::size_t>(best.first)],
-                                             cur_o, cur_d, wavelength_nm, best.second);
+        // One material evaluation per element interaction: the index that bends
+        // the ray and the coefficient that would attenuate it come from the same
+        // complex number, and the walk below integrates that coefficient.
+        const Element& entered = *stack.elements[static_cast<std::size_t>(best.first)];
+        const OpticalResponse response = element_optical_response(entered, wavelength_nm);
+        const ElementTrace tr =
+            trace_element(entered, cur_o, cur_d, response, best.second);
         RayHop h;
         h.o = cur_o;
         h.d = cur_d;
         h.entry_t = best.second.t;
         h.has_element = true;
+        h.transmission_at_entry = transmission;
+        // A material with no response here swallows the ray at its entry face;
+        // it has no coefficient to integrate, and a NaN in the hop would leak a
+        // non-number into the segments drawn up to that face.
+        h.alpha_per_mm = std::isfinite(response.alpha_per_mm) ? response.alpha_per_mm : 0.0;
         h.has_incident = tr.has_incident;
         h.exited = tr.exited;
         if (tr.has_incident) {
@@ -145,6 +163,15 @@ void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3
         }
         h.n_pts = tr.n_pts;
         std::copy_n(tr.pts.begin(), tr.n_pts, h.pts.begin());
+        if (tr.exited) {
+            // Integrate the coefficient over the polyline the walk actually took.
+            double path_mm = 0.0;
+            for (int k = 0; k + 1 < tr.n_pts; ++k) {
+                path_mm += norm(tr.pts[static_cast<std::size_t>(k + 1)] -
+                                tr.pts[static_cast<std::size_t>(k)]);
+            }
+            transmission *= std::exp(-h.alpha_per_mm * path_mm);
+        }
         hops.push_back(std::move(h));
         if (!tr.exited) {
             return;  // absorbed inside the element: no trailing gap
@@ -164,10 +191,15 @@ RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d, double
 // the trailing gap capped at ``ray_length`` (omitted when the ray is
 // absorbed). Segment kinds 0/1/2 = incident/internal/exit.
 int format_segments(const RayHops& hops, double ray_length, double* starts, double* ends,
-                    signed char* kinds, std::size_t cap) {
+                    signed char* kinds, double* transmissions, std::size_t cap) {
     std::size_t count = 0;
     signed char kind = 0;
     for (const RayHop& h : hops) {
+        // The power still travelling at the start of each segment written for
+        // this hop: it enters at ``transmission_at_entry`` and decays as the
+        // polyline runs, so the picture fades along the same path the detector
+        // integrates.
+        double inside = h.transmission_at_entry;
         if (h.has_element) {
             if (h.has_incident && count < cap) {
                 for (int i = 0; i < 3; ++i) {
@@ -175,6 +207,9 @@ int format_segments(const RayHops& hops, double ray_length, double* starts, doub
                     ends[3 * count + i] = h.incident_pt[i];
                 }
                 kinds[count] = kind;
+                if (transmissions != nullptr) {
+                    transmissions[count] = inside;
+                }
                 ++count;
             }
             for (std::size_t k = 0; k + 1 < h.n_pts; ++k) {
@@ -188,7 +223,11 @@ int format_segments(const RayHops& hops, double ray_length, double* starts, doub
                     ends[3 * count + i] = e[i];
                 }
                 kinds[count] = 1;
+                if (transmissions != nullptr) {
+                    transmissions[count] = inside;
+                }
                 ++count;
+                inside *= std::exp(-h.alpha_per_mm * norm(e - s));
             }
             if (!h.exited) {
                 return static_cast<int>(count);  // absorbed: stop, no trailing gap
@@ -201,6 +240,9 @@ int format_segments(const RayHops& hops, double ray_length, double* starts, doub
                     ends[3 * count + i] = h.o[i] + ray_length * h.d[i];
                 }
                 kinds[count] = kind;
+                if (transmissions != nullptr) {
+                    transmissions[count] = inside;
+                }
                 ++count;
             }
             return static_cast<int>(count);
@@ -212,26 +254,30 @@ int format_segments(const RayHops& hops, double ray_length, double* starts, doub
 StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
                                    double wavelength_nm, const TraceOptions& options,
                                    RayHops& hops, double* starts, double* ends,
-                                   signed char* kinds, std::size_t cap) {
+                                   signed char* kinds, double* transmissions, std::size_t cap) {
     fill_hops(hops, stack, o, d, wavelength_nm);
     StackSegments seg;
-    seg.count = format_segments(hops, options.ray_length, starts, ends, kinds, cap);
+    seg.count =
+        format_segments(hops, options.ray_length, starts, ends, kinds, transmissions, cap);
     // The final free-travel state is the last hop: a tail gap after the last
     // exit, or the gap entering the element that absorbed the ray.
     const RayHop& last = hops.back();
     seg.exited = !last.has_element || last.exited;
     seg.final_o = last.o;
     seg.final_d = last.d;
+    // A ray that exited carries the tail hop's accumulated transmission; a ray
+    // stopped by an element carries no power out of the stack at all.
+    seg.transmission = seg.exited ? last.transmission_at_entry : 0.0;
     return seg;
 }
 
 StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
                                    double wavelength_nm, const TraceOptions& options,
                                    double* starts, double* ends, signed char* kinds,
-                                   std::size_t cap) {
+                                   double* transmissions, std::size_t cap) {
     RayHops hops;
     return trace_stack_segments(stack, o, d, wavelength_nm, options, hops, starts, ends, kinds,
-                                cap);
+                                transmissions, cap);
 }
 
 }  // namespace optics::native

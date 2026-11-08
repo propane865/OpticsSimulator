@@ -31,7 +31,12 @@ void crossing_local(const PlaneFrame& frame, const Vec3& po, double uu, double v
 // (crossing t <= entry_t, or parallel with no element); otherwise the
 // element's internal segments are checked (in extent and within the segment),
 // continuing to the next gap on exit. Returns ``false`` when the ray never
-// reaches the plane. ``u``/``v`` receive detector-local ``(s, t)`` coordinates.
+// reaches the plane. ``u``/``v`` receive detector-local ``(s, t)`` coordinates and
+// ``transmission`` the fraction of the ray's power still alive at the crossing:
+// the hop's entry value for a free-space crossing, or that value attenuated by
+// ``exp(-alpha * distance)`` over the internal path actually travelled when the
+// crossing is inside the glass -- completed polyline segments plus the fraction
+// of the crossing segment, which is the same polyline the renderer draws.
 //
 // Plane crossings are solved in unnormalized lambda form
 // ``lambda = n.(po - start) / n.delta`` instead of normalizing each segment
@@ -42,7 +47,7 @@ void crossing_local(const PlaneFrame& frame, const Vec3& po, double uu, double v
 // ``|n.d/n_z| > eps``) are preserved on the same quantities.
 bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
                         const PlaneRegion& region, const PlaneFrame& frame, double eps, double* u,
-                        double* v) {
+                        double* v, double* transmission) {
     const double nz = pn[2];
     if (std::abs(nz) <= eps) {
         return false;  // plane_intersect never crosses a vertical plane
@@ -70,9 +75,11 @@ bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
                 return false;
             }
             crossing_local(frame, po, uu, vv, u, v);
+            *transmission = h.transmission_at_entry;
             return true;
         }
         const std::size_t m = static_cast<std::size_t>(h.n_pts);
+        double travelled = 0.0;  // internal path length completed before this segment
         for (std::size_t k = 0; k + 1 < m; ++k) {
             const Vec3 seg_o = h.pts[k];
             const Vec3 delta = h.pts[k + 1] - seg_o;
@@ -80,6 +87,9 @@ bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
             if (len2 <= 0.0) {
                 continue;
             }
+            const double seg_len = std::sqrt(len2);
+            const double entry_len = travelled;
+            travelled += seg_len;
             const double sdenom = dot3(pn, delta);
             const double sden2 = sdenom * sdenom;
             // |n . delta/|delta|| > eps and > eps*|n_z|, in squared form.
@@ -102,6 +112,8 @@ bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
             if (s >= region.u_min && s <= region.u_max && tt >= region.v_min && tt <= region.v_max) {
                 *u = s;
                 *v = tt;
+                *transmission = h.transmission_at_entry *
+                                std::exp(-h.alpha_per_mm * (entry_len + lambda * seg_len));
                 return true;
             }
         }
@@ -123,12 +135,17 @@ void measure_all_planes(const RayHops& hops, const RayBatchView& rays, std::size
         const PlaneRegion region{planes.u_min[q], planes.u_max[q], planes.v_min[q],
                                  planes.v_max[q]};
         const PlaneFrame frame{planes.s_u[q], planes.s_v[q], planes.t_u[q], planes.t_v[q]};
+        double transmission = 1.0;
         if (measure_hops_plane(hops, as_vec3(planes.origins + 3 * q),
-                               as_vec3(planes.normals + 3 * q), region, frame, eps, &u, &v)) {
+                               as_vec3(planes.normals + 3 * q), region, frame, eps, &u, &v,
+                               &transmission)) {
             const std::size_t idx = q * rays.count + i;
             out.us[idx] = u;
             out.vs[idx] = v;
-            out.powers[idx] = rays.powers[i];
+            // Bulk absorption only: whatever survives the glass it travelled
+            // through arrives at the detector. Surfaces are not yet lossy, so an
+            // unobstructed ray through clear material arrives at full power.
+            out.powers[idx] = rays.powers[i] * transmission;
         }
     }
 }
@@ -217,10 +234,10 @@ void trace_segments_and_planes(const TraceStack& stack, const RayBatchView& rays
         for (std::size_t i = lo; i < hi; ++i) {
             fill_hops(hops, stack, as_vec3(rays.origins + 3 * i), as_vec3(rays.directions + 3 * i),
                       rays.wavelengths[i]);
-            segments.counts[i] =
-                format_segments(hops, options.ray_length, segments.starts + 3 * segments.capacity * i,
-                                segments.ends + 3 * segments.capacity * i,
-                                segments.kinds + segments.capacity * i, segments.capacity);
+            segments.counts[i] = format_segments(
+                hops, options.ray_length, segments.starts + 3 * segments.capacity * i,
+                segments.ends + 3 * segments.capacity * i, segments.kinds + segments.capacity * i,
+                segments.transmissions + segments.capacity * i, segments.capacity);
             measure_all_planes(hops, rays, i, planes, options.plane_eps, measurement);
         }
     });

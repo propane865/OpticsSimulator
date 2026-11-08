@@ -3,39 +3,57 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Callable, Mapping, Sequence
+import json
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 from PySide6 import QtWidgets
 
 from optics.config import (
-    SELLMEIER_REQUIRED_MESSAGE,
     element_orientation,
     element_position,
+    material_from_config,
     refractive_element_from_config,
 )
-from optics.constants import SELLMEIER_TERMS
-from optics.primitive import DEFAULT_WAVELENGTH_NM, Sellmeier
+from optics.materials.catalog import (
+    DEFAULT_MATERIAL_NAME,
+    catalog_name_for,
+    material_block,
+    material_block_for,
+    material_names,
+)
+from optics.primitive import DEFAULT_WAVELENGTH_NM, Material
 
+from ..material_preview import MaterialPreviewPanel
 from ..model import DEFAULT_ELEMENT_CONFIG, ProjectState, classify_element_edit
 from ..scene import SceneController
 from ..widgets import (
-    configure_sellmeier_table,
+    CUSTOM_MATERIAL_LABEL,
+    configure_material_combo,
     configure_spin,
     find_child,
-    read_sellmeier_cells,
+    format_material_parameters,
     run_validated,
-    write_sellmeier_cells,
+    select_material_name,
 )
 from .base import _SelectorEditor
 
 _DEFAULT_APERTURE_RADIUS = float(DEFAULT_ELEMENT_CONFIG["surface1"]["aperture"]["radius"])
 
-# The coefficient table's caption, and what the readout says when the material has
-# no index to quote. Designer seeds the labels; the controller restates the caption
-# so a hand-edited copy of the form cannot rename what the numbers are.
-_MATERIAL_CAPTION = "Sellmeier Coefficients:"
+# The parameter view's caption, and what the readouts say when the material has no
+# index to quote. Designer seeds the labels; the controller restates the caption so a
+# hand-edited copy of the form cannot rename what the numbers are.
+_MATERIAL_CAPTION = "Material Parameters:"
 NO_INDEX_TEXT = "-"
+
+MATERIAL_IMPORT_TITLE = "Load Custom Material"
+MATERIAL_IMPORT_FILTER = "Material JSON (*.json);;All files (*.*)"
+MATERIAL_IMPORT_ERROR_TITLE = "Invalid Material File"
+CUSTOM_MATERIAL_DOCUMENT = (
+    'expected {"name": ..., "lorentz": {"epsilon_inf": ..., "oscillators": '
+    "[{\"strength\": ..., \"resonance_ev\": ..., \"damping_ev\": ...}, ...]}}"
+)
 
 
 def _label_wavelength_nm(state: ProjectState) -> float:
@@ -50,60 +68,49 @@ def _label_wavelength_nm(state: ProjectState) -> float:
     return DEFAULT_WAVELENGTH_NM if source is None else float(source.wavelength)
 
 
-def _sellmeier_from_items(items: Sequence[float]) -> Sellmeier | None:
-    """The table's coefficients as a validated material, or ``None``.
+def material_block_of(config: Mapping[str, Any]) -> dict[str, Any]:
+    """The ``lorentz`` block a loaded element config carries, as canonical numbers.
 
-    Cell text that is not a number arrives as NaN, which the coefficient
-    validator rejects, so an unparseable cell reads back as invalid coefficients
-    instead of silently becoming zero.
+    A config's material is its own (the project file is self-contained), so this is
+    what the picker is matched against. A config with no material at all reads as
+    vacuum, which is the same default the loader gives it; a material the validator
+    rejects is the loader's problem before it is the form's.
     """
     try:
-        return Sellmeier(
-            b=list(items[:SELLMEIER_TERMS]), c=list(items[SELLMEIER_TERMS : 2 * SELLMEIER_TERMS])
-        )
+        return material_block_for(material_from_config(config.get("material")))
     except (TypeError, ValueError):
-        return None
+        return material_block_for(material_from_config(None))
 
 
-def _material_config(items: Sequence[float]) -> dict[str, Any]:
-    """The config ``material`` block for the table's coefficients.
+def _material_config_from_json(text: str) -> tuple[dict[str, Any], str | None]:
+    """Parse an imported material document into ``(lorentz_block, name_or_None)``.
 
-    Replacing the whole block is what drops a stale ``refractive_index`` key from a
-    config that came out of an older document. Coefficients are validated but no
-    wavelength is: a set with no index somewhere in the band is the trace's
-    business -- it absorbs such a ray -- and the editor's readout already says so.
+    Three spellings are accepted, because all three are things a user has on disk:
+    the named document ``{"name": ..., "lorentz": {...}}``, a bare ``lorentz`` block
+    and a whole element config whose ``material`` key carries one. The parameters are
+    validated through :func:`optics.config.material_from_config` -- the validator the
+    loader and the trace use -- so a file cannot put the editor into a state the
+    project would refuse to save or reopen.
     """
-    sellmeier = _sellmeier_from_items(items)
-    if sellmeier is None:
-        raise ValueError(SELLMEIER_REQUIRED_MESSAGE)
-    (b_terms, c_terms) = sellmeier.coefficient_arrays()
-    b, c = _drop_unused_terms(list(b_terms), list(c_terms))
-    return {"sellmeier": {"b": b, "c": c}}
-
-
-def _drop_unused_terms(b: list[float], c: list[float]) -> tuple[list[float], list[float]]:
-    """Trim trailing term pairs that are both zero.
-
-    A zero pair adds nothing to ``n``, so dropping it loses nothing -- and keeps a
-    lens whose table only carries the constant-index term from declaring two more
-    terms it never uses. At least one term always stays.
-    """
-    while len(b) > 1 and b[-1] == 0.0 and c[-1] == 0.0:
-        b.pop()
-        c.pop()
-    return b, c
-
-
-def _config_sellmeier_items(config: Mapping[str, Any]) -> list[float]:
-    """The table's ``(2 * SELLMEIER_TERMS)`` values for a config's material block."""
-    block: Mapping[str, Any] = (config.get("material") or {}).get("sellmeier") or {}
-    items: list[float] = []
-    for key in ("b", "c"):
-        raw = block.get(key, 0.0)
-        entries = [raw] if isinstance(raw, (int, float)) else list(raw)
-        coefficients = [float(value) for value in entries][:SELLMEIER_TERMS]
-        items.extend(coefficients + [0.0] * (SELLMEIER_TERMS - len(coefficients)))
-    return items
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"material file is not valid JSON: {exc}") from exc
+    if not isinstance(document, dict):
+        raise ValueError(f"a material document must be a JSON object, not {type(document).__name__}")
+    block: Any = document.get("lorentz")
+    if block is None:
+        nested = document.get("material")
+        if isinstance(nested, Mapping):
+            block = nested.get("lorentz")
+    if block is None and "epsilon_inf" in document:
+        block = document
+    if block is None:
+        raise ValueError(f"no material parameters found: {CUSTOM_MATERIAL_DOCUMENT}")
+    material_from_config({"lorentz": block})
+    name = document.get("name")
+    label = name.strip() if isinstance(name, str) and name.strip() else None
+    return {"lorentz": copy.deepcopy(dict(block))}, label
 
 
 class ElementEditor(_SelectorEditor):
@@ -141,10 +148,15 @@ class ElementEditor(_SelectorEditor):
         )
         self._refresh_trace = refresh_trace
 
-        self._sellmeier_table = find_child(window, QtWidgets.QTableWidget, "sellmeierTable")
-        self._sellmeier_caption = find_child(window, QtWidgets.QLabel, "sellmeierCaption")
+        self._material_selection = find_child(window, QtWidgets.QComboBox, "materialSelection")
+        self._load_material_button = find_child(window, QtWidgets.QPushButton, "loadMaterialButton")
+        self._material_caption = find_child(window, QtWidgets.QLabel, "materialParametersCaption")
+        self._material_parameters = find_child(window, QtWidgets.QPlainTextEdit, "materialParameters")
+        preview_host = find_child(window, QtWidgets.QWidget, "materialPreviewHost")
         self._wavelength_value = find_child(window, QtWidgets.QLabel, "currentWavelengthValue")
         self._index_value = find_child(window, QtWidgets.QLabel, "calculatedIndexValue")
+        self._extinction_value = find_child(window, QtWidgets.QLabel, "calculatedExtinctionValue")
+        self._absorption_value = find_child(window, QtWidgets.QLabel, "calculatedAbsorptionValue")
         self._radius_spin = find_child(window, QtWidgets.QDoubleSpinBox, "apertureRadiusSpin")
         self._radius2_spin = find_child(window, QtWidgets.QDoubleSpinBox, "apertureRadius2Spin")
         self._surface1_edit = find_child(window, QtWidgets.QLineEdit, "surface1Edit")
@@ -152,57 +164,164 @@ class ElementEditor(_SelectorEditor):
 
         configure_spin(self._radius_spin, 0.01, 100.0, 0.05)
         configure_spin(self._radius2_spin, 0.01, 100.0, 0.05)
-        self._sellmeier_caption.setText(_MATERIAL_CAPTION)
-        configure_sellmeier_table(self._sellmeier_table, SELLMEIER_TERMS)
-        self._sellmeier_table.cellChanged.connect(self._update_calculated_index)
+        self._material_caption.setText(_MATERIAL_CAPTION)
+        self._material_parameters.setToolTip(_MATERIAL_CAPTION.rstrip(":") + " of the selected lens")
+
+        # The form's material, decoupled from the picker: a selection names a catalog
+        # entry, an import supplies parameters, and both end up here as the one thing
+        # the config writer and the readouts read.
+        self._material: dict[str, Any] = material_block(DEFAULT_MATERIAL_NAME)
+        configure_material_combo(self._material_selection, material_names())
+        self._material_selection.currentIndexChanged.connect(self._on_material_selection)
+        self._load_material_button.clicked.connect(self._on_load_material)
+        self._preview = MaterialPreviewPanel(preview_host)
         self.refresh_material_labels()
         self.set_enabled(False)
 
-    def refresh_material_labels(self) -> None:
-        """Re-quote the traced wavelength and the index the material gives at it.
+    # -- the material form -------------------------------------------------------
 
-        Called when a lens is loaded into the form, on every cell edit and after a
-        source edit: the wavelength belongs to the source, so changing the colour
-        moves the readout even though no coefficient was touched.
+    def refresh_material_labels(self) -> None:
+        """Re-quote the traced wavelength, the parameters, the curves and the numbers.
+
+        Called when a lens is loaded into the form, whenever its material changes and
+        after a source edit: the wavelength belongs to the source, so changing the
+        colour moves the readouts even though no parameter was touched.
         """
         self._wavelength_value.setText(f"{_label_wavelength_nm(self._state):.2f} nm")
-        self._update_calculated_index()
+        self._material_parameters.setPlainText(format_material_parameters(self._material))
+        self._show_preview()
+        self._update_calculated_response()
 
-    def _set_sellmeier_items(self, items: Sequence[float]) -> None:
-        """Seed the coefficient cells from a document, then re-read the material."""
-        write_sellmeier_cells(self._sellmeier_table, items)
-        self._update_calculated_index()
+    def _set_material(self, block: Mapping[str, Any]) -> None:
+        """Make ``block`` (a whole ``material`` block) the form's material.
 
-    def _sellmeier_items(self) -> list[float]:
-        """The coefficient cells row-major (all ``B_i`` then all ``C_i``)."""
-        return read_sellmeier_cells(self._sellmeier_table)
-
-    def _update_calculated_index(self, *_: object) -> None:
-        """Show the index the coefficients give at the wavelength being traced.
-
-        A set the model rejects, or one with no index at this wavelength (a pole, or
-        a sum that is not positive), says so in the tooltip instead of printing a
-        number: such a ray is absorbed, so there is no index to show.
+        The picker is matched by exact parameters, never by a remembered name: a
+        project file that happens to say ``N-BK7`` but carries different numbers reads
+        as ``Custom``, which is the honest answer and the one that survives a save.
         """
-        sellmeier = _sellmeier_from_items(self._sellmeier_items())
-        if sellmeier is None:
-            self._show_index(None, SELLMEIER_REQUIRED_MESSAGE)
-            return
+        self._material = copy.deepcopy(dict(block))
+        blocked = self._material_selection.blockSignals(True)
         try:
-            self._show_index(sellmeier.index_at(_label_wavelength_nm(self._state)), "")
-        except ValueError as exc:
-            self._show_index(None, str(exc))
+            select_material_name(self._material_selection, catalog_name_for(self._material))
+        finally:
+            self._material_selection.blockSignals(blocked)
+        self.refresh_material_labels()
 
-    def _show_index(self, index: float | None, reason: str) -> None:
-        """Write the calculated-index readout, with the refusal reason as its tip."""
+    def material_block(self) -> dict[str, Any]:
+        """A copy of the ``material`` block the form currently holds.
+
+        The whole block, in the shape a config's ``material`` key uses -- which is
+        also the shape :func:`~optics.materials.catalog.catalog_name_for` matches and
+        the validator reads, so nothing in the editor has to remember which of two
+        spellings the form is holding.
+        """
+        return copy.deepcopy(self._material)
+
+    def _current_material(self) -> Material | None:
+        """The form's parameters as a :class:`Material`, or ``None`` when invalid."""
+        try:
+            return material_from_config(self._material)
+        except (TypeError, ValueError):
+            return None
+
+    def _on_material_selection(self, _index: int = 0) -> None:
+        """A catalog pick replaces the element's parameters; ``Custom` picks nothing.
+
+        ``Custom`` is a state, not a choice -- it says the parameters already in the
+        form came from a file or an older document -- so selecting it must leave those
+        parameters alone rather than silently reverting to something else.
+        """
+        name = self._material_selection.currentText()
+        if name == CUSTOM_MATERIAL_LABEL:
+            return
+        self._set_material(material_block(name))
+
+    def _on_load_material(self) -> None:
+        """Import a material JSON file as the selected lens's parameters.
+
+        The file is validated before the form changes, and an import never adds a
+        catalog entry: the parameters land in this element's config, which is what a
+        self-contained project file is for.
+        """
+        path, _filter = QtWidgets.QFileDialog.getOpenFileName(
+            self._window, MATERIAL_IMPORT_TITLE, "", MATERIAL_IMPORT_FILTER
+        )
+        if not path:
+            return
+
+        def load() -> str:
+            try:
+                text = Path(path).read_text(encoding="utf-8")
+                block, name = _material_config_from_json(text)
+            except OSError as exc:
+                raise ValueError(f"could not read {path}: {exc}") from exc
+            self._set_material(block)
+            return name or catalog_name_for(self._material) or CUSTOM_MATERIAL_LABEL
+
+        loaded = run_validated(
+            self._window,
+            load,
+            title=MATERIAL_IMPORT_ERROR_TITLE,
+            message=f"Could not load a material from {path}",
+        )
+        if loaded is None:
+            return
+        name = self.selected_name()
+        self._set_status(
+            f"Loaded material {loaded}" + (f" into {name}" if name else " into the form")
+        )
+
+    def _show_preview(self) -> None:
+        """Redraw the curves, or leave them as they are when the parameters are junk."""
+        material = self._current_material()
+        if material is not None:
+            self._preview.set_material(material)
+
+    def _update_calculated_response(self, *_: object) -> None:
+        """Show ``n``, ``k`` and the absorption coefficient at the traced wavelength.
+
+        A material the model refuses says so in the tooltips instead of printing
+        numbers. ``k`` is quoted in scientific notation because a transparent glass is
+        near 1e-9 in the visible and the number is only meaningful in orders of
+        magnitude; a negative-permittivity material gives ``n = 0``, which is not "no
+        index" but "a metal": the ray does not get in.
+        """
+        material = self._current_material()
+        if material is None:
+            self._show_response(None, None, None, "the material parameters are not valid")
+            return
+        wavelength = _label_wavelength_nm(self._state)
+        try:
+            index = material.complex_index_at(wavelength)
+            self._show_response(
+                index.real, index.imag, material.absorption_coefficient_at(wavelength), ""
+            )
+        except ValueError as exc:
+            self._show_response(None, None, None, str(exc))
+
+    def _show_response(
+        self,
+        index: float | None,
+        extinction: float | None,
+        absorption: float | None,
+        reason: str,
+    ) -> None:
+        """Write the three readouts, with the refusal reason as their shared tip."""
         self._index_value.setText(f"{index:.6f}" if index is not None else NO_INDEX_TEXT)
-        self._index_value.setToolTip(reason)
+        self._extinction_value.setText(f"{extinction:.3e}" if extinction is not None else NO_INDEX_TEXT)
+        self._absorption_value.setText(
+            f"{absorption:.3e} 1/mm" if absorption is not None else NO_INDEX_TEXT
+        )
+        for widget in (self._index_value, self._extinction_value, self._absorption_value):
+            widget.setToolTip(reason)
 
     def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
-        # The calculated-index readouts stay legible while the form is disabled:
+        # The calculated-response readouts stay legible while the form is disabled:
         # they are labels, and Qt would grey their text out with the rest.
         return (
-            self._sellmeier_table,
+            self._material_selection,
+            self._load_material_button,
+            self._material_parameters,
             self._radius_spin,
             self._radius2_spin,
             self._surface1_edit,
@@ -220,7 +339,7 @@ class ElementEditor(_SelectorEditor):
         config = schema.get(name)
         if config is None:
             return
-        self._set_sellmeier_items(_config_sellmeier_items(config))
+        self._set_material(material_block_of(config))
         aperture1 = config["surface1"].get("aperture") or {}
         aperture2 = config["surface2"].get("aperture") or {}
         radius1 = aperture1.get("radius")
@@ -246,7 +365,9 @@ class ElementEditor(_SelectorEditor):
         if name not in schema:
             return None
         config = copy.deepcopy(schema[name])
-        config["material"] = _material_config(self._sellmeier_items())
+        # The whole block is replaced, which is also what drops a stale
+        # ``refractive_index`` or ``sellmeier`` key carried in from an older document.
+        config["material"] = copy.deepcopy(self._material)
         config["surface1"]["z"] = self._surface1_edit.text()
         config["surface2"]["z"] = self._surface2_edit.text()
         config["position"] = [float(spin.value()) for spin in self._pos_spins]

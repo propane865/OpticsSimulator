@@ -34,3 +34,4 @@ benchmarks/out_*.json
 .DS_Store
 
 build-dev/
+plans/

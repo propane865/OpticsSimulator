@@ -2,26 +2,24 @@
 
 from __future__ import annotations
 
-import math
+import json
 from collections.abc import Callable, Iterable, Sequence
-from functools import partial
 from typing import Any, TypeVar
 
 from PySide6 import QtCore, QtWidgets
 
 __all__ = [
-    "SELLMEIER_EQUATION_TIP",
-    "SELLMEIER_ROW_LABELS",
+    "CUSTOM_MATERIAL_LABEL",
+    "MATERIAL_EQUATION_TIP",
     "configure_button_box",
-    "configure_sellmeier_table",
+    "configure_material_combo",
     "configure_spin",
     "enable_widgets",
     "find_child",
-    "fit_sellmeier_table_height",
-    "read_sellmeier_cells",
+    "format_material_parameters",
+    "material_combo_options",
     "run_validated",
-    "sellmeier_column_labels",
-    "write_sellmeier_cells",
+    "select_material_name",
 ]
 
 _T = TypeVar("_T", bound=QtCore.QObject)
@@ -76,120 +74,75 @@ def enable_widgets(widgets: Iterable[QtWidgets.QWidget], enabled: bool) -> None:
         widget.setEnabled(enabled)
 
 
-# --- the Sellmeier coefficient table ------------------------------------------
+# --- the material picker ------------------------------------------------------
 #
-# The lens editor's material form: one row per coefficient kind, one column per
-# term of the Sellmeier sum. The helpers own that meaning so the table's shape
-# and its cell text follow the model instead of the other way round.
+# A material is chosen, not typed. Its parameters come from an offline fit to
+# measured data, so a coefficient grid would only invite numbers the model cannot
+# justify; the editor offers the catalog plus a JSON import path and shows the
+# chosen parameter set read-only. These helpers own the wording and the combo's
+# shape so the form cannot drift from what the model means.
 
-SELLMEIER_ROW_LABELS: tuple[str, ...] = ("B_i (dimensionless)", "C_i (um^2)")
+CUSTOM_MATERIAL_LABEL = "Custom"
 
-SELLMEIER_EQUATION_TIP = (
-    "n(lam)^2 = 1 + sum_i B_i * lam^2 / (lam^2 - C_i)\n"
+MATERIAL_EQUATION_TIP = (
+    "eps(E) = eps_inf + sum_j S_j * E_j^2 / (E_j^2 - E^2 - i * Gamma_j * E)\n"
+    "n + i*k = sqrt(eps)\n"
     "\n"
-    "lam is the wavelength in um, so each C_i is a squared pole wavelength in um^2"
-    " and each B_i is dimensionless. A zero C_i turns its term into the plain B_i,"
-    " which is how a wavelength-independent index n is written: B_1 = n^2 - 1, C_1 = 0."
+    "E is the photon energy in eV; each term is one Lorentz oscillator with resonance"
+    " energy E_j, strength S_j and damping Gamma_j. Damping is what makes the"
+    " refractive index complex: k is the part that absorbs, and a ray crossing a path"
+    " d of material keeps exp(-4 * pi * k * d / lam) of its power -- so a large k"
+    " means the material is opaque there and the traced ray is stopped. A model with"
+    " eps_inf and no oscillators is a wavelength-independent index."
 )
 
 
-def sellmeier_column_labels(terms: int) -> tuple[str, ...]:
-    """``i=1..terms`` -- the columns of the Sellmeier sum, one per term."""
-    return tuple(f"i={index}" for index in range(1, int(terms) + 1))
+def material_combo_options(names: Sequence[str]) -> tuple[str, ...]:
+    """The catalog names, then the ``Custom`` entry that ends the list.
 
-
-def configure_sellmeier_table(table: QtWidgets.QTableWidget, terms: int) -> None:
-    """Give the coefficient table the shape, labels and tooltip the model means.
-
-    Designer seeds a small grid with terse headers; the controller restates the
-    whole frame, so a hand-edited copy of the form cannot quietly change what the
-    numbers mean -- the table always shows ``terms`` columns, labelled rows and the
-    equation the coefficients belong to.
-
-    The columns are stretched, not left at the style's fixed default section size:
-    a coefficient table lives in a dock the user resizes, and fixed sections wider
-    than the viewport would push the last term behind a horizontal scrollbar.
-    Stretching hands the whole viewport to the terms, evenly, and re-divides it
-    whenever the dock changes width. The row header takes only its labels' width so
-    the terms get the rest. A scrollbar is still allowed at widths where the columns
-    cannot shrink further -- no term is ever unreachable.
+    ``Custom`` is always last and always present: it is what the picker shows for a
+    parameter set that came from a file or an older document, and it is never a
+    catalog entry a project can be pointed at.
     """
-    table.setRowCount(len(SELLMEIER_ROW_LABELS))
-    table.setColumnCount(int(terms))
-    table.setVerticalHeaderLabels(list(SELLMEIER_ROW_LABELS))
-    table.setHorizontalHeaderLabels(list(sellmeier_column_labels(terms)))
-    table.setToolTip(SELLMEIER_EQUATION_TIP)
-    header = table.horizontalHeader()
-    header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
-    header.setStretchLastSection(False)
-    table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-    # Row and column header heights follow the font and the style, so the fitted
-    # height is restated whenever either header re-measures its sections.
-    refit = partial(fit_sellmeier_table_height, table)
-    header.geometriesChanged.connect(refit)
-    table.verticalHeader().geometriesChanged.connect(refit)
-    fit_sellmeier_table_height(table)
+    return (*names, CUSTOM_MATERIAL_LABEL)
 
 
-def _sellmeier_table_height(table: QtWidgets.QTableWidget) -> int:
-    """The height that shows the column header and every row, and nothing else."""
-    rows = sum(table.verticalHeader().sectionSize(row) for row in range(table.rowCount()))
-    return table.horizontalHeader().sizeHint().height() + rows + 2 * table.frameWidth()
+def configure_material_combo(combo: QtWidgets.QComboBox, names: Sequence[str]) -> None:
+    """Fill the picker from the catalog and attach the model's equation.
 
-
-def fit_sellmeier_table_height(table: QtWidgets.QTableWidget) -> None:
-    """Make the coefficient table exactly as tall as its header plus its rows.
-
-    A table asks for a ten-row viewport, which in a two-row material form reads as a
-    blank strip under the coefficients -- and the strip is what the sidebar's leftover
-    height gets spent on. The height is owned here instead, so the table is as tall as
-    its coefficients and the slack goes back to the page.
+    Signals stay blocked while the list is replaced: refilling is the controller
+    restating the form, not a user choosing a glass, and an unblocked ``activated``
+    would read back as a pending edit on every selection change.
     """
-    table.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Fixed)
-    table.setFixedHeight(_sellmeier_table_height(table))
-
-
-def read_sellmeier_cells(table: QtWidgets.QTableWidget) -> list[float]:
-    """The table's coefficients, row-major: every ``B_i`` then every ``C_i``.
-
-    A blank cell is zero, because a zero coefficient is how the model spells "no
-    term here". Text that is not a number comes back as NaN, which the coefficient
-    validator rejects -- so an unparseable cell reads as invalid coefficients rather
-    than silently becoming zero.
-    """
-    values: list[float] = []
-    for row in range(table.rowCount()):
-        for column in range(table.columnCount()):
-            item = table.item(row, column)
-            text = "" if item is None else item.text().strip()
-            if not text:
-                values.append(0.0)
-                continue
-            try:
-                values.append(float(text))
-            except ValueError:
-                values.append(math.nan)
-    return values
-
-
-def write_sellmeier_cells(table: QtWidgets.QTableWidget, values: Sequence[float]) -> None:
-    """Write ``values`` (row-major) into the coefficient cells, signals held back.
-
-    A programmatic fill is not a user edit: unblocked, loading a document would
-    fire ``cellChanged`` for every cell and read as a pending change. Each cell gets
-    ``repr`` of its value, so coefficients loaded from a document write back
-    unchanged however many times the lens is selected.
-    """
-    blocked = table.blockSignals(True)
+    blocked = combo.blockSignals(True)
     try:
-        for index, (row, column) in enumerate(
-            (row, column) for row in range(table.rowCount()) for column in range(table.columnCount())
-        ):
-            item = table.item(row, column) or QtWidgets.QTableWidgetItem()
-            item.setText(repr(float(values[index])) if index < len(values) else "0.0")
-            table.setItem(row, column, item)
+        combo.clear()
+        combo.addItems(list(material_combo_options(names)))
     finally:
-        table.blockSignals(blocked)
+        combo.blockSignals(blocked)
+    combo.setToolTip(MATERIAL_EQUATION_TIP)
+
+
+def select_material_name(combo: QtWidgets.QComboBox, name: str | None) -> None:
+    """Point the picker at catalog ``name``, or at ``Custom`` when it is not one.
+
+    Selecting is how the form loads a material; the editor guards its own reload
+    flag around this so the programmatic choice is not mistaken for an edit.
+    """
+    index = combo.findText(name or "")
+    combo.setCurrentIndex(
+        index if index >= 0 else combo.findText(CUSTOM_MATERIAL_LABEL)
+    )
+
+
+def format_material_parameters(block: object) -> str:
+    """The ``lorentz`` block as the read-only parameter view shows it.
+
+    ``repr``-stable floats, so the text the form displays is text that reads back as
+    the same binary parameters -- and an import that round-trips through this view is
+    the same material the trace uses.
+    """
+    return json.dumps(block, indent=2)
 
 
 def run_validated(

@@ -275,7 +275,7 @@ def unified_apply(edit: LensEdit, planes: "list[MeasurementPlane]", mesh_n: int 
     )
     total += time.perf_counter() - mark
     mark = time.perf_counter()
-    us, vs, pws = out[4:]
+    us, vs, pws = out[5:]
     for q in range(len(planes)):
         result = planes[q].new_result()
         result.accumulate(us[q], vs[q], pws[q])

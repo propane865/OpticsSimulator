@@ -4,8 +4,11 @@
 // recording shared with the measurement kernels.
 //
 // Every walk carries the ray's vacuum wavelength in nanometres: refraction is
-// wavelength-dependent (the material's Sellmeier coefficients), geometry is not,
-// so only the refraction steps read it.
+// wavelength-dependent (the material's dielectric response), geometry is not, so
+// only the refraction steps read it. Where a walk touches a material it evaluates
+// the full ``OpticalResponse`` -- index *and* absorption -- once per element and
+// passes that to the element walk, so the same evaluation serves Snell's law and
+// the Beer-Lambert integral over the internal path.
 #pragma once
 
 #include <cstddef>
@@ -58,23 +61,29 @@ struct ElementTrace {
     std::array<Vec3, MAX_INTERNAL_BOUNCES + 2> pts{};  // internal polyline
 };
 
-// Trace one closed element: entry, internal bounces, exit ray. The material
-// index is evaluated at ``wavelength_nm``; a material with no index there
-// (a pole, or ``n^2 <= 0``) absorbs the ray at its entry point.
+// Trace one closed element with its material's response already evaluated at the
+// ray's wavelength: entry, internal bounces, exit ray. A material with no
+// response at that wavelength (an undamped resonance landed on, or a negative
+// permittivity that leaves ``n == 0``) absorbs the ray at its entry point.
+//
+// The walk refracts with ``response.n`` only -- the standard weakly-absorbing
+// approximation -- and does not attenuate anything: ``fill_hops`` integrates
+// ``response.alpha_per_mm`` over the returned internal polyline, because the
+// geometry is what says how far the ray travelled.
+ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
+                           const OpticalResponse& response, const ElementHit& entry);
+
+// As above, evaluating ``elem``'s material at ``wavelength_nm`` first: the form
+// for callers that trace one element and have no response to hand on.
 ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
                            double wavelength_nm);
-
-// As above with the entry hit precomputed (the result of
-// ``element_first_hit(elem, o, d, 0.0)``, e.g. from the stack routing scan),
-// so the walk never intersects the same entry twice.
-ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
-                           double wavelength_nm, const ElementHit& entry);
 
 struct StackSegments {
     int count = 0;
     bool exited = false;
     Vec3 final_o{};
     Vec3 final_d{};
+    double transmission = 1.0;  // surviving fraction of the ray's power
 };
 
 // --- Single geometric-order walk (shared by rendering + all planes) ----------
@@ -85,9 +94,17 @@ struct StackSegments {
 // gap (origin/direction + entry distance to the next element) and the entered
 // element's internal polyline, letting both the rendering segment buffers and
 // the per-plane first-crossing be derived without re-walking.
+// One gap/element pair of a stack walk, with the power bookkeeping the walk
+// needs: the fraction of the ray's power still alive when it entered this
+// element, and the Beer-Lambert coefficient of the element it entered. Together
+// with the internal polyline they say how much power leaves the element -- and,
+// at any point along the polyline, how much is left there -- without a second
+// evaluation of the material.
 struct RayHop {
     Vec3 o{};
     Vec3 d{};
+    double transmission_at_entry = 1.0;  // surviving fraction on entering
+    double alpha_per_mm = 0.0;           // this element's absorption coefficient
     Vec3 incident_pt{};
     double entry_t = 0.0;  // distance from ``o`` to the entered element
     bool has_element = false;
@@ -107,12 +124,18 @@ RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d, double
 void fill_hops(RayHops& hops, const TraceStack& stack, const Vec3& o, const Vec3& d,
                double wavelength_nm);
 
-// Rendering segment buffers: incident + internal segments per element, then
-// the trailing gap capped at ``ray_length`` (omitted when the ray is
-// absorbed). Segment kinds 0/1/2 = incident/internal/exit; writes up to
-// ``cap`` segments.
+// Rendering segment buffers: incident + internal segments per element, then the
+// trailing gap capped at ``ray_length`` (omitted when the ray is absorbed).
+// Segment kinds 0/1/2 = incident/internal/exit; writes up to ``cap`` segments.
+//
+// ``transmissions`` (optional, may be null) receives the fraction of the ray's
+// power still travelling at the start of each segment: an incident or exit gap
+// inherits the value its element left behind, and internal segments step through
+// the glass by ``exp(-alpha * distance)`` along the polyline. It is the same
+// bookkeeping ``measure_hops_plane`` reports at a detector crossing, so a dimmed
+// picture and an absorbed reading cannot disagree.
 int format_segments(const RayHops& hops, double ray_length, double* starts, double* ends,
-                    signed char* kinds, std::size_t cap);
+                    signed char* kinds, double* transmissions, std::size_t cap);
 
 // Capacity a caller must provide to ``format_segments`` for a stack of
 // ``n_elements`` elements: at most ``2 * MAX_INTERNAL_BOUNCES + 3`` segments
@@ -130,10 +153,10 @@ inline std::size_t segments_capacity(std::size_t n_elements) {
 StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
                                    double wavelength_nm, const TraceOptions& options,
                                    RayHops& hops, double* starts, double* ends,
-                                   signed char* kinds, std::size_t cap);
+                                   signed char* kinds, double* transmissions, std::size_t cap);
 StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
                                    double wavelength_nm, const TraceOptions& options,
                                    double* starts, double* ends, signed char* kinds,
-                                   std::size_t cap);
+                                   double* transmissions, std::size_t cap);
 
 }  // namespace optics::native

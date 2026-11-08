@@ -43,12 +43,14 @@ RAY_WAVELENGTH_NM = DEFAULT_WAVELENGTH_NM
 def constant_index_material(index: float = REFRACTIVE_INDEX) -> "dict[str, Any]":
     """The ``material`` config block holding a wavelength-independent ``index``.
 
-    The benchmark lens stays the plain n = 1.5 glass it always was: a Sellmeier
-    term with a zero pole contributes its coefficient at every wavelength, so
-    ``b = [n^2 - 1]``, ``c = [0]`` reads back as exactly ``index`` for any ray.
+    The benchmark lens stays the plain n = 1.5 glass it always was: a Lorentz
+    model with no oscillator is a constant permittivity, so ``epsilon_inf = n^2``
+    and an empty oscillator list reads back as exactly ``index`` for any ray --
+    and with ``k = 0`` the measured powers stay the launched powers, which is what
+    the throughput benchmarks report.
     """
     n = float(index)
-    return {"sellmeier": {"b": [n * n - 1.0], "c": [0.0]}}
+    return {"lorentz": {"epsilon_inf": n * n, "oscillators": []}}
 Z_SPACING = 2.0
 RAY_START_Z = 3.6
 RAY_LENGTH = 3.0

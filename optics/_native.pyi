@@ -16,7 +16,7 @@ import numpy as np
 # (``optics/constants.py`` derives its values from these).
 SEED_GRID_N: int
 MAX_INTERNAL_BOUNCES: int
-SELLMEIER_TERMS: int
+HC_EV_NM: float
 SIDEWALL_MATCH_ATOL: float
 APERTURE_EPS: float
 APERTURE_BOUNDARY_N: int
@@ -72,11 +72,27 @@ def make_surface(
 def build_element(
     surface1: NativeSurface,
     surface2: NativeSurface,
-    sellmeier_b: np.ndarray,
-    sellmeier_c: np.ndarray,
+    epsilon_inf: float,
+    oscillators: np.ndarray,
     tri: np.ndarray,
     normals: np.ndarray,
-) -> Element: ...
+) -> Element:
+    """Persistent element from two surfaces and a Lorentz dielectric material.
+
+    ``oscillators`` is ``(N, 3)`` with columns ``[:, 0]`` strength (dimensionless),
+    ``[:, 1]`` resonance energy in eV and ``[:, 2]`` damping energy in eV; an empty
+    ``(0, 3)`` array is a valid material -- ``epsilon_inf`` alone is a constant
+    index. ``epsilon_inf`` must be finite and positive.
+    """
+
+def element_optical_response(element: Element, wavelength_nm: float) -> tuple[float, float, float]:
+    """``(n, k, alpha_per_mm)`` of ``element``'s material at ``wavelength_nm``.
+
+    The native evaluation of the same dielectric model
+    :class:`optics.primitive.Material` implements in Python; the trace does not use
+    it, the equivalence tests do. NaN in every field when the material has no
+    response at that wavelength.
+    """
 def build_trace_stack(elements: list[Element]) -> TraceStack: ...
 def analytic_surfaces_enabled() -> bool: ...
 def set_analytic_surfaces(enabled: bool) -> None: ...
@@ -117,7 +133,16 @@ def trace_stack_segments(
     starts: np.ndarray,
     ends: np.ndarray,
     kinds: np.ndarray,
-) -> tuple[int, bool, np.ndarray, np.ndarray]: ...
+    transmissions: np.ndarray,
+) -> tuple[int, bool, np.ndarray, np.ndarray, float]:
+    """``(count, exited, final_origin, final_direction, transmission)``.
+
+    ``transmissions`` is an out-buffer ``(cap,)`` receiving the fraction of the
+    ray's power still travelling at the start of each segment. The returned
+    ``transmission`` is the fraction surviving the whole stack (Beer-Lambert over
+    the traced internal paths): 1.0 when no element absorbs, 0.0 when the ray was
+    stopped inside one.
+    """
 def trace_segments_batch(
     stack: TraceStack,
     origins: np.ndarray,
@@ -127,6 +152,7 @@ def trace_segments_batch(
     starts: np.ndarray,
     ends: np.ndarray,
     kinds: np.ndarray,
+    transmissions: np.ndarray,
     counts: np.ndarray,
 ) -> None: ...
 
@@ -326,6 +352,7 @@ def trace_segments_and_planes(
     starts: np.ndarray,
     ends: np.ndarray,
     kinds: np.ndarray,
+    transmissions: np.ndarray,
     counts: np.ndarray,
     us: np.ndarray,
     vs: np.ndarray,

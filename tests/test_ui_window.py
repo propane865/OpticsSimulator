@@ -11,7 +11,7 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtCore, QtWidgets
 
-from optics.primitive import DEFAULT_WAVELENGTH_NM
+from optics.materials import material_block, material_block_for, material_for_name
 from rendering import demo
 from tests.ui_helpers import (
     OK,
@@ -28,7 +28,8 @@ from tests.ui_helpers import (
     _trigger,
     _trigger_measurement_plane,
     lens_index,
-    set_lens_index,
+    lens_wavelength_nm,
+    set_lens_material,
 )
 from ui.app import make_display
 from ui.project_tree import ProjectTree
@@ -226,8 +227,7 @@ def test_save_as_round_trip_preserves_edits(stack_window, make_window, tmp_path,
     window = stack_window
 
     editor = _editor(window)
-    set_lens_index(editor, 1.8)
-    assert lens_index(editor) == pytest.approx(1.8)
+    set_lens_material(editor, "N-SF11")
     _click(window, OK)
 
     out_path = tmp_path / "modified_stack.json"
@@ -235,14 +235,16 @@ def test_save_as_round_trip_preserves_edits(stack_window, make_window, tmp_path,
     _trigger_save_as(window)
 
     saved = json.loads(out_path.read_text(encoding="utf-8"))
-    saved_material = saved["elements"]["lens1"]["material"]["sellmeier"]
-    # The table types a fixed index as the constant-index idiom: one term, no poles.
-    assert saved_material["b"] == pytest.approx([1.8**2 - 1.0])
-    assert saved_material["c"] == pytest.approx([0.0])
+    # The saved document carries the glass inline -- every parameter, no pointer to
+    # a catalog that might not be there next time.
+    assert saved["elements"]["lens1"]["material"] == material_block("N-SF11")
+    assert lens_index(editor) == pytest.approx(
+        material_for_name("N-SF11").index_at(lens_wavelength_nm(editor)), rel=1e-6
+    )
 
     window2 = make_window()
     elements = window2.load_stack(out_path)
-    assert elements[0].material.index_at(DEFAULT_WAVELENGTH_NM) == pytest.approx(1.8)
+    assert material_block_for(elements[0].material) == material_block("N-SF11")
 
 
 def test_save_load_round_trip_preserves_source_and_planes(stack_window, make_window, tmp_path, monkeypatch):

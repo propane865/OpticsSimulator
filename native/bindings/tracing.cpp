@@ -1,6 +1,8 @@
 // Stack-tracing entry points: single-ray segments and the batched segment
 // buffer driver. Both run the shared geometric-order walk
-// (``build_hops`` + ``format_segments``) inside the trace kernels.
+// (``build_hops`` + ``format_segments``) inside the trace kernels, and the
+// single-ray form also reports the power the walk left at the exit, so the
+// Python-side ray that comes back carries the attenuation the glass applied.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
@@ -27,10 +29,11 @@ void py_trace_segments_batch(const TraceStack& stack, const py::array_t<double>&
                              const py::array_t<double>& wavelengths, double ray_length,
                              const py::array_t<double>& starts, const py::array_t<double>& ends,
                              const py::array_t<std::int8_t>& kinds,
+                             const py::array_t<double>& transmissions,
                              const py::array_t<std::int64_t>& counts) {
     const RayPairView fan = read_ray_pair(origins, dirs, wavelengths);
     const std::size_t n = fan.n;
-    const SegmentBuffers seg = read_segment_buffers(starts, ends, kinds, counts, n);
+    const SegmentBuffers seg = read_segment_buffers(starts, ends, kinds, transmissions, counts, n);
     const double* od = fan.origins;
     const double* dd = fan.directions;
     const double* wl = fan.wavelengths;
@@ -42,7 +45,8 @@ void py_trace_segments_batch(const TraceStack& stack, const py::array_t<double>&
             seg.counts[i] = trace_stack_segments(stack, as_vec3(od + 3 * i), as_vec3(dd + 3 * i),
                                                  wl[i], options, hops,
                                                  seg.starts + 3 * seg.cap * i, seg.ends + 3 * seg.cap * i,
-                                                 seg.kinds + seg.cap * i, seg.cap)
+                                                 seg.kinds + seg.cap * i,
+                                                 seg.transmissions + seg.cap * i, seg.cap)
                                 .count;
         }
     });
@@ -57,8 +61,10 @@ void register_tracing(py::module_& m) {
         "trace_stack_segments",
         [](const TraceStack& stack, const py::array_t<double>& o, const py::array_t<double>& d,
            double wavelength, double ray_length, const py::array_t<double>& starts,
-           const py::array_t<double>& ends, const py::array_t<std::int8_t>& kinds) {
-            const SingleSegmentBuffers seg = read_single_segment_buffers(starts, ends, kinds);
+           const py::array_t<double>& ends, const py::array_t<std::int8_t>& kinds,
+           const py::array_t<double>& transmissions) {
+            const SingleSegmentBuffers seg =
+                read_single_segment_buffers(starts, ends, kinds, transmissions);
             const Vec3 ov = to_vec3(o, "origin");
             const Vec3 dv = to_vec3(d, "direction");
             const TraceOptions options{ray_length, PLANE_EPS};
@@ -66,15 +72,16 @@ void register_tracing(py::module_& m) {
             {
                 const py::gil_scoped_release release;
                 res = trace_stack_segments(stack, ov, dv, wavelength, options, seg.starts, seg.ends,
-                                           seg.kinds, seg.cap);
+                                           seg.kinds, seg.transmissions, seg.cap);
             }
-            return py::make_tuple(res.count, res.exited, np3(res.final_o), np3(res.final_d));
+            return py::make_tuple(res.count, res.exited, np3(res.final_o), np3(res.final_d),
+                                  res.transmission);
         },
         py::arg("stack"), py::arg("o"), py::arg("d"), py::arg("wavelength"), py::arg("ray_length"),
-        py::arg("starts"), py::arg("ends"), py::arg("kinds"));
+        py::arg("starts"), py::arg("ends"), py::arg("kinds"), py::arg("transmissions"));
     m.def("trace_segments_batch", &py_trace_segments_batch, py::arg("stack"), py::arg("origins"),
           py::arg("dirs"), py::arg("wavelengths"), py::arg("ray_length"), py::arg("starts"),
-          py::arg("ends"), py::arg("kinds"), py::arg("counts"));
+          py::arg("ends"), py::arg("kinds"), py::arg("transmissions"), py::arg("counts"));
 }
 
 }  // namespace optics::bindings

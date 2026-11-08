@@ -181,7 +181,7 @@ PYBIND11_MODULE(_native, m) {
     // derives its values from these attributes; ``constants.hpp`` owns them).
     m.attr("SEED_GRID_N") = py::int_(optics::native::SEED_GRID_N);
     m.attr("MAX_INTERNAL_BOUNCES") = py::int_(optics::native::MAX_INTERNAL_BOUNCES);
-    m.attr("SELLMEIER_TERMS") = py::int_(optics::native::SELLMEIER_TERMS);
+    m.attr("HC_EV_NM") = optics::native::HC_EV_NM;
     m.attr("SIDEWALL_MATCH_ATOL") = optics::native::SIDEWALL_MATCH_ATOL;
     m.attr("APERTURE_EPS") = optics::native::APERTURE_EPS;
     m.attr("APERTURE_BOUNDARY_N") = py::int_(optics::native::APERTURE_BOUNDARY_N);

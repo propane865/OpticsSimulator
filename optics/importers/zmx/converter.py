@@ -79,14 +79,15 @@ def zmx_to_elements(
         elements[f"lens{len(elements) + 1}"] = {
             "surface1": _surface_config(front, 0.0),
             "surface2": _surface_config(rear, -front.thickness),
-            "material": {
-                "sellmeier": _resolve_material(
-                    front.glass,
-                    prescription.glasses,
-                    warn,
-                    front.refractive_index,
-                )
-            },
+            # The catalog block goes in inline, like any other element's material:
+            # a project file stays self-contained and never depends on the catalog
+            # still holding the name the importer resolved.
+            "material": _resolve_material(
+                front.glass,
+                prescription.glasses,
+                warn,
+                front.refractive_index,
+            ),
             "position": [0.0, 0.0, -front.vertex_z],
             "orientation": [0.0, 0.0, 1.0],
         }

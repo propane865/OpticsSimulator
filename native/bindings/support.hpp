@@ -113,18 +113,28 @@ inline ConstDoubles read_tri(const py::array_t<double>& tri) {
     return {static_cast<const double*>(info.ptr), static_cast<std::size_t>(info.size)};
 }
 
-// Sellmeier coefficient column (``b`` or ``c``): up to ``SELLMEIER_TERMS``
-// finite numbers, zero padded into the element's fixed-width arrays.
-inline optics::native::SellmeierCoefficients read_sellmeier(const py::array_t<double>& values,
-                                                            const std::string& what) {
-    const ConstDoubles d = read_doubles(values, 1, what);
-    require(d.size <= optics::native::SELLMEIER_TERMS,
-            what + ": expected at most " + std::to_string(optics::native::SELLMEIER_TERMS) +
-                " coefficients");
-    optics::native::SellmeierCoefficients out{};
-    for (std::size_t i = 0; i < d.size; ++i) {
-        require(std::isfinite(d.data[i]), what + ": coefficients must be finite");
-        out[i] = d.data[i];
+// Lorentz oscillator rows ``(N, 3)``: strength, resonance energy in eV and damping
+// energy in eV, the layout ``optics.element.RefractiveElement`` flattens a material
+// into. An empty array is a valid material -- a background permittivity with
+// nothing to resonate is exactly a constant-index element -- so the row count is
+// not constrained beyond being a shape.
+inline std::vector<optics::native::LorentzOscillator> read_lorentz_oscillators(
+    const py::array_t<double>& values) {
+    const py::buffer_info info = values.request();
+    require(info.ndim == 2 && info.shape[1] == 3, "oscillators: expected shape (N, 3)");
+    require(is_contiguous(info), "oscillators: array must be contiguous");
+    const auto* data = static_cast<const double*>(info.ptr);
+    const std::size_t rows = static_cast<std::size_t>(info.shape[0]);
+    std::vector<optics::native::LorentzOscillator> out;
+    out.reserve(rows);
+    for (std::size_t i = 0; i < rows; ++i) {
+        const optics::native::LorentzOscillator osc{data[3 * i], data[3 * i + 1], data[3 * i + 2]};
+        require(std::isfinite(osc.strength) && std::isfinite(osc.resonance_ev) &&
+                    std::isfinite(osc.damping_ev),
+                "oscillators: parameters must be finite");
+        require(osc.resonance_ev > 0.0, "oscillators: resonance_ev must be positive");
+        require(osc.damping_ev >= 0.0, "oscillators: damping_ev must not be negative");
+        out.push_back(osc);
     }
     return out;
 }
@@ -245,11 +255,15 @@ inline DetectorBuffers read_detector_buffers(const py::array_t<double>& grid,
 }
 
 // Batched rendering segment output buffers: ``(N, cap, 3)`` starts/ends,
-// ``(N, cap)`` kinds and ``(N,)`` counts, validated against the ray count.
+// ``(N, cap)`` kinds and per-segment transmissions, and ``(N,)`` counts, all
+// validated against the ray count. ``transmissions[i, j]`` is the fraction of
+// ray ``i``'s power still travelling at the start of segment ``j`` -- what a
+// dimmed renderer fades to, and the same quantity a detector multiplies.
 struct SegmentBuffers {
     double* starts;
     double* ends;
     signed char* kinds;
+    double* transmissions;
     std::int64_t* counts;
     std::size_t cap;
 };
@@ -257,11 +271,13 @@ struct SegmentBuffers {
 inline SegmentBuffers read_segment_buffers(const py::array_t<double>& starts,
                                            const py::array_t<double>& ends,
                                            const py::array_t<std::int8_t>& kinds,
+                                           const py::array_t<double>& transmissions,
                                            const py::array_t<std::int64_t>& counts,
                                            std::size_t n) {
     const py::buffer_info s_info = starts.request();
     const py::buffer_info e_info = ends.request();
     const py::buffer_info k_info = kinds.request();
+    const py::buffer_info t_info = transmissions.request();
     const py::buffer_info c_info = counts.request();
     require(s_info.ndim == 3 && static_cast<std::size_t>(s_info.shape[0]) == n &&
                 s_info.shape[2] == 3,
@@ -270,40 +286,48 @@ inline SegmentBuffers read_segment_buffers(const py::array_t<double>& starts,
     require(k_info.ndim == 2 && static_cast<std::size_t>(k_info.shape[0]) == n &&
                 static_cast<std::size_t>(k_info.shape[1]) == static_cast<std::size_t>(s_info.shape[1]),
             "kinds: expected shape (N, cap)");
+    require(t_info.ndim == 2 && t_info.size == k_info.size, "transmissions: expected shape (N, cap)");
     require(c_info.ndim == 1 && static_cast<std::size_t>(c_info.size) == n,
             "counts: expected shape (N,)");
-    require(!s_info.readonly && !e_info.readonly && !k_info.readonly && !c_info.readonly,
+    require(!s_info.readonly && !e_info.readonly && !k_info.readonly && !t_info.readonly &&
+                !c_info.readonly,
             "segment buffers must be writeable");
     return {static_cast<double*>(s_info.ptr), static_cast<double*>(e_info.ptr),
-            static_cast<signed char*>(k_info.ptr), static_cast<std::int64_t*>(c_info.ptr),
-            static_cast<std::size_t>(s_info.shape[1])};
+            static_cast<signed char*>(k_info.ptr), static_cast<double*>(t_info.ptr),
+            static_cast<std::int64_t*>(c_info.ptr), static_cast<std::size_t>(s_info.shape[1])};
 }
 
 // Single-ray rendering segment output buffers: ``(cap, 3)`` starts/ends and
-// ``(cap,)`` kinds, the one-ray counterpart of ``read_segment_buffers``.
+// ``(cap,)`` kinds and transmissions, the one-ray counterpart of
+// ``read_segment_buffers``.
 struct SingleSegmentBuffers {
     double* starts;
     double* ends;
     signed char* kinds;
+    double* transmissions;
     std::size_t cap;
 };
 
 inline SingleSegmentBuffers read_single_segment_buffers(const py::array_t<double>& starts,
                                                         const py::array_t<double>& ends,
-                                                        const py::array_t<std::int8_t>& kinds) {
+                                                        const py::array_t<std::int8_t>& kinds,
+                                                        const py::array_t<double>& transmissions) {
     const py::buffer_info s_info = starts.request();
     const py::buffer_info e_info = ends.request();
     const py::buffer_info k_info = kinds.request();
+    const py::buffer_info t_info = transmissions.request();
     require(s_info.ndim == 2 && s_info.shape[1] == 3, "starts: expected shape (cap, 3)");
     require(e_info.ndim == 2 && e_info.shape[1] == 3 && e_info.size == s_info.size,
             "ends: expected shape (cap, 3)");
     require(k_info.ndim == 1 && static_cast<std::size_t>(k_info.size) ==
                                     static_cast<std::size_t>(s_info.shape[0]),
             "kinds: expected shape (cap,)");
-    require(!s_info.readonly && !e_info.readonly && !k_info.readonly,
+    require(t_info.ndim == 1 && t_info.size == k_info.size, "transmissions: expected shape (cap,)");
+    require(!s_info.readonly && !e_info.readonly && !k_info.readonly && !t_info.readonly,
             "segment buffers must be writeable");
     return {static_cast<double*>(s_info.ptr), static_cast<double*>(e_info.ptr),
-            static_cast<signed char*>(k_info.ptr), static_cast<std::size_t>(s_info.shape[0])};
+            static_cast<signed char*>(k_info.ptr), static_cast<double*>(t_info.ptr),
+            static_cast<std::size_t>(s_info.shape[0])};
 }
 
 }  // namespace optics::bindings

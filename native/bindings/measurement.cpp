@@ -144,6 +144,7 @@ void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<dou
                                   const py::array_t<double>& t_v, double eps,
                                   const py::array_t<double>& starts, const py::array_t<double>& ends,
                                   const py::array_t<std::int8_t>& kinds,
+                                  const py::array_t<double>& transmissions,
                                   const py::array_t<std::int64_t>& counts,
                                   const py::array_t<double>& us, const py::array_t<double>& vs,
                                   const py::array_t<double>& pws) {
@@ -152,14 +153,19 @@ void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<dou
     const PlaneArrays planes =
         read_planes(po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v);
     const std::size_t p = planes.p;
-    const SegmentBuffers buffers = read_segment_buffers(starts, ends, kinds, counts, n);
+    const SegmentBuffers buffers =
+        read_segment_buffers(starts, ends, kinds, transmissions, counts, n);
     double* ud = write_matrix(us, p, n, "us");
     double* vd = write_matrix(vs, p, n, "vs");
     double* pd = write_matrix(pws, p, n, "pws");
     const optics::native::PlaneBatchView plane_view = plane_batch_view(planes);
     const optics::native::TraceOptions options{ray_length, eps};
-    const optics::native::SegmentOutputView segs{buffers.starts, buffers.ends, buffers.kinds,
-                                                 buffers.counts, buffers.cap};
+    const optics::native::SegmentOutputView segs{buffers.starts,
+                                                 buffers.ends,
+                                                 buffers.kinds,
+                                                 buffers.transmissions,
+                                                 buffers.counts,
+                                                 buffers.cap};
     const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
     optics::native::trace_segments_and_planes(stack, rays, options, plane_view, segs, out);
@@ -199,7 +205,8 @@ void register_measurement(py::module_& m) {
           py::arg("po"), py::arg("pn"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"),
           py::arg("v_max"), py::arg("s_u"), py::arg("s_v"), py::arg("t_u"), py::arg("t_v"),
           py::arg("eps") = optics::native::PLANE_EPS, py::arg("starts"), py::arg("ends"),
-          py::arg("kinds"), py::arg("counts"), py::arg("us"), py::arg("vs"), py::arg("pws"));
+          py::arg("kinds"), py::arg("transmissions"), py::arg("counts"), py::arg("us"),
+          py::arg("vs"), py::arg("pws"));
 }
 
 }  // namespace optics::bindings

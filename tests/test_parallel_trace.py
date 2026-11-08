@@ -42,7 +42,7 @@ def test_trace_segments_matches_trace_path(sphere):
     origins = np.array([r.origin for r in rays], dtype=float)
     dirs = np.array([r.direction for r in rays], dtype=float)
     wavelengths = np.array([r.wavelength for r in rays], dtype=float)
-    starts, ends, kinds, counts = system.trace_segments(origins, dirs, wavelengths, 3.0)
+    starts, ends, kinds, counts, _dims = system.trace_segments(origins, dirs, wavelengths, 3.0)
     for i, ray in enumerate(rays):
         segs, _ = system.trace_path(ray, ray_length=3.0)
         assert counts[i] == len(segs)

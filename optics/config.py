@@ -5,24 +5,26 @@ from typing import Any
 import numpy as np
 
 from .element import RefractiveElement
-from .primitive import CircularAperture, Material, Sellmeier, Surface, Transform
+from .primitive import CircularAperture, LorentzModel, LorentzOscillator, Material, Surface, Transform
 from .primitive.vector import rotation_from_z
 
-# The one error every pre-Sellmeier material config produces: naming the key to
-# write, and how to express a constant index now that no such key exists.
-_LEGACY_MATERIAL_MESSAGE = (
-    'material config requires Sellmeier coefficients as material.sellmeier = '
-    '{"b": [...], "c": [...]}; the constant "refractive_index" key was removed '
-    '(a wavelength-independent index n is b=[n**2-1], c=[0])'
+# The refusal every "this material block is not a dielectric model" path uses, from
+# the lens editor down to the config loader. It names the key to write and the
+# constant-index spelling, because that is the one thing a pre-Lorentz reader needs.
+MATERIAL_REQUIRED_MESSAGE = (
+    'element material requires a Lorentz dielectric model as material.lorentz = '
+    '{"epsilon_inf": ..., "oscillators": [{"strength": ..., "resonance_ev": ..., '
+    '"damping_ev": ...}]}; a wavelength-independent index n is epsilon_inf=n**2 '
+    'with "oscillators": []'
 )
 
-# The refusal every "this material carries no coefficients" path uses, from the
-# lens editor down to the config loader: the legacy message above names the key,
-# this one names what is missing.
-SELLMEIER_REQUIRED_MESSAGE = (
-    'element material requires Sellmeier coefficients as material.sellmeier = '
-    '{"b": [...], "c": [...]}; a wavelength-independent index n is '
-    'b=[n**2-1], c=[0]'
+# The one retired material model that is still a *meaningful* config rather than a
+# typo, so it gets its own answer: what was removed, and why nothing can convert
+# it. Sellmeier coefficients carry no damping, so there is no k to recover.
+SELLMEIER_UNSUPPORTED_MESSAGE = (
+    "Sellmeier-only materials are no longer supported; material requires a "
+    "Lorentz dielectric model (material.lorentz). Sellmeier coefficients state no "
+    "damping, so no absorption spectrum can be read out of them"
 )
 
 # Implicit element placement when a config omits ``position``/``orientation``:
@@ -70,30 +72,58 @@ def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface
     )
 
 
-def sellmeier_from_config(config: object) -> Sellmeier:
-    """Sellmeier coefficients from a ``{"b": [...], "c": [...]}`` config object.
+def lorentz_oscillator_from_config(config: object) -> LorentzOscillator:
+    """One oscillator from a ``{"strength", "resonance_ev", "damping_ev"}`` object.
 
-    Coefficient lists of one to :data:`~optics.primitive.SELLMEIER_TERMS` entries
-    are accepted and zero padded by :class:`~optics.primitive.Sellmeier`.
+    Every key is required: an oscillator with an unstated strength or resonance is
+    a silent change to the material, so it is refused rather than defaulted.
     """
     if not isinstance(config, dict):
-        raise ValueError("Sellmeier config must be an object")
-    for key in ("refractive_index", "index"):
-        if key in config:
-            raise ValueError(_LEGACY_MATERIAL_MESSAGE)
-    return Sellmeier(
-        b=_require(config, "b", "sellmeier config"),
-        c=_require(config, "c", "sellmeier config"),
+        raise ValueError("Lorentz oscillator config must be an object")
+    return LorentzOscillator(
+        strength=_require(config, "strength", "lorentz oscillator config"),
+        resonance_ev=_require(config, "resonance_ev", "lorentz oscillator config"),
+        damping_ev=_require(config, "damping_ev", "lorentz oscillator config"),
+    )
+
+
+def lorentz_from_config(config: object) -> LorentzModel:
+    """Dielectric model from a ``{"epsilon_inf", "oscillators"}`` config object.
+
+    ``oscillators`` is required -- and may be an empty list, which is the exact
+    constant-index material -- because a material that says nothing about its
+    resonances is a missing key, not a transparent one.
+    """
+    if not isinstance(config, dict):
+        raise ValueError("Lorentz material config must be an object")
+    raw = _require(config, "oscillators", "lorentz material config")
+    if isinstance(raw, (str, bytes, dict)):
+        raise ValueError("Lorentz oscillators must be a list of oscillator objects")
+    try:
+        entries = list(raw)
+    except TypeError:
+        raise ValueError("Lorentz oscillators must be a list of oscillator objects") from None
+    return LorentzModel(
+        epsilon_inf=_require(config, "epsilon_inf", "lorentz material config"),
+        oscillators=[lorentz_oscillator_from_config(entry) for entry in entries],
     )
 
 
 def material_from_config(config: object) -> Material:
-    """Element material from a config, which must carry Sellmeier coefficients."""
-    if isinstance(config, dict) and "refractive_index" in config:
-        raise ValueError(_LEGACY_MATERIAL_MESSAGE)
-    if not isinstance(config, dict) or "sellmeier" not in config:
-        raise ValueError(SELLMEIER_REQUIRED_MESSAGE)
-    return Material(sellmeier=sellmeier_from_config(config["sellmeier"]))
+    """Element material from a config, which must carry a Lorentz dielectric model."""
+    if not isinstance(config, dict):
+        raise ValueError(MATERIAL_REQUIRED_MESSAGE)
+    if "sellmeier" in config:
+        raise ValueError(SELLMEIER_UNSUPPORTED_MESSAGE)
+    if "lorentz" not in config:
+        raise ValueError(MATERIAL_REQUIRED_MESSAGE)
+    try:
+        model = lorentz_from_config(config["lorentz"])
+    except ValueError as exc:
+        # A half-written model is still "not a dielectric model": the reader gets
+        # the shape to write *and* what specifically is wrong with this one.
+        raise ValueError(f"{MATERIAL_REQUIRED_MESSAGE}: {exc}") from None
+    return Material(model=model)
 
 
 def _require(mapping: object, key: str, context: str) -> Any:

@@ -2,7 +2,9 @@
 // containment, refraction through a parallel-plane plate and total internal
 // reflection.
 #include <cmath>
+#include <complex>
 #include <cstdio>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -18,12 +20,18 @@
 namespace {
 
 using optics::native::element_contains_point;
+using optics::native::element_extinction;
 using optics::native::element_first_hit;
 using optics::native::element_index;
+using optics::native::element_optical_response;
+using optics::native::HC_EV_NM;
+using optics::native::LorentzOscillator;
 using optics::native::make_vec3;
+using optics::native::material_complex_index;
+using optics::native::material_dielectric;
+using optics::native::material_optical_response;
 using optics::native::norm;
-using optics::native::sellmeier_index;
-using optics::native::SellmeierCoefficients;
+using optics::native::PI;
 using optics::native::Surface;
 using optics::native::trace_element;
 using optics::native::Vec3;
@@ -52,16 +60,18 @@ void test_create_persists_state() {
         o.grid_n = 48;
         return Surface::create(std::move(o));
     };
-    const std::pair<SellmeierCoefficients, SellmeierCoefficients> material =
-        fixture::constant_material(1.5);
-    const auto elem = optics::native::Element::create(face(0.5, 1.0), face(-0.5, 1.0),
-                                                     material.first, material.second,
+    const fixture::MaterialResponseRef material = fixture::constant_material(1.5);
+    const auto elem = optics::native::Element::create(face(0.5, 1.0), face(-0.5, 1.0), material,
                                                      std::vector<double>{}, std::vector<double>{});
     CHECK(elem->surface1 != nullptr && elem->surface2 != nullptr);
+    CHECK(elem->material == material);  // shared, never copied
     CHECK(close(element_index(*elem, fixture::kTestWavelengthNm), 1.5));
-    // A wavelength-independent material holds its index at both ends of the band.
+    // A wavelength-independent material holds its index at both ends of the band,
+    // and absorbs nothing anywhere.
     CHECK(close(element_index(*elem, 300.0), 1.5));
     CHECK(close(element_index(*elem, 2000.0), 1.5));
+    CHECK(close(element_extinction(*elem, 300.0), 0.0, 1e-15));
+    CHECK(close(element_optical_response(*elem, 2000.0).alpha_per_mm, 0.0, 1e-15));
     CHECK(close(elem->lo[0], -1.0) && close(elem->lo[1], -1.0) && close(elem->lo[2], -0.5));
     CHECK(close(elem->hi[0], 1.0) && close(elem->hi[1], 1.0) && close(elem->hi[2], 0.5));
     CHECK(elem->surface1->is_graph_over_xy() && elem->surface2->is_graph_over_xy());
@@ -77,9 +87,39 @@ void test_create_persists_state() {
     // Inconsistent sidewall arrays are rejected.
     bool threw = false;
     try {
-        optics::native::Element::create(face(0.5, 1.0), face(-0.5, 1.0), material.first,
-                                       material.second, std::vector<double>(10, 0.0),
-                                       std::vector<double>{});
+        optics::native::Element::create(face(0.5, 1.0), face(-0.5, 1.0), material,
+                                       std::vector<double>(10, 0.0), std::vector<double>{});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
+
+    // Materials are validated at construction too: a permittivity that is not
+    // positive, or an oscillator with a nonsense resonance or damping, is refused
+    // rather than traced with.
+    const auto build = [&](const optics::native::MaterialResponseRef& m) {
+        return optics::native::Element::create(face(0.5, 1.0), face(-0.5, 1.0), m,
+                                              std::vector<double>{}, std::vector<double>{});
+    };
+    auto bad_epsilon = std::make_shared<optics::native::MaterialResponse>();
+    bad_epsilon->epsilon_inf = 0.0;
+    threw = false;
+    try {
+        build(bad_epsilon);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
+    threw = false;
+    try {
+        build(fixture::oscillator_material(1.0, {LorentzOscillator{1.0, -2.0, 0.01}}));
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
+    threw = false;
+    try {
+        build(fixture::oscillator_material(1.0, {LorentzOscillator{1.0, 2.0, -0.01}}));
     } catch (const std::invalid_argument&) {
         threw = true;
     }
@@ -222,45 +262,91 @@ void test_variant_trace_equivalence() {
     }
 }
 
-// Sellmeier materials: the index follows the coefficients, and a material with
-// no index at a wavelength reports none instead of a nonsense number.
-void test_sellmeier_index() {
-    // A catalog crown (three terms, poles in um^2): the index falls with
-    // wavelength and hits n_d on the d line.
-    const SellmeierCoefficients crown_b{1.03961212, 0.231792346, 1.01046945};
-    const SellmeierCoefficients crown_c{0.00600588969, 0.0200179144, 103.560366};
-    const double n_blue = sellmeier_index(crown_b, crown_c, 0.486134);
-    const double n_green = sellmeier_index(crown_b, crown_c, 0.58756);
-    const double n_red = sellmeier_index(crown_b, crown_c, 0.656279);
-    CHECK(close(n_green, 1.51680, 2e-5));
+// The Lorentz dielectric model: epsilon from the oscillator sum, the passive
+// square root, the Beer-Lambert coefficient, and the wavelengths with no answer.
+void test_dielectric_response() {
+    // One damped oscillator, evaluated here as separated real and imaginary parts
+    // (1 / (a - i b) = (a + i b) / (a^2 + b^2)) so the check only agrees with the
+    // kernel if the damping term carries the passive sign.
+    const auto single = fixture::oscillator_material(2.0, {LorentzOscillator{1.2, 2.0, 0.3}});
+    const double wavelength = 700.0;
+    const double energy = HC_EV_NM / wavelength;
+    const double re = 4.0 - energy * energy;
+    const double im = 0.3 * energy;
+    const double square = re * re + im * im;
+    const std::complex<double> expected(2.0 + 1.2 * 4.0 * re / square, 1.2 * 4.0 * im / square);
+    const std::complex<double> epsilon = material_dielectric(*single, wavelength);
+    CHECK(close(epsilon.real(), expected.real(), 1e-13));
+    CHECK(close(epsilon.imag(), expected.imag(), 1e-13));
+
+    // The optical response is the passive square root of that same epsilon, taken
+    // once: (n + ik)^2 = epsilon with n >= 0 and k >= 0, and alpha = 4 pi k /
+    // lambda in inverse millimetres.
+    const optics::native::OpticalResponse response = material_optical_response(*single, wavelength);
+    const std::complex<double> root = material_complex_index(*single, wavelength);
+    CHECK(close(response.n, root.real(), 1e-15) && close(response.k, root.imag(), 1e-15));
+    CHECK(response.n >= 0.0 && response.k >= 0.0);
+    const std::complex<double> squared = root * root;
+    CHECK(close(squared.real(), epsilon.real(), 1e-12));
+    CHECK(close(squared.imag(), epsilon.imag(), 1e-12));
+    CHECK(close(response.alpha_per_mm, 4.0 * PI * response.k / (wavelength * 1.0e-6), 1e-12));
+
+    // A dispersive crown: three oscillators, index falling with wavelength and
+    // extinction that stays tiny across the visible band.
+    const auto crown = fixture::oscillator_material(
+        1.64143538, {LorentzOscillator{0.42758017, 10.2, 1.0e-5},
+                     LorentzOscillator{0.2, 8.2, 1.0e-5},
+                     LorentzOscillator{0.6, 0.11, 3.0e-4}});
+    const double n_blue = material_complex_index(*crown, 486.13).real();
+    const double n_green = material_complex_index(*crown, 587.56).real();
+    const double n_red = material_complex_index(*crown, 656.27).real();
     CHECK(n_blue > n_green && n_green > n_red);
+    CHECK(close(n_green, 1.5168, 2e-4));
+    const double k_green = material_complex_index(*crown, 550.0).imag();
+    CHECK(k_green > 0.0);
+    CHECK(k_green < 1.0e-5);
 
-    // A wavelength landing exactly on a pole reports no index; one off it does.
-    const SellmeierCoefficients pole_b{1.0};
-    const SellmeierCoefficients pole_c{0.25};  // lam = 0.5 um == 500 nm
-    CHECK(std::isnan(sellmeier_index(pole_b, pole_c, 0.5)));
-    CHECK(std::isfinite(sellmeier_index(pole_b, pole_c, 0.7)));
+    // An undamped resonance probed exactly on top of it has no response at all --
+    // NaN, which the trace turns into an absorbed ray rather than a nonsense index.
+    const auto undamped = fixture::oscillator_material(1.0, {LorentzOscillator{1.0, 2.0, 0.0}});
+    const double resonant_wavelength = HC_EV_NM / 2.0;
+    CHECK(std::isnan(material_complex_index(*undamped, resonant_wavelength).real()));
+    CHECK(std::isnan(material_optical_response(*undamped, resonant_wavelength).n));
+    const std::complex<double> off_resonance =
+        material_complex_index(*undamped, resonant_wavelength * 1.3);
+    CHECK(std::isfinite(off_resonance.real()));
+    CHECK(close(off_resonance.imag(), 0.0, 1e-15));
 
-    // Coefficients summing to a non-positive n^2 report no index either.
-    const SellmeierCoefficients opaque_b{-5.0};
-    const SellmeierCoefficients opaque_c{0.04};
-    CHECK(std::isnan(sellmeier_index(opaque_b, opaque_c, 0.5)));
+    // Probing an undamped oscillator from above flips the permittivity negative:
+    // the passive root is then purely imaginary, n = 0 with k > 0. The trace treats
+    // such a material as opaque; the model states it instead of hiding it.
+    const auto strong = fixture::oscillator_material(1.0, {LorentzOscillator{3.0, 1.0, 0.0}});
+    const std::complex<double> metal = material_complex_index(*strong, HC_EV_NM / 1.5);
+    CHECK(close(metal.real(), 0.0, 1e-12));
+    CHECK(metal.imag() > 0.0);
+
+    // A wavelength the model cannot interpret is reported the same way.
+    CHECK(std::isnan(material_complex_index(*crown, 0.0).real()));
+    CHECK(std::isnan(material_complex_index(*crown, -500.0).real()));
+    CHECK(std::isnan(material_complex_index(*crown, std::numeric_limits<double>::quiet_NaN()).real()));
 }
 
 // A dispersive element: the parallel-plane plate leaves the exit direction
 // untouched but shifts each colour by its own amount, and swallows the ray whose
-// wavelength hits a pole.
-void test_sellmeier_element_trace() {
-    const SellmeierCoefficients b{1.03961212, 0.231792346, 1.01046945};
-    const SellmeierCoefficients c{0.00600588969, 0.0200179144, 103.560366};
+// wavelength lands on an undamped resonance.
+void test_dispersive_element_trace() {
+    const auto crown = fixture::oscillator_material(
+        1.64143538, {LorentzOscillator{0.42758017, 10.2, 1.0e-5},
+                     LorentzOscillator{0.2, 8.2, 1.0e-5},
+                     LorentzOscillator{0.6, 0.11, 3.0e-4}});
     const auto plate =
         optics::native::Element::create(fixture::plate_face(0.5, 1.0, 0.0, 48),
-                                       fixture::plate_face(-0.5, 1.0, 0.0, 48), b, c,
+                                       fixture::plate_face(-0.5, 1.0, 0.0, 48), crown,
                                        std::vector<double>{}, std::vector<double>{});
     const Vec3 o = make_vec3(-0.2, 0.0, 2.0);
     const Vec3 d = make_vec3(0.3, 0.0, -kCos1);
-    const auto blue = trace_element(*plate, o, d, 486.134);
-    const auto red = trace_element(*plate, o, d, 656.279);
+    const auto blue = trace_element(*plate, o, d, 486.13);
+    const auto red = trace_element(*plate, o, d, 656.27);
     CHECK(blue.exited && red.exited);
     CHECK(close(blue.exit_d[0], red.exit_d[0], 1e-12));
     CHECK(close(norm(blue.exit_d), 1.0, 1e-12));
@@ -268,22 +354,20 @@ void test_sellmeier_element_trace() {
     // drifts less across the plate than red.
     CHECK(blue.exit_o[0] < red.exit_o[0]);
 
-    // A plate whose material has a pole at 500 nm stops that ray at the face it
-    // reached and traces normally at any other wavelength.
-    const SellmeierCoefficients pole_b{1.0};
-    const SellmeierCoefficients pole_c{0.25};
-    const auto resonant =
-        optics::native::Element::create(fixture::plate_face(0.5, 1.0, 0.0, 48),
-                                       fixture::plate_face(-0.5, 1.0, 0.0, 48), pole_b, pole_c,
-                                       std::vector<double>{}, std::vector<double>{});
+    // A plate whose material resonates without damping at 700 nm stops that ray at
+    // the face it reached and traces normally at any other wavelength.
+    const auto resonant = optics::native::Element::create(
+        fixture::plate_face(0.5, 1.0, 0.0, 48), fixture::plate_face(-0.5, 1.0, 0.0, 48),
+        fixture::oscillator_material(1.0, {LorentzOscillator{1.0, HC_EV_NM / 700.0, 0.0}}),
+        std::vector<double>{}, std::vector<double>{});
     const Vec3 straight = make_vec3(0.0, 0.0, 3.0);
     const Vec3 down = make_vec3(0.0, 0.0, -1.0);
-    const auto trapped = trace_element(*resonant, straight, down, 500.0);
+    const auto trapped = trace_element(*resonant, straight, down, 700.0);
     CHECK(!trapped.exited);
     CHECK(trapped.has_incident);
     CHECK(close(trapped.exit_o[2], 0.5, 1e-12));
     CHECK(close(trapped.exit_d[2], -1.0, 1e-12));
-    const auto passed = trace_element(*resonant, straight, down, 700.0);
+    const auto passed = trace_element(*resonant, straight, down, 900.0);
     CHECK(passed.exited);
     CHECK(close(passed.exit_o[2], -0.5, 1e-9));
 }
@@ -298,6 +382,6 @@ void test_element() {
     test_trace_oblique();
     test_trace_tir();
     test_variant_trace_equivalence();
-    test_sellmeier_index();
-    test_sellmeier_element_trace();
+    test_dielectric_response();
+    test_dispersive_element_trace();
 }

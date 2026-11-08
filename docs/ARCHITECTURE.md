@@ -18,9 +18,9 @@ d2 diagrams/native-modules.d2 diagrams/native-modules.svg
 NumPy buffers and opaque native handles across pybind11 and receives arrays
 back: per-ray work never enters the interpreter. The trace and measure kernels
 are handed the `(origins, dirs, powers, wavelengths)` buffers -- a ray's
-wavelength (nm) crosses with them, because each element's index is evaluated
-natively from its Sellmeier coefficients at the wavelength of the ray being
-traced. The native test binary links `optics_core` directly (ctest); the
+wavelength (nm) crosses with them, because each element's complex index is
+evaluated natively from its Lorentz dielectric model at the wavelength of the ray
+being traced, and what comes back carries the power the ray still has. The native test binary links `optics_core` directly (ctest); the
 Python `tests/` and `benchmarks/` reach the same kernels through `_native`
 where they test kernel behavior rather than the Python API. The picture draws
 that boundary once - one arrow between the bands, labelled with what crosses
@@ -154,20 +154,45 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
 - `optics/`: numerics core, no GUI/OpenGL dependencies:
   - `primitive/`: geometric primitives - `ray.py` (origin, direction, power,
     wavelength in nm), `transform.py`, `hit.py`,
-    `material.py` (`Sellmeier` coefficients and the `Material` that is nothing
-    but those coefficients), `aperture.py`, `sidewall.py` (lens rims intersected
+    `material.py` (`LorentzOscillator`, `LorentzModel` and the `Material` that is
+    nothing but a `LorentzModel`), `aperture.py`, `sidewall.py` (lens rims intersected
     by the native Moller-Trumbore mesh kernel), `vector.py` (native vector
     helpers), `surface.py` (parametric surfaces delegating every numerical
     operation to the persistent native surface)
-  - Materials and dispersion: `Sellmeier.index_at(wavelength_nm)` is the single
-    Python-side evaluation (the lens editor's calculated index, the importer's
-    self-checks, the tests); the native element carries the same `B_i`/`C_i`
-    arrays and evaluates `n` once per element entry per ray, so a polychromatic
-    fan really does lose a common focus. `C_i` is in um^2 with `lam` in um while
-    ray wavelengths stay in nm, and a zero pole makes its term a constant -- the
-    `b = [n**2 - 1]`, `c = [0]` idiom that holds a fixed index exactly.
-    Coefficients with no real index at a traced wavelength take the existing
-    absorb path, never a NaN into the geometry.
+  - Materials and dispersion: `LorentzModel.complex_index_at(wavelength_nm)` is the
+    single Python-side evaluation (the lens editor's readouts, the catalog's own
+    self-checks, the tests) and returns one complex `n + 1j*k`; `index_at`,
+    `extinction_at`, `absorption_coefficient_at`, `transmission_at` and
+    `abbe_number` are all read off it. The native element carries the same
+    `epsilon_inf` and `(S_j, E_j, Gamma_j)` rows in `MaterialResponse` and evaluates
+    the response once per element entry per ray, so a polychromatic fan really does
+    lose a common focus. Energies are eV with `E = hc_eV_nm / lambda_nm` while ray
+    wavelengths stay in nm, `epsilon_inf` alone with no oscillator is a constant
+    index (`2.25` is exactly `1.5`, bit for bit -- the idiom the examples and
+    geometry goldens use), and a response with no positive real index at the traced
+    wavelength takes the existing absorb path, never a NaN into the geometry.
+    Refraction reads only `Re[n + 1j*k]`, the weakly-absorbing approximation: above a
+    resonance, where the real permittivity goes negative, the traced geometry is
+    qualitative. `tests/test_material_native.py` pins the two evaluations to each
+    other, because two implementations of one formula is how they start to disagree.
+  - `materials/`: the shipped glass catalog and the physics behind its preview --
+    `catalog.py` (`MATERIALS`, `material_names`, `material_block`/`material_block_for`
+    for the inline `lorentz` block a config carries, `catalog_name_for` to name a
+    block back again) and `preview.py` (`sample_material_curve`, the `n`/`k` samples
+    the editor plots). Materials are inlined per element, so nothing outside this
+    package depends on a catalog name surviving; parameters are **provisional**
+    placeholders pinned to published `(n_d, V_d)`, documented as such in the module
+    and in `tools/data/PLACEHOLDER.md`.
+  - Power propagation: `RayHop` carries the transmission with which a ray entered its
+    element plus that element's absorption coefficient, and `fill_hops` integrates
+    Beer-Lambert along the internal polyline (`exp(-alpha * length)`, `alpha = 4*pi*k
+    / lambda` per mm), so a stopped ray reports zero rather than a stale entry value.
+    The same running fraction reaches the detectors (`measure_hops_plane` writes
+    power times transmission), the single-ray path (`trace_stack_segments` returns it)
+    and the renderer (`format_segments` writes a per-segment transmission that
+    `rendering/rays.py` turns into per-vertex alpha, dropping segments with none).
+    Only bulk absorption exists: every surface is assumed anti-reflection coated, so
+    no interface reflects power and the goldens stay bit-exact for a clear glass.
   - `expression.py`: restricted, safe surface-expression grammar enforced by the
     native parser; expression strings -> native surface model via
     `_native.compile_surface`, lru-cached
@@ -189,9 +214,10 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
   - `source.py`: point sources, ray emission (every ray carries the source's
     wavelength in nm); point-array grids arrive through the PNG codec seam
     `ui/imagecodec.py` registers, so the core stays Qt-free
-  - `config.py`: JSON -> element/stack loading (a material must carry
-    Sellmeier coefficients; the removed `refractive_index` key is a diagnostic,
-    not a compatibility path)
+  - `config.py`: JSON -> element/stack loading (a material must carry a `lorentz`
+    block; the removed `refractive_index` key and a `sellmeier` block are both
+    refusals naming what to write, not compatibility paths -- Sellmeier coefficients
+    state no damping, so there is no `k` to recover from them)
   - `io.py`: JSON project-document loading (Zemax `.zmx` is import-only)
   - `project.py`: project documents (elements + source + measurement
     planes)
@@ -208,8 +234,10 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
   - `importers/zmx/`: Zemax `.zmx` prescription import as a pipeline -
     `parser.py` (ZMX text syntax), `model.py` (IR dataclasses and shared value
     atoms), `normalize.py` (vertex accumulation, dummy-surface flattening),
-    `glass.py` (GLAS records, Sellmeier resolution -- published coefficients for
-    catalog glasses, a two-pole fit to `(n_d, V_d)` for everything else),
+    `glass.py` (GLAS records resolved by *name* to the shipped catalog, with short
+    forms such as `BK7` aliased; a glass the catalog does not carry, or one the file
+    gives only an `nd` for, is refused rather than fitted -- `nd`/`V_d` do not
+    determine resonances and damping),
     `expressions.py` (IR surface ->
     sag-expression config), `converter.py` (IR -> the project `elements` map and
     placement geometry) - merged into an open project (never a project loader)
@@ -258,6 +286,11 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     the object; one solve in flight at a time until `finish()`
   - `plane_view.py`: 2D colormap view of a measurement plane's detector image
     (letterboxed `QImage` raster, shared viridis LUT)
+  - `material_preview.py`: `MaterialPreviewPanel` -- the lens editor's 2D `n`/`k`
+    curves over the working waveband, a `vispy` `Fig` embedded in a `main.ui` host
+    widget. It only pushes arrays into two `LinePlot`s; the sampling and the
+    `log10(k)` scaling live in `optics/materials/preview.py`, so the physics stays
+    testable without a GL context and the panel stays too dumb to be wrong
   - `project_tree.py`: `ProjectTree` in the left dock - mirrors the project as
     source / lens stack / measurement planes and reports a `(kind, name)`
     selection the window routes to the matching editor page and 3D highlight

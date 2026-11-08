@@ -54,10 +54,12 @@ class TestConstruction:
         system = OpticalSystem()
         assert len(system) == 0
         origins, dirs, _powers, wavelengths = _rays()
-        starts, ends, kinds, counts = system.trace_segments(
+        starts, ends, kinds, counts, dims = system.trace_segments(
             origins, dirs, wavelengths, RAY_LENGTH
         )
         assert [int(kinds[0, k]) for k in range(int(counts[0]))] == [0]
+        # Nothing in front of the detector but air: the drawn segment is undimmed.
+        assert dims[0, 0] == 1.0
         np.testing.assert_allclose(starts[0, 0], origins[0], rtol=0.0, atol=0.0)
         np.testing.assert_allclose(
             ends[0, 0], origins[0] + RAY_LENGTH * dirs[0], rtol=1e-12
@@ -86,7 +88,7 @@ class TestDeterminism:
         a = system.trace_segments(origins, dirs, wavelengths, RAY_LENGTH)
         b = other.trace_segments(origins, dirs, wavelengths, RAY_LENGTH)
         np.testing.assert_array_equal(a[3], b[3])  # counts
-        for x, y in zip(_segments_prefix(*a), _segments_prefix(*b)):
+        for x, y in zip(_segments_prefix(*a[:4]), _segments_prefix(*b[:4])):
             np.testing.assert_array_equal(x[0], y[0])
             np.testing.assert_array_equal(x[1], y[1])
             np.testing.assert_array_equal(x[2], y[2])

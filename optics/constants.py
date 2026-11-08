@@ -21,9 +21,10 @@ MAX_INTERNAL_BOUNCES: int = int(_native.MAX_INTERNAL_BOUNCES)
 SIDEWALL_MATCH_ATOL: float = float(_native.SIDEWALL_MATCH_ATOL)
 
 # --- Refraction / material ----------------------------------------------------
-# Sellmeier terms per material: the width of the native element's coefficient
-# arrays and of the lens editor's Bi/Ci table.
-SELLMEIER_TERMS: int = int(_native.SELLMEIER_TERMS)
+# Photon energy per nanometre of vacuum wavelength (eV): the one conversion the
+# Lorentz dielectric model needs, owned by ``constants.hpp`` and evaluated once
+# natively so the Python and native models agree bit for bit.
+HC_EV_NM: float = float(_native.HC_EV_NM)
 
 # --- Fraunhofer lines ---------------------------------------------------------
 # The reference wavelengths the material model documents itself against, the

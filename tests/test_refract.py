@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from optics.constants import HC_EV_NM
 from optics.primitive import Ray
 from optics.system import OpticalSystem
 from tests.materials import crown_material
@@ -319,19 +320,28 @@ def test_internal_path_follows_the_material_index(make_element):
         np.testing.assert_allclose(slope, expected, rtol=1e-9)
 
 
-def test_pole_at_the_traced_wavelength_absorbs_the_ray(make_element):
+def test_a_resonance_at_the_traced_wavelength_absorbs_the_ray(make_element):
     """A material with no index where the ray lands stops the ray at that face."""
-    elem = make_element("0", "-2", material={"sellmeier": {"b": [1.0], "c": [0.25]}})
+    # An oscillator without damping has no answer exactly on its resonance, so the
+    # element cannot refract that colour: 500 nm is the resonance energy written as
+    # a wavelength.
+    resonant = {
+        "lorentz": {
+            "epsilon_inf": 2.0,
+            "oscillators": [
+                {"strength": 1.0, "resonance_ev": HC_EV_NM / 500.0, "damping_ev": 0.0}
+            ],
+        }
+    }
+    elem = make_element("0", "-2", material=resonant)
     system = OpticalSystem([elem])
     d = np.array([0.0, 0.0, -1.0])
-
-    # The coefficient pole sits at lam = sqrt(0.25) um, i.e. exactly 500 nm.
     segments, out = system.trace_path(Ray(np.array([0.0, 0.0, 2.5]), d, 1.0, 500.0), 3.0)
     assert out is None
     assert [kind for _, _, kind in segments] == ["incident"]
     np.testing.assert_allclose(segments[0][1], [0.0, 0.0, 0.0], atol=1e-9)
 
-    # The same element traces normally at a wavelength off the pole.
+    # The same element traces normally at a wavelength off the resonance.
     _segments, passed = system.trace_path(Ray(np.array([0.0, 0.0, 2.5]), d, 1.0, 700.0), 3.0)
     assert passed is not None
     np.testing.assert_allclose(passed.origin[2], -2.0, atol=1e-8)

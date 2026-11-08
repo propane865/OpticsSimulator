@@ -82,14 +82,24 @@ class OpticalSystem:
     # -- tracing -------------------------------------------------------------
     def _segment_buffers(
         self, n: int
-    ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
-        """Empty batch segment buffers sized for this stack."""
+    ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
+        """Fresh ``(starts, ends, kinds, transmissions, counts)`` buffers for ``n`` rays.
+
+        ``transmissions`` is ``(n, cap)`` and carries the fraction of each ray's
+        power still travelling at the start of the matching segment -- the value
+        the renderer fades to, and the same Beer-Lambert integral a detector
+        multiplies. Slots past a ray's ``counts[i]`` entry are never written.
+        """
         cap = _native.segments_capacity(len(self._stack))
         starts = np.empty((n, cap, 3), dtype=float)
         ends = np.empty((n, cap, 3), dtype=float)
         kinds = np.empty((n, cap), dtype=np.int8)
+        # Zero-filled, not empty: slots past ``counts[i]`` are never written by the
+        # kernel, and a renderer that meets one must read "no light there" rather
+        # than whatever the allocator left behind.
+        transmissions = np.zeros((n, cap), dtype=float)
         counts = np.zeros(n, dtype=np.int64)
-        return starts, ends, kinds, counts
+        return starts, ends, kinds, transmissions, counts
 
     @staticmethod
     def _plane_buffers(n: int, p: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
@@ -101,15 +111,20 @@ class OpticalSystem:
     ) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], Ray | None]":
         """Single-ray ``(segments, final_ray)`` through the stack.
 
-        Every element index is evaluated at ``ray.wavelength``: refraction
+        Every element response is evaluated at ``ray.wavelength``: refraction
         disperses the direction, never the colour, so the exit ray keeps the
-        incident power and wavelength.
+        incident wavelength and carries the incident power multiplied by the
+        Beer-Lambert transmission of the glass it travelled through (1.0 for a
+        material without absorption, less for a dark one). Per-segment dimming
+        values live on the batch form, :meth:`trace_segments`, which is what the
+        renderer draws; here the single ``final_ray`` power is the whole story.
         """
         cap = _native.segments_capacity(len(self._stack))
         starts = np.empty((cap, 3), dtype=float)
         ends = np.empty((cap, 3), dtype=float)
         kinds = np.empty(cap, dtype=np.int8)
-        count, exited, fo, fd = _native.trace_stack_segments(
+        dims = np.empty(cap, dtype=float)
+        count, exited, fo, fd, transmission = _native.trace_stack_segments(
             self._stack,
             np.ascontiguousarray(ray.origin, dtype=float),
             np.ascontiguousarray(ray.direction, dtype=float),
@@ -118,6 +133,7 @@ class OpticalSystem:
             starts,
             ends,
             kinds,
+            dims,
         )
         segments = [
             (starts[i].copy(), ends[i].copy(), _SEGMENT_KIND_NAMES[int(kinds[i])])
@@ -125,7 +141,7 @@ class OpticalSystem:
         ]
         if not exited:
             return segments, None
-        return segments, Ray(fo, fd, ray.power, ray.wavelength)
+        return segments, Ray(fo, fd, ray.power * transmission, ray.wavelength)
 
     def trace_segments(
         self,
@@ -133,17 +149,19 @@ class OpticalSystem:
         dirs: np.ndarray,
         wavelengths: "np.ndarray | Sequence[float] | float | None",
         ray_length: float = 3.0,
-    ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
-        """Batched ``(starts, ends, kinds, counts)`` segment buffers.
+    ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
+        """Batched ``(starts, ends, kinds, counts, transmissions)`` segment buffers.
 
         Parallel per-ray path tracing; an empty stack produces one straight
         incident segment per ray. ``wavelengths`` (nm) is per ray, a scalar, or
         ``None`` for the project default (:func:`optics._util.wavelength_array`).
+        ``transmissions[i, j]`` is the fraction of ray ``i``'s power still
+        travelling at the start of segment ``j``.
         """
         origins = np.ascontiguousarray(origins, dtype=float)
         dirs = np.ascontiguousarray(dirs, dtype=float)
         wavelengths = wavelength_array(wavelengths, int(origins.shape[0]))
-        starts, ends, kinds, counts = self._segment_buffers(origins.shape[0])
+        starts, ends, kinds, transmissions, counts = self._segment_buffers(origins.shape[0])
         _native.trace_segments_batch(
             self._stack,
             origins,
@@ -153,9 +171,10 @@ class OpticalSystem:
             starts,
             ends,
             kinds,
+            transmissions,
             counts,
         )
-        return starts, ends, kinds, counts
+        return starts, ends, kinds, counts, transmissions
 
     # -- measurement ---------------------------------------------------------
     def measure_planes(
@@ -192,12 +211,13 @@ class OpticalSystem:
         wavelengths: "np.ndarray | Sequence[float] | float | None",
         ray_length: float,
         planes: "Sequence[MeasurementPlane]",
-    ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
+    ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
         """Single-trace combined rendering segments + all-plane hits.
 
         Walks every ray through the stack exactly once and produces both the
-        rendering segment buffers ``(starts, ends, kinds, counts)`` and the
-        ``(P, N)`` plane hits ``(us, vs, pws)`` in detector-local coordinates;
+        rendering segment buffers ``(starts, ends, kinds, counts, transmissions)``
+        and the ``(P, N)`` plane hits ``(us, vs, pws)`` in detector-local
+        coordinates;
         an empty stack yields straight incident segments and direct plane hits.
         ``wavelengths`` (nm) is per ray, a scalar, or ``None`` for the project
         default.
@@ -206,12 +226,12 @@ class OpticalSystem:
             origins, dirs, powers, wavelengths
         )
         po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns(planes)
-        starts, ends, kinds, counts = self._segment_buffers(origins.shape[0])
+        starts, ends, kinds, transmissions, counts = self._segment_buffers(origins.shape[0])
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.trace_segments_and_planes(
             self._stack, origins, dirs, powers, wavelengths, float(ray_length),
             po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v,
-            starts=starts, ends=ends, kinds=kinds,
+            starts=starts, ends=ends, kinds=kinds, transmissions=transmissions,
             counts=counts, us=us, vs=vs, pws=pws,
         )
-        return starts, ends, kinds, counts, us, vs, pws
+        return starts, ends, kinds, counts, transmissions, us, vs, pws

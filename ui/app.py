@@ -326,11 +326,11 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         # otherwise use the separate measure/retrace paths.
         if rays and planes:
             origins, dirs, powers, wavelengths = state.rays_arrays()
-            starts, ends, _kinds, counts, us, vs, pws = system.trace_segments_and_planes(
+            starts, ends, _kinds, counts, dims, us, vs, pws = system.trace_segments_and_planes(
                 origins, dirs, powers, wavelengths, RAY_LENGTH, planes
             )
             results = state.set_plane_hits(us, vs, pws)
-            self._scene.retrace_from_segments(starts, ends, counts)
+            self._scene.retrace_from_segments(starts, ends, counts, dims)
         else:
             state.measure_all()
             results = state.plane_results

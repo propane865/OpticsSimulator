@@ -15,10 +15,10 @@ class Ray:
     """A directed ray: origin, unit direction, power and vacuum wavelength.
 
     ``wavelength`` is in **nanometres** and kept in that unit everywhere on the
-    Python side; the trace refracts at it, converting to the micrometres the
-    Sellmeier equation wants only where the material index is evaluated.
-    Refraction disperses the direction, never the colour, so an exit ray carries
-    the wavelength it entered with.
+    Python side; the trace refracts at it, converting to the photon energy the
+    Lorentz dielectric model is written in only where the material response is
+    evaluated. Refraction disperses the direction, never the colour, so an exit
+    ray carries the wavelength it entered with.
     """
 
     origin: np.ndarray

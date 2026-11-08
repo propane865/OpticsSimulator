@@ -80,15 +80,20 @@ std::shared_ptr<Surface> make_surface(const std::shared_ptr<SurfaceModel>& model
 
 // Persistent element from two native surface handles (AABB + graph flags are
 // derived once inside ``Element::create``); the material rides along as its
-// Sellmeier coefficient columns.
+// background permittivity and its ``(N, 3)`` Lorentz oscillator rows, copied into
+// a shared response before the GIL goes so the Python arrays can be freed or
+// mutated meanwhile. A material with no rows is the constant-index element.
 std::shared_ptr<Element> build_element(const std::shared_ptr<Surface>& surface1,
                                        const std::shared_ptr<Surface>& surface2,
-                                       const py::array_t<double>& sellmeier_b,
-                                       const py::array_t<double>& sellmeier_c,
+                                       double epsilon_inf,
+                                       const py::array_t<double>& oscillators,
                                        const py::array_t<double>& tri,
                                        const py::array_t<double>& normals) {
-    const optics::native::SellmeierCoefficients b = read_sellmeier(sellmeier_b, "sellmeier_b");
-    const optics::native::SellmeierCoefficients c = read_sellmeier(sellmeier_c, "sellmeier_c");
+    require(std::isfinite(epsilon_inf) && epsilon_inf > 0.0,
+            "epsilon_inf: must be finite and positive");
+    auto material = std::make_shared<optics::native::MaterialResponse>();
+    material->epsilon_inf = epsilon_inf;
+    material->oscillators = read_lorentz_oscillators(oscillators);
     const ConstDoubles tri_d = read_tri(tri);
     const std::size_t k = tri_d.size / 9;
     const py::buffer_info nm_info = normals.request();
@@ -100,7 +105,8 @@ std::shared_ptr<Element> build_element(const std::shared_ptr<Surface>& surface1,
     std::vector<double> nm_copy = copy_vector(nm_info);
     const std::shared_ptr<const Element> element = [&] {
         const py::gil_scoped_release release;
-        return Element::create(surface1, surface2, b, c, std::move(tri_copy), std::move(nm_copy));
+        return Element::create(surface1, surface2, std::move(material), std::move(tri_copy),
+                               std::move(nm_copy));
     }();
     return std::const_pointer_cast<Element>(element);
 }
@@ -287,6 +293,18 @@ void register_builders(py::module_& m) {
             },
             py::arg("radius"), py::arg("cx"), py::arg("cy"), py::arg("n"));
     py::class_<Element, std::shared_ptr<Element>>(m, "Element");
+    // The element's material response at one wavelength as ``(n, k, alpha_per_mm)``.
+    // The trace never asks Python for a material property -- this exists so a test
+    // can put the native evaluation of ``epsilon`` next to the Python one and fail
+    // if the two implementations of the same model ever drift.
+    m.def(
+        "element_optical_response",
+        [](const Element& element, double wavelength_nm) {
+            const optics::native::OpticalResponse response =
+                optics::native::element_optical_response(element, wavelength_nm);
+            return py::make_tuple(response.n, response.k, response.alpha_per_mm);
+        },
+        py::arg("element"), py::arg("wavelength_nm"));
     py::class_<TraceStack, std::shared_ptr<TraceStack>>(m, "TraceStack")
         .def("__len__", [](const TraceStack& self) { return self.size(); });
 
@@ -297,7 +315,7 @@ void register_builders(py::module_& m) {
           py::arg("ap_cx"), py::arg("ap_cy"), py::arg("rotation"), py::arg("translation"),
           py::arg("grid_n") = optics::native::SEED_GRID_N);
     m.def("build_element", &build_element, py::arg("surface1"), py::arg("surface2"),
-          py::arg("sellmeier_b"), py::arg("sellmeier_c"), py::arg("tri"), py::arg("normals"));
+          py::arg("epsilon_inf"), py::arg("oscillators"), py::arg("tri"), py::arg("normals"));
     m.def("build_trace_stack", &build_trace_stack, py::arg("elements"));
     m.def("analytic_surfaces_enabled", &optics::native::analytic_surfaces_enabled);
     m.def("set_analytic_surfaces", &optics::native::set_analytic_surfaces_enabled,

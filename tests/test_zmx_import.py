@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from optics.config import stack_from_config
+from optics.config import material_from_config, stack_from_config
 from optics.constants import D_LINE_NM
 from optics.expression import compile_parametric_surface
 from optics.importers.zmx import (
@@ -20,8 +20,8 @@ from optics.importers.zmx import (
     zmx_to_elements,
 )
 from optics.io import load_project
+from optics.materials import material_block
 from optics.measurement_plane import MeasurementPlane
-from optics.primitive import Sellmeier
 from optics.project import parse_project
 from optics.source import PointSource
 from optics.system import OpticalSystem
@@ -34,10 +34,11 @@ N_BK7 = '"N-BK7" 1.5168 64.17 "N-BK7"'
 def _material_index(config: dict[str, Any], wavelength_nm: float = D_LINE_NM) -> float:
     """The index an imported element's ``material`` block gives at ``wavelength_nm``.
 
-    Imported glasses are asserted where the catalog publishes them -- at the d
-    line -- because that is the datum the coefficients were fitted to.
+    Read through the loader's own validator, because that is the only promise worth
+    making about an imported block: whatever the importer wrote, the project accepts
+    it and traces it as this index.
     """
-    return Sellmeier(**config["material"]["sellmeier"]).index_at(wavelength_nm)
+    return material_from_config(config["material"]).index_at(wavelength_nm)
 
 
 def _load_quiet_elements(path: Path) -> tuple[dict[str, Any], Any]:
@@ -134,8 +135,11 @@ def test_element_geometry() -> None:
     assert list(elements) == ["lens1"]
     lens = elements["lens1"]
     assert lens["position"][2] == pytest.approx(-25.0)
-    # N-BK7 is in the built-in coefficient table, so n_d is the published one.
+    # N-BK7 resolves to the shipped catalog model, whose n_d follows the published one.
     assert _material_index(lens) == pytest.approx(1.5168, abs=2e-5)
+    # The block is inline, not a name: the imported project traces the same glass even
+    # if the catalog is re-fitted or the file is opened somewhere else.
+    assert lens["material"] == material_block("N-BK7")
     assert lens["surface1"]["aperture"]["radius"] == pytest.approx(12.5)
     assert lens["surface1"]["u_range"][0] == pytest.approx(-15.625)
     # The stack spans one Zemax thickness in mirrored simulator z.
@@ -202,20 +206,50 @@ def test_cemented_doublet_shares_the_interface() -> None:
     assert second.material.index_at(D_LINE_NM) == pytest.approx(1.64997)
 
 
-# -- glass index resolution ----------------------------------------------------
-def test_blank_glass_uses_inline_index(tmp_path: Path) -> None:
-    # Zemax writes catalog-less glasses as `GLAS ___BLANK 1 0 nd abbe ...`;
-    # the index must come from the numeric column (not the model name).
+# -- glass name resolution -----------------------------------------------------
+def test_a_glass_named_only_by_an_index_is_refused(tmp_path: Path) -> None:
+    """``___BLANK`` carries nd and Vd, which is not enough to build a dielectric model.
+
+    Fitting resonances and damping to two numbers would manufacture an absorption
+    edge out of nothing and label it imported data, so the import stops here and
+    says what to do instead.
+    """
     path = _modern_case(
         tmp_path,
         _surf(1, curv=0.02, disz=4.0, glass="___BLANK 1 0 1.62 36.3")
         + _surf(2, curv=-0.02, disz=10.0),
     )
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        elements, _ = load_zmx_elements(path)
-    assert _material_index(elements["lens1"]) == pytest.approx(1.62)
-    assert any("dispersion" in str(w.message) for w in caught)
+    with pytest.raises(UnsupportedZmxError, match="only an index"):
+        load_zmx_elements(path)
+
+
+def test_an_alias_name_reaches_the_catalog_entry(tmp_path: Path) -> None:
+    """Zemax's prefix-less ``BK7`` is the same glass, and the alias adds no numbers."""
+    path = _modern_case(
+        tmp_path,
+        _surf(1, curv=0.02, disz=5.0, glass='"BK7" 1.5168 64.17 "BK7"')
+        + _surf(2, curv=-0.02, disz=10.0),
+    )
+    elements, _ = _load_quiet_elements(path)
+
+    assert elements["lens1"]["material"] == material_block("N-BK7")
+
+
+def test_the_import_says_how_far_the_file_sits_from_the_model(tmp_path: Path) -> None:
+    """The GLAS nd is the one datum worth reporting: it measures the model's drift.
+
+    A glass whose file prescription and shipped model disagree by 0.01 must not read
+    as a clean import -- the import report is where that gap belongs.
+    """
+    path = _modern_case(
+        tmp_path,
+        _surf(1, curv=0.02, disz=5.0, glass='"N-BK7" 1.5268 64.17 "N-BK7"')
+        + _surf(2, curv=-0.02, disz=10.0),
+    )
+    with pytest.warns(UserWarning, match="vs the file's nd") as caught:
+        load_zmx_elements(path)
+
+    assert any("-0.01" in str(w.message) for w in caught)
 
 
 def test_parse_reads_utf16_without_warnings(tmp_path: Path) -> None:
@@ -238,8 +272,9 @@ def test_monochromatic_import_warning() -> None:
         load_zmx_elements(ZMX_DIR / "biconvex.zmx")
 
 
-def test_builtin_table_warning() -> None:
-    with pytest.warns(UserWarning, match="built-in table"):
+def test_glasses_are_reported_as_resolved() -> None:
+    """Every imported glass says which model it ended up on."""
+    with pytest.warns(UserWarning, match="shipped model"):
         load_zmx_elements(ZMX_DIR / "doublet.zmx")
 
 
@@ -365,16 +400,32 @@ def test_parm_slots_are_positional(tmp_path: Path) -> None:
 
 def test_glas_long_form_record(tmp_path: Path) -> None:
     # Full Zemax glass record ``GLAS model t p nd abbe dPgF pk1..pk4``: the
-    # index must come from the nd column, not the leading model flags.
+    # index must come from the nd column, not the leading model flags. Parsing is
+    # checked here; importing the same name is refused below, because a name outside
+    # the catalog has no dielectric model to resolve to.
     path = _modern_case(
         tmp_path,
         _surf(1, curv=0.02, disz=5.0, glass="C79-80 0 0 1.5 4.0E+1 0 0 0 0 0 0")
         + _surf(2, curv=-0.02, disz=10.0),
     )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        elements, _ = load_zmx_elements(path)
-    assert _material_index(elements["lens1"]) == pytest.approx(1.5)
+    prescription = parse_zmx(path)
+    assert prescription.surfaces[1].glass == "C79-80"
+    assert prescription.glasses["C79-80"] == pytest.approx((1.5, 40.0))
+
+    with pytest.raises(UnsupportedZmxError, match="Unknown glass 'C79-80'"):
+        load_zmx_elements(path)
+
+
+def test_a_catalog_glass_in_long_form_layout_imports(tmp_path: Path) -> None:
+    """The same record layout with a known name resolves normally."""
+    path = _modern_case(
+        tmp_path,
+        _surf(1, curv=0.02, disz=5.0, glass="N-BK7 0 0 1.5168 64.17 0 0 0 0 0 0")
+        + _surf(2, curv=-0.02, disz=10.0),
+    )
+    elements, _ = _load_quiet_elements(path)
+
+    assert elements["lens1"]["material"] == material_block("N-BK7")
 
 
 def test_evenasph_sag_mirrored_into_element(tmp_path: Path) -> None:

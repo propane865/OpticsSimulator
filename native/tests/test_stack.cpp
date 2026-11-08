@@ -3,6 +3,9 @@
 // ``tests/test_shared_trace.py``). The rendering path is a single
 // implementation: ``trace_stack_segments`` composes ``build_hops`` with
 // ``format_segments``.
+#include <cmath>
+#include <memory>
+
 #include "optics/common/constants.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/tracing/trace.hpp"
@@ -13,8 +16,12 @@
 namespace {
 
 using optics::native::build_hops;
+using optics::native::element_optical_response;
 using optics::native::fill_hops;
+using optics::native::LorentzOscillator;
 using optics::native::make_vec3;
+using optics::native::MaterialResponse;
+using optics::native::RayHops;
 using optics::native::PLANE_EPS;
 using optics::native::trace_stack_segments;
 using optics::native::TraceOptions;
@@ -38,7 +45,7 @@ void test_empty_stack() {
     double ends[3 * kCap];
     signed char kinds[kCap];
     const optics::native::StackSegments seg =
-        trace_stack_segments(empty, o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(empty, o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, nullptr, kCap);
     CHECK(seg.count == 1);
     CHECK(seg.exited);
     CHECK(kinds[0] == 0);
@@ -62,7 +69,7 @@ void test_two_plate_walk() {
     double ends[3 * kCap];
     signed char kinds[kCap];
     const optics::native::StackSegments seg =
-        trace_stack_segments(stack, o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(stack, o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, nullptr, kCap);
     CHECK(seg.count == 5);
     CHECK(seg.exited);
     const signed char expected_kinds[5] = {0, 1, 2, 1, 2};
@@ -92,7 +99,7 @@ void test_walk_miss_and_oblique() {
     double ends[3 * kCap];
     signed char kinds[kCap];
     const optics::native::StackSegments seg =
-        trace_stack_segments(stack, miss_o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(stack, miss_o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, nullptr, kCap);
     CHECK(seg.count == 1);
     CHECK(seg.exited);
     CHECK(kinds[0] == 0);
@@ -110,7 +117,7 @@ void test_walk_miss_and_oblique() {
     CHECK(close(hops[1].o[2], 2.5, 1e-9));  // exits through the lower face
     CHECK(close(hops[1].d[2], -kCos1, 1e-9));
     const optics::native::StackSegments seg2 =
-        trace_stack_segments(stack, o, slant, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(stack, o, slant, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, nullptr, kCap);
     CHECK(seg2.count == 3);  // incident + internal + exit tail
     CHECK(seg2.exited);
     CHECK(kinds[0] == 0 && kinds[1] == 1 && kinds[2] == 2);
@@ -148,10 +155,10 @@ void test_hops_reuse() {
     signed char kinds_b[kCap];
     optics::native::RayHops scratch;
     const optics::native::StackSegments a =
-        trace_stack_segments(stack, hit_o, d, fixture::kTestWavelengthNm, kTraceOptions, starts_a, ends_a, kinds_a, kCap);
+        trace_stack_segments(stack, hit_o, d, fixture::kTestWavelengthNm, kTraceOptions, starts_a, ends_a, kinds_a, nullptr, kCap);
     const optics::native::StackSegments b =
-        trace_stack_segments(stack, hit_o, d, fixture::kTestWavelengthNm, kTraceOptions, scratch, starts_b, ends_b, kinds_b,
-                             kCap);
+        trace_stack_segments(stack, hit_o, d, fixture::kTestWavelengthNm, kTraceOptions, scratch,
+                             starts_b, ends_b, kinds_b, nullptr, kCap);
     CHECK(a.count == b.count);
     CHECK(a.exited == b.exited);
     for (int i = 0; i < a.count; ++i) {
@@ -175,7 +182,7 @@ void test_three_plate_order() {
     double ends[3 * kCap];
     signed char kinds[kCap];
     const optics::native::StackSegments seg =
-        trace_stack_segments(stack, o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, kCap);
+        trace_stack_segments(stack, o, d, fixture::kTestWavelengthNm, kTraceOptions, starts, ends, kinds, nullptr, kCap);
     // Incident + interior per element and the capped tail: seven segments,
     // visited in geometric order 3.0 -> 1.5 -> 0.0.
     CHECK(seg.count == 7);
@@ -195,6 +202,108 @@ void test_three_plate_order() {
     }
 }
 
+
+// Power along the walk: the surviving fraction is Beer-Lambert over the internal
+// polyline the hop already records, so curved faces, oblique paths and internal
+// bounces are integrated by the same two lines that draw the ray.
+void test_hop_transmission() {
+    // Catalogue-grade dispersion with enough infrared damping to matter over a
+    // millimetre of glass. Only the coefficient matters here, and it is read from
+    // the model rather than hard-coded: what is under test is the integration.
+    const auto dark = std::make_shared<MaterialResponse>(
+        MaterialResponse{1.64143538,
+                         {LorentzOscillator{0.42758017, 10.2, 1.0e-5},
+                          LorentzOscillator{0.2, 8.2, 1.0e-5},
+                          LorentzOscillator{0.6, 0.11, 0.03}}});
+    const auto plate = optics::native::Element::create(
+        fixture::plate_face(0.5, 1.0, 0.0, 48), fixture::plate_face(-0.5, 1.0, 0.0, 48), dark,
+        std::vector<double>{}, std::vector<double>{});
+    const TraceStack stack = fixture::make_stack({plate});
+    const Vec3 o = make_vec3(0.0, 0.0, 3.0);
+    const Vec3 d = make_vec3(0.0, 0.0, -1.0);
+
+    RayHops hops;
+    fill_hops(hops, stack, o, d, 550.0);
+    CHECK(hops.size() == 2);
+    CHECK(hops[0].has_element && hops[0].exited);
+    CHECK(!hops[1].has_element);
+    // The ray enters at full power and leaves holding exp(-alpha * L) for the 1 mm
+    // it travelled; the tail hop carries the accumulated value with nothing left to
+    // integrate.
+    const double alpha = element_optical_response(*plate, 550.0).alpha_per_mm;
+    CHECK(alpha > 0.0);
+    CHECK(close(hops[0].transmission_at_entry, 1.0, 1e-15));
+    CHECK(close(hops[0].alpha_per_mm, alpha, 1e-12));
+    CHECK(close(hops[1].transmission_at_entry, std::exp(-alpha), 1e-12));
+    CHECK(close(hops[1].alpha_per_mm, 0.0, 1e-15));
+
+    double starts[3 * kCap];
+    double ends[3 * kCap];
+    signed char kinds[kCap];
+    double dims[kCap];
+    const auto seg = trace_stack_segments(stack, o, d, 550.0, kTraceOptions, starts, ends, kinds,
+                                          dims, kCap);
+    CHECK(seg.exited);
+    CHECK(close(seg.transmission, std::exp(-alpha), 1e-12));
+    // The drawn path fades with the same integral: the incident segment starts at
+    // full power, the internal segment is still at full power at its own start,
+    // and the exit segment leaves holding the transmitted fraction.
+    CHECK(seg.count == 3);
+    CHECK(close(dims[0], 1.0, 1e-15));
+    CHECK(close(dims[1], 1.0, 1e-15));
+    CHECK(close(dims[2], std::exp(-alpha), 1e-12));
+
+    // An oblique ray travels further inside the same plate, and the walk charges it
+    // for the longer way: 1 mm of glass along z is 1/cos(theta_t) mm of glass.
+    const double s = 0.3;
+    const Vec3 slant_o = make_vec3(-1.0, 0.0, 3.0);
+    const Vec3 slant_d = make_vec3(s, 0.0, -kCos1);
+    RayHops slant;
+    fill_hops(slant, stack, slant_o, slant_d, 550.0);
+    CHECK(slant.size() == 2);
+    CHECK(slant[1].transmission_at_entry < hops[1].transmission_at_entry);
+    CHECK(std::isfinite(slant[1].transmission_at_entry));
+
+    // Clear glass is exact: no damping means no coefficient, so the transmission is
+    // the number 1.0 and every golden value traced through a constant index stays
+    // bit-identical.
+    const auto clear = fixture::constant_material(1.5);
+    const auto clear_plate = optics::native::Element::create(
+        fixture::plate_face(0.5, 1.0, 0.0, 48), fixture::plate_face(-0.5, 1.0, 0.0, 48), clear,
+        std::vector<double>{}, std::vector<double>{});
+    const TraceStack clear_stack = fixture::make_stack({clear_plate});
+    RayHops clean;
+    fill_hops(clean, clear_stack, o, d, 550.0);
+    CHECK(clean[0].alpha_per_mm == 0.0);
+    CHECK(clean[1].transmission_at_entry == 1.0);
+    const auto clean_seg =
+        trace_stack_segments(clear_stack, o, d, 550.0, kTraceOptions, starts, ends, kinds, nullptr, kCap);
+    CHECK(clean_seg.transmission == 1.0);
+
+    // A ray the material refuses to refract leaves with nothing: probed from above
+    // an undamped resonance the permittivity is negative, so the passive index is
+    // zero and the walk stops at the face it reached.
+    const auto opaque = fixture::oscillator_material(1.0, {LorentzOscillator{3.0, 1.0, 0.0}});
+    const auto stopped = optics::native::Element::create(
+        fixture::plate_face(0.5, 1.0, 0.0, 48), fixture::plate_face(-0.5, 1.0, 0.0, 48), opaque,
+        std::vector<double>{}, std::vector<double>{});
+    const TraceStack opaque_stack = fixture::make_stack({stopped});
+    const double metal_wavelength = optics::native::HC_EV_NM / 1.5;
+    CHECK(close(element_optical_response(*stopped, metal_wavelength).n, 0.0, 1e-12));
+    const auto blocked = trace_stack_segments(opaque_stack, o, d, metal_wavelength, kTraceOptions,
+                                             starts, ends, kinds, nullptr, kCap);
+    CHECK(!blocked.exited);
+    CHECK(blocked.transmission == 0.0);
+    RayHops swallowed;
+    fill_hops(swallowed, opaque_stack, o, d, metal_wavelength);
+    CHECK(swallowed.size() == 1);  // no trailing gap: the ray died at the face
+    CHECK(close(swallowed[0].transmission_at_entry, 1.0, 1e-15));  // it got that far
+    // The element does have a coefficient (a metal absorbs at the surface), but a
+    // ray that never got inside has no path to integrate it over: the walk stops
+    // with one hop and no trailing gap, so nothing multiplies it in.
+    CHECK(swallowed[0].alpha_per_mm > 0.0);
+}
+
 }  // namespace
 
 void test_stack() {
@@ -203,4 +312,5 @@ void test_stack() {
     test_walk_miss_and_oblique();
     test_hops_reuse();
     test_three_plate_order();
+    test_hop_transmission();
 }

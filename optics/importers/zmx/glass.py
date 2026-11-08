@@ -1,19 +1,23 @@
-"""Glass semantics: name classification, GLAS records, Sellmeier resolution.
+"""Glass semantics: name classification, GLAS records, catalog resolution.
 
 :func:`_register_glass` interprets the two ``GLAS`` record layouts into the
 prescription's ``glasses`` map; :func:`_resolve_material` turns a surface's glass
-name (or attached anonymous index) into the Sellmeier coefficients the project
-``material`` block carries. A catalog name with published coefficients keeps its
-exact dispersion; everything else is dispersed by :func:`_fit_sellmeier` from the
-record's ``(n_d, V_d)``. This is the seam that a future wavelength-dependent
-:class:`Glass` model replaces, without touching parsing or conversion.
+name into the ``material`` block the project carries.
+
+Under a complex dielectric model that seam carries a rule: a name, or nothing.
+``(n_d, V_d)`` are two numbers at three wavelengths; they do not determine where a
+material's resonances sit, and least of all the damping that decides where a glass
+stops light. Fitting an absorbing model to them would invent an absorption edge and
+print it as imported data, so a glass the catalog does not know is refused with the
+reason instead. The GLAS ``(nd, abbe)`` pair is still parsed and still reported --
+it says how far the shipped catalog model sits from the file's own prescription.
 """
 
 from collections.abc import Callable
+from typing import Any
 
-from ...constants import C_LINE_NM as _C_LINE_NM
 from ...constants import D_LINE_NM as _D_LINE_NM
-from ...constants import F_LINE_NM as _F_LINE_NM
+from ...materials import MATERIALS, material_block, material_for_name
 from .model import UnsupportedZmxError, ZmxPrescription, ZmxSurface, _float, _unquote
 
 __all__: list[str] = []
@@ -24,47 +28,14 @@ _AIR_GLASS = {"", "NULL", "AIR"}
 # pair rather than a catalog name; the numeric layout differs from named glass.
 _GLASS_BLANK = "___BLANK"
 
-# Fraunhofer d/F/C wavelengths (nm) the fit is pinned to: the F and C lines
-# bracket d symmetrically, which is exactly how V_d is defined. They come from
-# :mod:`optics.constants`, the one source for shared numbers.
-
-# The fit's fixed poles (um^2): the ultraviolet pair of a silicate crown, which
-# leaves the whole visible/near-infrared band on the normal-dispersion side of
-# both poles (the shortest pole sits at 236 nm, far below the 300 nm the
-# wavelength model validates).
-_FIT_POLES: tuple[float, float] = (0.0085, 0.0555)
-
-# Band the fitted coefficients must stay meaningful across -- the same bounds
-# :meth:`optics.primitive.Sellmeier.index` checks.
-_VALIDATION_BAND_UM2: tuple[float, ...] = (0.3 * 0.3, 0.5876 * 0.5876, 1.6 * 1.6)
-
-# Catalog Sellmeier coefficients (b dimensionless, c in um^2) for the glasses
-# whose published sets reproduce the published (n_d, V_d) to within 2e-5/0.02 --
-# the check that kept every entry here. Every other name is dispersed by the fit.
-_SELLMEIER_CATALOG: dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]] = {
-    "N-BK7": (
-        (1.03961212, 0.231792346, 1.01046945),
-        (0.00600588969, 0.0200179144, 103.560366),
-    ),
-    "F_SILICA": (
-        (0.6961663, 0.4079426, 0.8974794),
-        (0.00466072, 0.01351206, 97.934),
-    ),
-}
-
-# Fallback reference prescription (n_d, V_d) for catalog names seen with no GLAS
-# record: a missing V_d (0.0) leaves the fit with n_d alone and says so.
-_COMMON_GLASSES: dict[str, tuple[float, float]] = {
-    "N-BK7": (1.5168, 64.17), "BK7": (1.5168, 64.17),
-    "N-SF11": (1.7847, 25.68), "SF11": (1.7847, 25.68),
-    "N-SF10": (1.72827, 28.47),
-    "N-SF5": (1.6727, 32.21), "SF5": (1.6727, 32.21),
-    "N-F2": (1.64997, 33.84), "F2": (1.64997, 33.84),
-    "N-BAK4": (1.56883, 55.95),
-    "N-SK16": (1.62041, 60.32),
-    "N-LAK22": (1.744, 47.24),
-    "N-LASF9": (1.85025, 32.17),
-    "F_SILICA": (1.4585, 67.8),
+# Zemax writes some Schott names without the manufacturer prefix. These are the
+# name spellings that mean a catalog entry -- aliases by name alone, which adds no
+# physics: no index, no Abbe number, and no invented dispersion.
+_GLASS_ALIASES: dict[str, str] = {
+    "BK7": "N-BK7",
+    "SF11": "N-SF11",
+    "SF5": "N-SF5",
+    "F2": "N-F2",
 }
 
 
@@ -123,90 +94,23 @@ def _register_glass(
         current.glass = model or name
 
 
+
+
 def _plausible_index(value: float) -> bool:
     """Whether a refractive index is physically plausible as a glass index."""
     return 1.0 < value < 10.0
 
 
-def _slope(lam_sq: float, pole: float) -> float:
-    """The Sellmeier term shape ``lam^2 / (lam^2 - C)`` at squared wavelength."""
-    return lam_sq / (lam_sq - pole)
+def catalog_name(name: str) -> str | None:
+    """The catalog entry a Zemax glass name means, or ``None``.
 
-
-def _fit_sellmeier(nd: float, vd: float) -> "tuple[list[float], list[float]]":
-    """Sellmeier coefficients reproducing the reference prescription ``(nd, vd)``.
-
-    The poles are fixed at :data:`_FIT_POLES`, so the F/d/C triplet is linear in
-    the two remaining coefficients: each row holds the term shape at the line's
-    squared wavelength, ``rhs[0] = n_d^2 - 1`` and ``rhs[1]`` is the difference
-    of the two end equations -- so ``vd <= 0`` (no dispersion datum) leaves
-    nothing to split and collapses the pair onto the single-term material that
-    holds ``nd`` at every wavelength (``b = [n_d^2 - 1]``, ``c = [0]``). The
-    reconstruction is checked against ``nd`` and the coefficients against the
-    validation band, so a fit that cannot serve the trace is refused rather than
-    imported.
+    Uppercased, with :data:`_GLASS_ALIASES` applied, so ``BK7``, ``bk7`` and
+    ``N-BK7`` all reach the one shipped model. A name outside the catalog has no
+    answer here -- and no fitted substitute below either.
     """
-    if vd <= 0.0:
-        return [nd * nd - 1.0, 0.0, 0.0], [0.0, 0.0, 0.0]
-    dispersion = (nd - 1.0) / vd
-    n_f = nd + 0.5 * dispersion
-    n_c = nd - 0.5 * dispersion
-    pole_uv, pole_ir = _FIT_POLES
-
-    def term(lam_nm: float) -> "tuple[float, float]":
-        lam_sq = (lam_nm / 1000.0) ** 2
-        return _slope(lam_sq, pole_uv), _slope(lam_sq, pole_ir)
-
-    row_d, row_f, row_c = (term(lam) for lam in (_D_LINE_NM, _F_LINE_NM, _C_LINE_NM))
-    # Two unknowns, two equations: the d line pins ``row_d . b = n_d^2 - 1``
-    # exactly, and the F-C difference pins the split that V_d measures.
-    delta = (row_f[0] - row_c[0], row_f[1] - row_c[1])
-    determinant = row_d[0] * delta[1] - row_d[1] * delta[0]
-    rhs_d = nd * nd - 1.0
-    rhs_split = n_f * n_f - n_c * n_c
-    b_uv = (rhs_d * delta[1] - rhs_split * row_d[1]) / determinant
-    b_ir = (row_d[0] * rhs_split - delta[0] * rhs_d) / determinant
-
-    rebuilt = 1.0 + b_uv * row_d[0] + b_ir * row_d[1]
-    if abs(rebuilt - nd * nd) > 1e-12 * max(1.0, nd * nd):
-        raise ValueError(
-            f"Sellmeier fit for nd={nd:.6g}, Vd={vd:.6g} did not reproduce n_d "
-            f"({rebuilt ** 0.5:.9g} instead of {nd:.9g})"
-        )
-    coefficients = [b_uv, b_ir, 0.0]
-    poles = [pole_uv, pole_ir, 0.0]
-    for lam_sq in _VALIDATION_BAND_UM2:
-        total = 1.0
-        for coefficient, pole in zip(coefficients, poles):
-            if lam_sq == pole:
-                raise ValueError(
-                    f"Sellmeier fit for nd={nd:.6g} puts a pole inside the traced band"
-                )
-            total += coefficient * _slope(lam_sq, pole)
-        if total <= 0.0:
-            raise ValueError(
-                f"Sellmeier fit for nd={nd:.6g}, Vd={vd:.6g} gives n^2 = {total:.6g} "
-                "inside the traced band"
-            )
-    return coefficients, poles
-
-
-def _reference_prescription(
-    key: str,
-    glasses: dict[str, tuple[float, float]],
-    warn: Callable[[str], None],
-) -> tuple[float, float]:
-    """The ``(n_d, V_d)`` a glass name disperses from: GLAS record, then catalog."""
-    entry = glasses.get(key)
-    if entry is not None and _plausible_index(entry[0]):
-        return entry[0], float(entry[1])
-    fallback = _COMMON_GLASSES.get(key)
-    if fallback is not None:
-        warn(f"{key} index taken from the built-in table (no GLAS nd was found)")
-        return fallback
-    raise UnsupportedZmxError(
-        f"Unknown glass {key!r}: no GLAS refractive index and no built-in fallback"
-    )
+    key = name.strip().upper()
+    key = _GLASS_ALIASES.get(key, key)
+    return key if key in MATERIALS else None
 
 
 def _resolve_material(
@@ -214,28 +118,44 @@ def _resolve_material(
     glasses: dict[str, tuple[float, float]],
     warn: Callable[[str], None],
     refractive_index: float | None = None,
-) -> dict[str, list[float]]:
-    """The project ``material.sellmeier`` block for a surface's glass.
+) -> dict[str, Any]:
+    """The project ``material`` block for a surface's glass, taken from the catalog.
 
-    A catalog name with published coefficients keeps its exact dispersion; every
-    other glass is dispersed by :func:`_fit_sellmeier` from its ``(n_d, V_d)``,
-    and a glass with no Abbe number is dispersed from ``n_d`` alone -- each route
-    says which in the import report.
+    A glass named only by an attached index (``___BLANK``, or a model Zemax could
+    not name) is refused: an index at one wavelength is not a dielectric model, and
+    the damping that decides absorption cannot be recovered from it. A name outside
+    the catalog is refused for the same kind of reason -- see this module's docstring.
+
+    When the file does carry a GLAS ``nd``, the import report says how far the
+    shipped model sits from it, because that gap is the one thing the record does
+    tell us about the imported prescription.
     """
-    if refractive_index is not None and _plausible_index(refractive_index):
-        label = name.strip().upper() or _GLASS_BLANK
-        warn(f"{label} approximate dispersion fitted from its attached nd={refractive_index:.6g}")
-        b, c = _fit_sellmeier(refractive_index, 0.0)
-        return {"b": b, "c": c}
-    key = name.strip().upper()
-    row = _SELLMEIER_CATALOG.get(key)
-    if row is not None:
-        warn(f"{key} dispersed with catalog Sellmeier coefficients")
-        return {"b": list(row[0]), "c": list(row[1])}
-    nd, vd = _reference_prescription(key, glasses, warn)
-    b, c = _fit_sellmeier(nd, vd)
-    if vd > 0.0:
-        warn(f"{key} approximate dispersion fitted from GLAS nd={nd:.6g}, Vd={vd:.6g}")
+    label = name.strip().upper() or _GLASS_BLANK
+    if refractive_index is not None:
+        raise UnsupportedZmxError(
+            f"Glass {label!r} carries only an index (nd={refractive_index:.6g}): a complex"
+            " dielectric model needs resonances and damping, which nd/Vd do not determine."
+            " Give the glass a catalog name (e.g. N-BK7) or edit the imported lens"
+            " and pick a material."
+        )
+    match = catalog_name(name)
+    if match is None:
+        raise UnsupportedZmxError(
+            f"Unknown glass {name!r}: not in the material catalog"
+            f" ({', '.join(MATERIALS)}). A complex dielectric model cannot be"
+            " inferred from a GLAS nd/Vd pair, so the glass is not imported."
+        )
+    block = material_block(match)
+    model = material_for_name(match)
+    catalog_nd = model.index_at(_D_LINE_NM)
+    entry = glasses.get(match) or glasses.get(label)
+    if entry is not None and _plausible_index(entry[0]):
+        nd = float(entry[0])
+        warn(
+            f"{match} dispersed with the shipped model"
+            f" (n_d {catalog_nd:.6g} vs the file's nd {nd:.6g},"
+            f" difference {catalog_nd - nd:+.6g})"
+        )
     else:
-        warn(f"{key} has no dispersion data (Vd); approximate dispersion fitted from nd alone")
-    return {"b": b, "c": c}
+        warn(f"{match} dispersed with the shipped model (the file carries no GLAS nd)")
+    return block

@@ -62,11 +62,15 @@ struct PlaneBatchView {
 };
 
 // Rendering segment output buffers: ``starts``/``ends`` are ``(N, cap, 3)``,
-// ``kinds`` ``(N, cap)``, ``counts`` ``(N,)``.
+// ``kinds`` and ``transmissions`` ``(N, cap)``, ``counts`` ``(N,)``.
+// ``transmissions[i, j]`` is the fraction of the ray's power still travelling at
+// the start of segment ``j`` -- the value a dimmed renderer fades to (see
+// ``format_segments``).
 struct SegmentOutputView {
     double* starts;
     double* ends;
     signed char* kinds;
+    double* transmissions;
     std::int64_t* counts;
     std::size_t capacity;
 };

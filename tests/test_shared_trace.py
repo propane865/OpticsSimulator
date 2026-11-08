@@ -123,7 +123,7 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
 
     # Reference rendering buffers.
     system = OpticalSystem(elements)
-    rs, re, rk, rc = system.trace_segments(origins, dirs, wavelengths, RAY_LENGTH)
+    rs, re, rk, rc, rd = system.trace_segments(origins, dirs, wavelengths, RAY_LENGTH)
 
     # Reference plane hits.
     ref_grids = []
@@ -132,7 +132,7 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
             plane.measure(_rays_as_objects(origins, dirs), system).grid.copy()
         )
 
-    starts, ends, kinds, counts, us, vs, pws = system.trace_segments_and_planes(
+    starts, ends, kinds, counts, dims, us, vs, pws = system.trace_segments_and_planes(
         origins, dirs, powers, wavelengths, RAY_LENGTH, planes
     )
 
@@ -144,6 +144,9 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
             np.testing.assert_array_equal(starts[i, :c], rs[i, :c])
             np.testing.assert_array_equal(ends[i, :c], re[i, :c])
             np.testing.assert_array_equal(kinds[i, :c], rk[i, :c])
+            # Bit-exact too: the picture and the batch trace agree on how much
+            # power each segment was drawn with.
+            np.testing.assert_array_equal(dims[i, :c], rd[i, :c])
 
     for q, plane in enumerate(planes):
         check = plane.new_result()

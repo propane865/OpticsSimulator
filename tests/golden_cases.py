@@ -396,7 +396,7 @@ def case_batch() -> dict:
     wavelengths = 486.13 + 170.14 * (np.arange(n) % 3) / 2.0
 
     system = OpticalSystem(elements)
-    starts, ends, kinds, counts = system.trace_segments(
+    starts, ends, kinds, counts, _transmissions = system.trace_segments(
         origins, dirs, wavelengths, ray_length=2.0
     )
     valid_starts = np.concatenate([starts[i, : counts[i]] for i in range(n)])
@@ -409,7 +409,7 @@ def case_batch() -> dict:
     plane_b = MeasurementPlane(
         [0.0, 0.0, -8.0], [0.0, 0.0, 1.0], [-8.0, 8.0], [-8.0, 8.0], [4, 4]
     )
-    s2, _e2, _k2, c2, us, vs, pws = system.trace_segments_and_planes(
+    s2, _e2, _k2, c2, _d2, us, vs, pws = system.trace_segments_and_planes(
         origins, dirs, powers, wavelengths, 2.0, [plane_a, plane_b]
     )
     fused_starts = np.concatenate([s2[i, : c2[i]] for i in range(n)])

@@ -149,16 +149,28 @@ void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi) {
 
 std::shared_ptr<const Element> Element::create(std::shared_ptr<const Surface> surface1,
                                                std::shared_ptr<const Surface> surface2,
-                                               SellmeierCoefficients sellmeier_b,
-                                               SellmeierCoefficients sellmeier_c,
+                                               MaterialResponseRef material,
                                                std::vector<double> tri,
                                                std::vector<double> normals) {
     if (surface1 == nullptr || surface2 == nullptr) {
         throw std::invalid_argument("element requires both surfaces");
     }
-    for (std::size_t i = 0; i < SELLMEIER_TERMS; ++i) {
-        if (!std::isfinite(sellmeier_b[i]) || !std::isfinite(sellmeier_c[i])) {
-            throw std::invalid_argument("sellmeier: coefficients must be finite");
+    if (material == nullptr) {
+        throw std::invalid_argument("element requires a material");
+    }
+    if (!std::isfinite(material->epsilon_inf) || material->epsilon_inf <= 0.0) {
+        throw std::invalid_argument("lorentz: epsilon_inf must be finite and positive");
+    }
+    for (const auto& osc : material->oscillators) {
+        if (!std::isfinite(osc.strength) || !std::isfinite(osc.resonance_ev) ||
+            !std::isfinite(osc.damping_ev)) {
+            throw std::invalid_argument("lorentz: oscillator parameters must be finite");
+        }
+        if (osc.resonance_ev <= 0.0) {
+            throw std::invalid_argument("lorentz: resonance_ev must be positive");
+        }
+        if (osc.damping_ev < 0.0) {
+            throw std::invalid_argument("lorentz: damping_ev must not be negative");
         }
     }
     if (tri.size() % 9 != 0) {
@@ -170,8 +182,7 @@ std::shared_ptr<const Element> Element::create(std::shared_ptr<const Surface> su
     std::shared_ptr<Element> elem(new Element());
     elem->surface1 = std::move(surface1);
     elem->surface2 = std::move(surface2);
-    elem->b = sellmeier_b;
-    elem->c = sellmeier_c;
+    elem->material = std::move(material);
     for (int i = 0; i < 3; ++i) {
         elem->lo[i] = kInf;
         elem->hi[i] = -kInf;
@@ -201,8 +212,9 @@ std::shared_ptr<const Element> Element::translated(const Element& base, const Ve
                         base.surface2->desc().transform.trans + delta};
     elem->surface1 = Surface::with_transform(*base.surface1, tr1);
     elem->surface2 = Surface::with_transform(*base.surface2, tr2);
-    elem->b = base.b;
-    elem->c = base.c;
+    // The material is shared, not copied: a translation sweep produces a new
+    // element per candidate, and its oscillator list never changes.
+    elem->material = base.material;
     // Local sample bounds are transform independent.
     elem->lo = base.lo;
     elem->hi = base.hi;
