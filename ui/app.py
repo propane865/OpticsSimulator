@@ -30,7 +30,7 @@ from optics.project import (
 )
 from optics.source import PointSource
 
-from . import imagecodec
+from . import imagecodec, theme
 from .editors import AnalysisEditor, ElementEditor, PlaneEditor, SourceEditor, SubmoduleEditor
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
 from .plane_view import PlaneView
@@ -88,6 +88,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._selection_kind: str | None = None
         self._load_ui()
         self._embed_canvas(canvas)
+        self._apply_viewport_theme()
         self._plane_view = PlaneView(find_child(self, QtWidgets.QWidget, "planeView", UI_PATH.name))
         # Both selectors report into _on_project_changed, which runs only after
         # construction, so the tree the callback refreshes can be built last.
@@ -171,6 +172,33 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(canvas.native)
+
+    # -- light/dark theme ----------------------------------------------------
+    def _apply_viewport_theme(self) -> None:
+        """Clear the viewport to the ground of the theme this window is drawn in.
+
+        Qt repaints its own widgets from the palette by itself; the vispy canvas clears
+        its framebuffer to a colour of its own, so the flip has to be handed over. It is
+        read off *this window's* palette rather than what the OS claims, because the
+        chrome the viewport is embedded in is what it has to match -- and that chrome is
+        painted from this palette.
+        """
+        self._scene.set_viewport_theme(theme.viewport_bgcolor(self.palette()))
+
+    def changeEvent(self, event: QtCore.QEvent) -> None:
+        """Re-ground the viewport when the theme flips under a running window.
+
+        Both events are the same question: ``PaletteChange`` says this window's palette
+        moved, ``ApplicationPaletteChange`` says the platform theme did. The window's own
+        widgets and the painted chart follow the palette on their own; only the canvas
+        needs to be told.
+        """
+        super().changeEvent(event)
+        if event.type() in (
+            QtCore.QEvent.Type.PaletteChange,
+            QtCore.QEvent.Type.ApplicationPaletteChange,
+        ):
+            self._apply_viewport_theme()
 
     def _connect_actions(self) -> None:
         find_child(self._ui, QtGui.QAction, "actionOpen", UI_PATH.name).triggered.connect(self._on_open)
@@ -545,7 +573,7 @@ def main() -> int:
     vispy_app.use_app("pyside6")
     imagecodec.register()
 
-    canvas = make_display([], [])
+    canvas = make_display([], [], bgcolor=theme.viewport_bgcolor())
     window = OpticsMainWindow(canvas)
     with as_file(files("optics") / "examples" / "doublet.json") as example_path:
         window.load_stack(example_path)

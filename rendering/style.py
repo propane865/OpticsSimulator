@@ -12,6 +12,14 @@ from typing import Any
 from optics.element import RefractiveElement
 from optics.system import OpticalSystem
 
+# The viewport's clear colour, chosen by the UI's light/dark theme (``ui/theme.py``)
+# and handed to :func:`rendering.canvas.create_canvas`. Dark chrome keeps the
+# long-standing near-black; the light ground is a pale grey-blue rather than pure white
+# so the scene's own pale colours (the translucent surfaces, the detector's idle tint)
+# keep a little contrast against the thing they are drawn on.
+VIEWPORT_BG_DARK = (0.1, 0.1, 0.1, 1.0)
+VIEWPORT_BG_LIGHT = (0.88, 0.89, 0.92, 1.0)
+
 SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.5)
 SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.5)
 SIDEWALL_COLOR = (0.55, 0.55, 0.65, 0.6)

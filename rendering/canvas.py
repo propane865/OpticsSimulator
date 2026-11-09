@@ -15,16 +15,24 @@ from optics.primitive import Ray
 
 from .camera import _add_axes, _scene_radius, scene_bounds
 from .rays import build_ray_nodes
-from .style import DEFAULT_RAY_LENGTH
+from .style import DEFAULT_RAY_LENGTH, VIEWPORT_BG_DARK
 from .surfaces import build_element_nodes
 
 
-def create_canvas(width: int = 900, height: int = 700) -> Any:
+def create_canvas(
+    width: int = 900, height: int = 700, bgcolor: "Sequence[float] | None" = None
+) -> Any:
+    """The scene canvas, cleared to ``bgcolor`` (RGBA floats).
+
+    ``None`` keeps :data:`~rendering.style.VIEWPORT_BG_DARK`: a canvas has no palette to
+    read a theme from, so the Qt-free callers (the demo, the tests) get the ground the
+    scene colors were tuned against, and the application hands over the themed one.
+    """
     return scene.SceneCanvas(
         keys="interactive",
         size=(width, height),
         show=False,
-        bgcolor=(0.1, 0.1, 0.1, 1.0),
+        bgcolor=tuple(bgcolor) if bgcolor is not None else VIEWPORT_BG_DARK,
         title="OpticsSimulator",
     )
 

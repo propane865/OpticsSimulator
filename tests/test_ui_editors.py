@@ -54,12 +54,14 @@ from ui.material_preview import (
     PREVIEW_HEIGHT_PX,
     PREVIEW_WIDTH_PX,
     _axis_range,
+    _chart_colors,
     _MaterialChart,
     _nice_ticks,
     _text_rect,
 )
 from ui.plane_view import PlaneView, _AspectLabel, _fit_rect
 from ui.project_tree import ProjectTree
+from ui.theme import DARK, LIGHT, luma, scheme_of
 from ui.widgets import CUSTOM_MATERIAL_LABEL, MATERIAL_EQUATION_TIP, material_combo_options
 
 
@@ -1686,6 +1688,88 @@ def test_the_chart_leaves_room_for_the_text_it_draws(stack_window):
     assert box.contains(legend.bottomRight())
     assert legend.top() > box.top()  # the box's own edge is not the legend's ceiling
     assert legend.right() == pytest.approx(box.right() - _LEGEND_EDGE_PX, abs=1.0)
+
+
+def _theme_palette(chrome: str, canvas: str, ink: str) -> QtGui.QPalette:
+    """A theme as its palette carries it: the chrome, the canvas and the ink."""
+    palette = QtGui.QPalette(QtGui.QColor(chrome))
+    palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(canvas))
+    palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(ink))
+    return palette
+
+
+# Two honest themes, both with a canvas colour close to their chrome -- the case that
+# matters, and the one the chart used to be in: a panel the same grey as the sidebar it
+# is docked into is not a panel, it is part of the form.
+_DARK = ("#232627", "#2b2e2f", "#eff0f1")
+_LIGHT = ("#f0f0f0", "#ffffff", "#1b1b1b")
+
+
+def test_the_chart_resolves_panel_and_inks_from_the_theme(qt_app):  # noqa: ARG001
+    """Both directions of the theme have to be answered, and neither failure is loud.
+
+    A chart with no ground of its own is the sidebar; inks chosen for one theme are
+    simply missing in the other -- white tick labels over a white panel are not a light
+    theme's axis, they are nothing. So the panel is asked to land on the far side of the
+    brightness range from its chrome, and the text on the far side from the panel.
+    """
+    dark_palette, light_palette = _theme_palette(*_DARK), _theme_palette(*_LIGHT)
+    assert scheme_of(dark_palette) == DARK
+    assert scheme_of(light_palette) == LIGHT
+
+    dark, light = _chart_colors(dark_palette), _chart_colors(light_palette)
+    chrome_dark, chrome_light = QtGui.QColor(_DARK[0]), QtGui.QColor(_LIGHT[0])
+
+    # The panel is pushed away from the chrome: sunk toward black under a dark theme,
+    # lifted toward white under a light one -- and it stops where the palette has no room
+    # left, which is why the light panel is exactly the white its read-outs are.
+    assert luma(dark.panel) < luma(QtGui.QColor(_DARK[1]))  # off its own canvas colour
+    assert luma(dark.panel) < luma(chrome_dark)  # and off the sidebar it is docked into
+    assert light.panel.rgb() == QtGui.QColor(_LIGHT[1]).rgb()  # white is as light as it goes
+    assert luma(light.panel) > luma(chrome_light)
+
+    # Text is the opposite brightness of the ground it is written on, in both themes,
+    # and the two axis labels follow the same rule as the plain tick text.
+    assert luma(dark.ink) > 0.5
+    assert luma(light.ink) < 0.5
+    assert luma(dark.index) > luma(light.index)
+    assert luma(dark.log_k) > luma(light.log_k)
+
+    # Guides recede behind labels: they are the same ink, thinned, so they work over
+    # whichever panel the theme painted.
+    assert dark.grid.alphaF() < dark.ink.alphaF()
+    assert dark.grid.rgb() == dark.ink.rgb()
+    # and the legend sits on the panel's own colour rather than on a second one.
+    assert dark.legend.rgb() == dark.panel.rgb()
+    assert 0 < dark.legend.alpha() < 255
+
+
+def test_the_chart_paints_its_panel_behind_the_curves(stack_window):
+    """The themed ground reaches pixels, and flips with the palette under the widget.
+
+    ``plot_rect`` and ``legend_rect`` pin the geometry; this pins that the panel is
+    actually painted -- sampled in the corner, where nothing else is drawn -- and that
+    the chart is not stuck on the theme it was first shown in.
+    """
+    chart = stack_window._element_editor._preview.chart
+    chart.resize(PREVIEW_WIDTH_PX, PREVIEW_HEIGHT_PX)
+
+    def corner(palette: QtGui.QPalette) -> tuple[int, int, int]:
+        chart.setPalette(palette)
+        colors = chart._layout().colors
+        pixel = chart.grab().toImage().pixelColor(2, 2)
+        assert (pixel.red(), pixel.green(), pixel.blue()) == (
+            colors.panel.red(),
+            colors.panel.green(),
+            colors.panel.blue(),
+        )
+        return pixel.red(), pixel.green(), pixel.blue()
+
+    dark_corner = corner(_theme_palette(*_DARK))
+    light_corner = corner(_theme_palette(*_LIGHT))
+
+    assert luma(QtGui.QColor(*dark_corner)) < 0.5 < luma(QtGui.QColor(*light_corner))
+    assert dark_corner != light_corner
 
 
 def test_a_curve_breaks_where_the_material_has_no_answer(qt_app):  # noqa: ARG001

@@ -13,6 +13,13 @@ its own curve, with a legend naming both. The two vertical scales stay independe
 a crown's ``n`` spans 0.04 while its ``log10 k`` spans a decade and a half -- and
 neither is squeezed to fit the other.
 
+The box has a ground of its own and its inks come from the palette the widget inherits,
+because neither came with the widget for free: the chart used to paint straight onto the
+sidebar's grey with white text, which made it part of the form rather than a chart in
+it, and made that text disappear the moment the theme went light.
+:mod:`ui.theme` owns the light/dark question; :func:`_chart_colors` turns its answer
+into the seven colours the painter needs, once per paint.
+
 The chart is painted with :class:`~PySide6.QtGui.QPainter` rather than drawn with
 vispy. It used to be a ``vispy`` ``Fig``, and this is what was given up for that: a
 ``PlotWidget`` lays itself out with a constraint solver in which every row of axis
@@ -40,6 +47,8 @@ from optics.materials.preview import (
     sample_material_curve,
 )
 from optics.primitive import Material
+
+from . import theme
 
 # Curve colors borrowed from the scene's own vocabulary: the index trace is the
 # source gold, the extinction trace is the measurement purple that already means
@@ -77,9 +86,26 @@ _LEGEND_EDGE_PX = 8.0
 _LEGEND_PAD_PX = 5.0
 _TOP_MARGIN_PX = 10.0
 _BOTTOM_MARGIN_PX = 8.0
-_EDGE_COLOR = (0.55, 0.55, 0.55, 1.0)
-_GRID_COLOR = (0.88, 0.88, 0.88, 1.0)
-_TEXT_COLOR = (1.00, 1.00, 1.00, 1.0)
+
+# The inks are the palette's own text colour laid over the panel at the strength each job
+# needs. Alpha composites toward whatever the panel actually is, so one rule gives a
+# legible grey on a white chart and on a near-black one; an opaque grey chosen here was
+# right in exactly one theme -- the grid was a bright grey for a dark panel and the tick
+# labels were white, which a light theme erased.
+_EDGE_ALPHA = 0.6
+_GRID_ALPHA = 0.2
+_LEGEND_ALPHA = 0.88
+
+# How far the panel is pushed from the palette's canvas colour toward the theme's own
+# extreme, so the chart is never the colour of the sidebar it is docked into.
+_PANEL_PULL = 0.45
+
+# Axis and legend text is its curve's colour pushed the same way, the source gold being a
+# watermark on white and mud on near-black. The curve itself keeps its true colour, so a
+# trace, its axis and its legend entry stay one thing while the text only has to be
+# *related* to it.
+_LABEL_PUSH_DARK = 0.35  # toward white, to sit on a near-black panel
+_LABEL_PUSH_LIGHT = 0.4  # toward black, to sit on a white one
 
 __all__ = [
     "EXTINCTION_CURVE_COLOR",
@@ -149,14 +175,92 @@ def _qcolor(rgba: tuple[float, float, float, float]) -> QtGui.QColor:
     return QtGui.QColor.fromRgbF(r, g, b, a)
 
 
-def _label_color(rgba: tuple[float, float, float, float]) -> QtGui.QColor:
-    """``rgba`` darkened for text: the source gold is unreadable on white.
+def _toward(color: QtGui.QColor, channel: int, amount: float) -> QtGui.QColor:
+    """``color`` moved ``amount`` of the way to the grey channel ``channel`` (0 or 255).
+
+    The one piece of colour arithmetic behind every themed value here: pulling a colour
+    toward black or toward white is how a palette colour is made to sit on a chosen
+    ground without inventing a colour the theme never had -- and it stops by itself where
+    the colour has no room left to move, which is why a white ``Base`` under a light
+    theme stays the white its neighbouring read-out is painted with.
+    """
+
+    def step(value: int) -> int:
+        return round(value + (channel - value) * amount)
+
+    return QtGui.QColor(
+        step(color.red()), step(color.green()), step(color.blue()), color.alpha()
+    )
+
+
+def _ink(palette: QtGui.QPalette, alpha: float) -> QtGui.QColor:
+    """The palette's text colour thinned to ``alpha``, for the lines drawn on the panel."""
+    ink = palette.color(QtGui.QPalette.ColorRole.Text)
+    ink.setAlphaF(alpha)
+    return ink
+
+
+def _panel_color(palette: QtGui.QPalette, *, dark: bool) -> QtGui.QColor:
+    """The chart's own ground: the palette's canvas colour, pushed off its chrome.
+
+    ``Base`` is what a theme paints its text areas with -- the read-only parameter view
+    directly above the chart is painted with it -- so the chart joins the form's own
+    vocabulary instead of inventing a colour. It is then pushed toward the theme's
+    extreme, sunk toward black under a dark theme and lifted toward white under a light
+    one, because a panel the same grey as the sidebar it is docked into is not a panel at
+    all.
+    """
+    return _toward(
+        palette.color(QtGui.QPalette.ColorRole.Base), 0 if dark else 255, _PANEL_PULL
+    )
+
+
+def _label_color(rgba: tuple[float, float, float, float], *, dark: bool) -> QtGui.QColor:
+    """``rgba`` pushed toward the panel's extreme, so it can carry text on it.
 
     The curve keeps its true colour, so a trace, its axis and its legend entry are one
-    thing; the text of that axis only has to be *related* to it.
+    thing; the text of that axis only has to be *related* to it. One gold does not do
+    both jobs -- it is a watermark on a white panel and mud on a near-black one -- so it
+    goes toward black in a light theme and toward white in a dark one.
     """
-    r, g, b = (channel * 0.6 for channel in rgba[:3])
-    return QtGui.QColor.fromRgbF(r, g, b, 1.0)
+    color = QtGui.QColor.fromRgbF(rgba[0], rgba[1], rgba[2], 1.0)
+    channel, amount = (255, _LABEL_PUSH_DARK) if dark else (0, _LABEL_PUSH_LIGHT)
+    return _toward(color, channel, amount)
+
+
+class _ChartColors(NamedTuple):
+    """The ground and the inks for one paint, resolved from a palette."""
+
+    panel: QtGui.QColor
+    legend: QtGui.QColor
+    ink: QtGui.QColor
+    edge: QtGui.QColor
+    grid: QtGui.QColor
+    index: QtGui.QColor
+    log_k: QtGui.QColor
+
+
+def _chart_colors(palette: QtGui.QPalette) -> _ChartColors:
+    """Everything the painter draws with, from the palette the widget inherits.
+
+    Nothing here is keyed to a remembered dark flag or to a named theme: the palette *is*
+    the theme and :func:`ui.theme.scheme_of` reads the answer out of it, so the panel and
+    the text cannot drift into the state they were in while the inks were tuned for a
+    dark panel and the panel itself was whatever the sidebar happened to be.
+    """
+    dark = theme.scheme_of(palette) == theme.DARK
+    panel = _panel_color(palette, dark=dark)
+    legend = QtGui.QColor(panel)
+    legend.setAlphaF(_LEGEND_ALPHA)
+    return _ChartColors(
+        panel=panel,
+        legend=legend,
+        ink=palette.color(QtGui.QPalette.ColorRole.Text),
+        edge=_ink(palette, _EDGE_ALPHA),
+        grid=_ink(palette, _GRID_ALPHA),
+        index=_label_color(INDEX_CURVE_COLOR, dark=dark),
+        log_k=_label_color(EXTINCTION_CURVE_COLOR, dark=dark),
+    )
 
 
 _Anchor = Literal["left", "right", "center"]
@@ -206,7 +310,7 @@ def _mapper(low: float, high: float, start: float, stop: float) -> Callable[[flo
 
 
 class _Layout(NamedTuple):
-    """Everything the painter needs, and nothing it has to guess."""
+    """Everything the painter needs, and nothing it has to guess -- box, ticks, inks."""
 
     box: QtCore.QRectF
     ticks_left: list[tuple[float, str]]
@@ -215,6 +319,7 @@ class _Layout(NamedTuple):
     text_height: float
     left_labels: float
     right_labels: float
+    colors: _ChartColors
 
 
 class _MaterialChart(QtWidgets.QWidget):
@@ -275,12 +380,13 @@ class _MaterialChart(QtWidgets.QWidget):
         return font
 
     def _layout(self) -> _Layout:
-        """The plot box, its ticks and the gutters those ticks need.
+        """The plot box, its ticks, the gutters those ticks need and the theme's inks.
 
-        Computed from the data alone and re-derived by whatever asks for the box, so
-        the gutter an axis is given is by construction the widest label that axis
-        draws -- the mismatch between those two numbers is precisely how an axis ends
-        up printed over its own numbers.
+        Computed from the data and the widget's own palette and re-derived by whatever
+        asks for the box, so the gutter an axis is given is by construction the widest
+        label that axis draws -- the mismatch between those two numbers is precisely how
+        an axis ends up printed over its own numbers. Recomputing the colours from the
+        palette on every call is what makes a theme flip need nothing more than a repaint.
         """
         band, index_window, log_k_window = self.windows()
         ticks_left = _labelled(index_window)
@@ -306,7 +412,16 @@ class _MaterialChart(QtWidgets.QWidget):
             max(1.0, outer.width() - left_gutter - right_gutter),
             max(1.0, outer.height() - _TOP_MARGIN_PX - bottom_gutter),
         )
-        return _Layout(box, ticks_left, ticks_right, ticks_bottom, height, widest_left, widest_right)
+        return _Layout(
+            box,
+            ticks_left,
+            ticks_right,
+            ticks_bottom,
+            height,
+            widest_left,
+            widest_right,
+            _chart_colors(self.palette()),
+        )
 
     def plot_rect(self) -> QtCore.QRectF:
         """The box the two curves are drawn in."""
@@ -343,12 +458,32 @@ class _MaterialChart(QtWidgets.QWidget):
 
     # -- painting --------------------------------------------------------------
 
+    def changeEvent(self, event: QtCore.QEvent) -> None:
+        """Repaint when the theme flips under the widget.
+
+        The panel and the inks come from the inherited palette, so a light/dark flip
+        arrives here as a palette change (``ApplicationPaletteChange`` when the platform
+        theme moved, ``PaletteChange`` when this widget's own did). Nothing else is
+        needed: a hand-painted widget is repainted only when it asks, and the next
+        :meth:`paintEvent` reads the new palette for itself.
+        """
+        super().changeEvent(event)
+        if event.type() in (
+            QtCore.QEvent.Type.PaletteChange,
+            QtCore.QEvent.Type.ApplicationPaletteChange,
+        ):
+            self.update()
+
     def paintEvent(self, _event: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
         try:
             painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
             painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
             layout = self._layout()
+            # The panel goes under everything, gutters included: the axis numbers are
+            # part of the chart, so they are read off the chart's ground and not off the
+            # sidebar's -- which is the ground their colour is chosen for.
+            painter.fillRect(self.rect(), layout.colors.panel)
             self._paint_axes(painter, layout)
             self._paint_curves(painter, layout)
             self._paint_legend(painter, layout)
@@ -356,18 +491,18 @@ class _MaterialChart(QtWidgets.QWidget):
             painter.end()
 
     def _paint_axes(self, painter: QtGui.QPainter, layout: _Layout) -> None:
-        box, height = layout.box, layout.text_height
+        box, height, colors = layout.box, layout.text_height, layout.colors
         x_map, y_index, y_log_k = self._maps(layout.box)
         painter.setFont(self._tick_font())
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-        painter.setPen(QtGui.QPen(_qcolor(_GRID_COLOR), 1.0))
+        painter.setPen(QtGui.QPen(colors.grid, 1.0))
         for value, _ in layout.ticks_left:
             y = y_index(value)
             painter.drawLine(QtCore.QPointF(box.left(), y), QtCore.QPointF(box.right(), y))
-        painter.setPen(QtGui.QPen(_qcolor(_EDGE_COLOR), 1.0))
+        painter.setPen(QtGui.QPen(colors.edge, 1.0))
         painter.drawRect(box)
 
-        index_color = _label_color(INDEX_CURVE_COLOR)
+        index_color = colors.index
         for value, text in layout.ticks_left:
             y = y_index(value)
             painter.setPen(QtGui.QPen(index_color, 1.0))
@@ -378,7 +513,7 @@ class _MaterialChart(QtWidgets.QWidget):
             self._text(painter, box.left() - _TICK_LENGTH_PX - _TEXT_GAP_PX, y, height,
                        text, "right", index_color)
 
-        log_k_color = _label_color(EXTINCTION_CURVE_COLOR)
+        log_k_color = colors.log_k
         for value, text in layout.ticks_right:
             y = y_log_k(value)
             painter.setPen(QtGui.QPen(log_k_color, 1.0))
@@ -389,7 +524,7 @@ class _MaterialChart(QtWidgets.QWidget):
             self._text(painter, box.right() + _TICK_LENGTH_PX + _TEXT_GAP_PX, y, height,
                        text, "left", log_k_color)
 
-        edge = _qcolor(_EDGE_COLOR)
+        edge = colors.edge
         for value, text in layout.ticks_bottom:
             x = x_map(value)
             painter.setPen(QtGui.QPen(edge, 1.0))
@@ -398,11 +533,11 @@ class _MaterialChart(QtWidgets.QWidget):
                 QtCore.QPointF(x, box.bottom() + _TICK_LENGTH_PX),
             )
             self._text(painter, x, box.bottom() + _TICK_LENGTH_PX + _TEXT_GAP_PX + height / 2.0,
-                       height, text, "center", _qcolor(_TEXT_COLOR))
+                       height, text, "center", colors.ink)
 
         self._text(painter, box.center().x(),
                    box.bottom() + _TICK_LENGTH_PX + 2 * _TEXT_GAP_PX + 1.5 * height, height,
-                   "wavelength (nm)", "center", _qcolor(_TEXT_COLOR))
+                   "wavelength (nm)", "center", colors.ink)
         self._rotated_title(painter, box, height, "n", index_color, left=True,
                             labels=layout.left_labels)
         self._rotated_title(painter, box, height, "log10 k", log_k_color, left=False,
@@ -418,12 +553,18 @@ class _MaterialChart(QtWidgets.QWidget):
             painter.drawPath(self._path(self._wavelengths, values, x_map, to_y))
 
     def _paint_legend(self, painter: QtGui.QPainter, layout: _Layout) -> None:
-        box = self.legend_rect()
-        painter.setPen(QtGui.QPen(_qcolor(_EDGE_COLOR), 1.0))
-        painter.setBrush(QtGui.QColor.fromRgbF(1.0, 1.0, 1.0, 0.85))
+        box, colors = self.legend_rect(), layout.colors
+        painter.setPen(QtGui.QPen(colors.edge, 1.0))
+        # The legend's ground is the panel's own colour, nearly opaque so the curve it
+        # lands on is a ghost behind it instead of a competitor under it. A white box was
+        # a second colour to explain -- and under a light theme the panel already is
+        # white, which left the legend with no ground of its own at all.
+        painter.setBrush(colors.legend)
         painter.drawRect(box)
         painter.setFont(self._tick_font())
-        for row, (name, rgba) in enumerate(zip(LEGEND_NAMES, _LEGEND_COLORS)):
+        for row, (name, rgba, ink) in enumerate(
+            zip(LEGEND_NAMES, _LEGEND_COLORS, (colors.index, colors.log_k))
+        ):
             center = box.top() + _LEGEND_PAD_PX + layout.text_height * (row + 0.5)
             painter.setPen(QtGui.QPen(_qcolor(rgba), _CURVE_WIDTH_PX))
             painter.drawLine(
@@ -433,7 +574,7 @@ class _MaterialChart(QtWidgets.QWidget):
             self._text(
                 painter,
                 box.left() + _LEGEND_PAD_PX + _LEGEND_RULE_PX + _TEXT_GAP_PX,
-                center, layout.text_height, name, "left", _label_color(rgba),
+                center, layout.text_height, name, "left", ink,
             )
 
     @staticmethod

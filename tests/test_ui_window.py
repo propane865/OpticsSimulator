@@ -9,10 +9,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PySide6 = pytest.importorskip("PySide6")
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from optics.materials import material_block, material_block_for, material_for_name
 from rendering import demo
+from rendering.style import VIEWPORT_BG_DARK, VIEWPORT_BG_LIGHT
 from tests.ui_helpers import (
     OK,
     _click,
@@ -48,6 +49,42 @@ def test_canvas_embedded_in_opengl_widget(make_window, make_element):
     assert container is not None
     assert container.findChild(type(canvas.native)) is canvas.native
     assert window.canvas is canvas
+
+
+@pytest.fixture
+def themed(qt_app):
+    """Paint the whole application's chrome ``chrome``, then hand the palette back.
+
+    The theme is read off the palette (see :mod:`ui.theme`), so wanting a dark app in a
+    test means asking the application for dark chrome -- which is also the only way to
+    exercise the live flip, since a palette change is the event the window answers.
+    """
+    saved = qt_app.palette()
+
+    def _theme(chrome: str) -> None:
+        qt_app.setPalette(QtGui.QPalette(QtGui.QColor(chrome)))
+        qt_app.processEvents()
+
+    try:
+        yield _theme
+    finally:
+        qt_app.setPalette(saved)
+        qt_app.processEvents()
+
+
+def test_the_viewport_clears_to_the_themes_own_ground(make_window, themed):
+    """The 3D ground belongs to the theme instead of to a hard-coded near-black.
+
+    vispy keeps the clear colour itself and no ``QPalette`` owns it, so nothing repaints
+    it for free: a window built under a dark theme must not open a pale hole in its own
+    middle, and a theme that flips while the app is running has to move it under it.
+    """
+    themed("#141414")
+    window = make_window()
+    assert tuple(window.canvas.bgcolor.rgba) == pytest.approx(VIEWPORT_BG_DARK)
+
+    themed("#f2f2f2")
+    assert tuple(window.canvas.bgcolor.rgba) == pytest.approx(VIEWPORT_BG_LIGHT)
 
 
 def test_file_menu_is_populated(window):

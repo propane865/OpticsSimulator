@@ -248,7 +248,8 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
   - `surfaces.py`, `rays.py`, `sources.py`, `measurements.py`: element surfaces
     and sidewalls, ray lines, the source marker, detector mesh + outline
   - `camera.py`: scene extents, axes and camera framing
-  - `canvas.py`: canvas creation and whole-scene composition/node lifetime
+  - `canvas.py`: canvas creation (cleared to the themed colour the UI hands in) and
+    whole-scene composition/node lifetime
   - `colormaps.py`: shared viridis LUT and irradiance normalization for the
     detector meshes and the 2D plane view
   - `style.py`: visual constants and the small attach/order helpers
@@ -271,7 +272,9 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     helpers from `project/`
   - `scene.py`: `make_display` and `SceneController` - vispy view and node
     bookkeeping for elements, rays, the source marker, measurement planes,
-    selection highlight (tinted lenses, rim-tinted plane)
+    selection highlight (tinted lenses, rim-tinted plane), and the viewport's
+    clear colour (`set_viewport_theme`, the one theme colour vispy keeps to
+    itself: no `QPalette` owns the GL framebuffer)
   - `editors/`: one controller per property page over widgets that stay in
     `main.ui` (looked up by object name, never re-parented) - `base.py`
     (`_SelectorEditor`: the selection-driven lifecycle the element, plane and
@@ -300,7 +303,23 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     all. Painted, the geometry is arithmetic and each gutter is measured from the tick
     labels about to be drawn in it, which is what keeps an axis off its own numbers;
     `plot_rect` and `legend_rect` return the boxes the painter then uses, so the layout
-    is asserted offscreen rather than judged on a GPU
+    is asserted offscreen rather than judged on a GPU. Painting is also why it has to
+    *have* a theme: with no chrome painted for it, it drew straight onto the sidebar's
+    grey with white text, which made it part of the form and made that text vanish in a
+    light theme. `_chart_colors` resolves the panel and the inks from the widget's own
+    `QPalette` once per paint - panel the palette's `Base` pushed toward the theme's
+    extreme so the chart is never its sidebar's grey, guides and labels the palette's
+    text at the strength each job needs - and repaints on a palette change, so a
+    light/dark flip needs no state and no signal
+  - `theme.py`: the light/dark theme for the two views Qt does not paint - `scheme_of`
+    reads it off a `QPalette` (the `Window` colour, i.e. the chrome a view is embedded
+    in) rather than off `QStyleHints.colorScheme()`, because a view that disagrees with
+    its own window is the bug: a platform that keeps its widgets light while the OS goes
+    dark wants a light viewport. `viewport_bgcolor` maps that to the vispy clear colour,
+    and `luma` is the shared brightness judgement. The other view, the painted chart,
+    takes its palette directly; the window re-applies the viewport ground on
+    `PaletteChange`/`ApplicationPaletteChange`, which is what the palette changing under
+    a running app delivers
   - `project_tree.py`: `ProjectTree` in the left dock - mirrors the project as
     source / lens stack / measurement planes and reports a `(kind, name)`
     selection the window routes to the matching editor page and 3D highlight

@@ -2,7 +2,9 @@
 
 The :class:`SceneController` owns the render canvas, the view and every node
 list (elements, rays, source marker, measurement planes) so the window and
-editors can request redraws without juggling vispy node objects.
+editors can request redraws without juggling vispy node objects -- including
+the viewport's clear colour, the one piece of the theme vispy keeps to itself
+(:meth:`SceneController.set_viewport_theme`).
 """
 
 from __future__ import annotations
@@ -28,8 +30,15 @@ def make_display(
     rays: Sequence[Ray],
     ray_length: float = RAY_LENGTH,
     axis_length: float | None = None,
+    bgcolor: Sequence[float] | None = None,
 ) -> Any:
-    canvas = visualize.create_canvas()
+    """The canvas and its view, cleared to ``bgcolor`` (RGBA floats, ``None`` = dark).
+
+    ``bgcolor`` is the viewport's ground, which is a theme choice rather than a scene
+    one: callers with a palette to read hand over :func:`ui.theme.viewport_bgcolor`, and
+    the Qt-free ones take the dark default :func:`rendering.canvas.create_canvas` keeps.
+    """
+    canvas = visualize.create_canvas(bgcolor=bgcolor)
     view = canvas.central_widget.add_view(camera="turntable")
     canvas.unfreeze()
     canvas.view = view
@@ -58,6 +67,17 @@ class SceneController:
     @property
     def canvas(self) -> Any:
         return self._canvas
+
+    def set_viewport_theme(self, bgcolor: Sequence[float]) -> None:
+        """Clear the viewport to ``bgcolor`` (RGBA floats) -- the theme's own ground.
+
+        vispy holds the clear colour itself; no ``QPalette`` owns it and nothing
+        repaints it for free, so the theme has to be handed over and the canvas asked to
+        draw again. Only the ground changes: the nodes, their colors and the camera are
+        untouched, so a light/dark flip costs one clear colour and one redraw.
+        """
+        self._canvas.bgcolor = tuple(bgcolor)
+        self._canvas.update()
 
     # -- selection highlight -------------------------------------------------
     def select_elements(self, indices: Iterable[int] | None) -> None:
