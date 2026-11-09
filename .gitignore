@@ -31,7 +31,7 @@ benchmarks/out_*.json
 # Editors / OS
 .idea/
 .vscode/
+.pi-sandbox/
 .DS_Store
 
 build-dev/
-plans/
