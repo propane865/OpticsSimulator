@@ -458,10 +458,13 @@
                    </item>
                    <item>
                     <widget class="QWidget" name="materialPreviewHost" native="true">
+                     <property name="toolTip">
+                      <string>Refractive index n (left axis) and log10 of the extinction coefficient k (right axis) across the traced waveband.</string>
+                     </property>
                      <property name="minimumSize">
                       <size>
                        <width>0</width>
-                       <height>160</height>
+                       <height>220</height>
                       </size>
                      </property>
                      <layout class="QVBoxLayout" name="materialPreviewLayout">

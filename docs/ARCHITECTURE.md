@@ -286,11 +286,21 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     the object; one solve in flight at a time until `finish()`
   - `plane_view.py`: 2D colormap view of a measurement plane's detector image
     (letterboxed `QImage` raster, shared viridis LUT)
-  - `material_preview.py`: `MaterialPreviewPanel` -- the lens editor's 2D `n`/`k`
-    curves over the working waveband, a `vispy` `Fig` embedded in a `main.ui` host
-    widget. It only pushes arrays into two `LinePlot`s; the sampling and the
-    `log10(k)` scaling live in `optics/materials/preview.py`, so the physics stays
-    testable without a GL context and the panel stays too dumb to be wrong
+  - `material_preview.py`: `MaterialPreviewPanel` -- the lens editor's `n` and
+    `log10 k` over the working waveband, both traces on one chart with an axis each
+    (`n` left, `log10 k` right, each written in its curve's colour) and a legend inside
+    the plot box, all of it one widget in one `main.ui` host. It only pushes arrays at
+    a chart; the sampling and the `log10(k)` scaling live in
+    `optics/materials/preview.py`, so the physics stays testable without a GL context.
+    The chart is painted with `QPainter` rather than drawn with `vispy`: it was a
+    `Fig`, and a `PlotWidget` lays itself out with a constraint solver in which every
+    row of axis text is the data view's rival for the same pixels, so a panel that
+    rendered wrong was a puzzle about which of two dozen limits the solver had chosen
+    to honour -- and two axes on either side of one box are not something it offers at
+    all. Painted, the geometry is arithmetic and each gutter is measured from the tick
+    labels about to be drawn in it, which is what keeps an axis off its own numbers;
+    `plot_rect` and `legend_rect` return the boxes the painter then uses, so the layout
+    is asserted offscreen rather than judged on a GPU
   - `project_tree.py`: `ProjectTree` in the left dock - mirrors the project as
     source / lens stack / measurement planes and reports a `(kind, name)`
     selection the window routes to the matching editor page and 3D highlight

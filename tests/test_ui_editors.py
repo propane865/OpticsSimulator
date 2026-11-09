@@ -1,5 +1,6 @@
 """Element, source, measurement-plane and submodule editor UI tests."""
 
+import itertools
 import os
 
 import numpy as np
@@ -9,10 +10,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PySide6 = pytest.importorskip("PySide6")
 
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from optics.constants import D_LINE_NM, HC_EV_NM
 from optics.materials import material_block, material_block_for, material_for_name, material_names
+from optics.materials.preview import PREVIEW_BAND_NM
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import DEFAULT_WAVELENGTH_NM
 from optics.project import DEFAULT_ELEMENT_MATERIAL
@@ -45,6 +47,16 @@ from tests.ui_helpers import (
     lens_wavelength_nm,
     set_lens_material,
     write_material_file,
+)
+from ui.material_preview import (
+    _AXIS_PAD,
+    _LEGEND_EDGE_PX,
+    PREVIEW_HEIGHT_PX,
+    PREVIEW_WIDTH_PX,
+    _axis_range,
+    _MaterialChart,
+    _nice_ticks,
+    _text_rect,
 )
 from ui.plane_view import PlaneView, _AspectLabel, _fit_rect
 from ui.project_tree import ProjectTree
@@ -1546,20 +1558,147 @@ def test_loading_a_lens_is_not_a_material_edit(stack_window):
 
 
 def test_the_preview_panel_is_embedded_and_redraws(stack_window):
-    """The panel is hosted in the form and plots the material the picker holds."""
+    """The chart is hosted in the form and plots the material the picker holds."""
     window = stack_window
     editor = _editor(window)
     host = editor["preview"]
-    assert host.layout().count() >= 1  # vispy's Qt widget lives inside the host
-
     panel = window._element_editor._preview
+
+    assert panel.chart.parentWidget() is host  # the chart lives in the form's host
+    assert host.layout().count() >= 1
+
     n, log_k = panel.set_material(material_for_name("N-BK7"))
 
     assert n.shape == panel.wavelengths_nm.shape
     assert np.all(n > 1.45) and np.all(n < 1.60)  # a crown, across the plotted band
     assert np.all(np.isfinite(log_k))
-    assert n[0] > n[-1]  # normal dispersion, drawn the same way the readout says
+    assert n[0] > n[-1]  # normal dispersion, drawn the way the readout says
+    assert log_k.max() > -15.0  # k climbs out of the noise somewhere in the band
+    assert log_k.min() >= -20.0  # ... and the floor holds where it does not
 
     set_lens_material(editor, "N-SF11")
     flint_n, _ = panel.set_material(material_for_name("N-SF11"))
     assert np.all(flint_n > n)  # the flint is denser everywhere in the band
+
+
+def test_the_chart_scales_each_quantity_on_its_own_axis(stack_window):
+    """Two windows, each padded once, never forced onto one another's scale.
+
+    The camera lesson from the vispy version: a window can be padded by the code and
+    then padded again by the view, and a curve that is correct in the data ends up
+    flat against the middle of the box. Here padding is applied in exactly one place,
+    so a window is its data plus a fraction of the data's own span. And the whole
+    reason for two axes is that a 0.04-wide ``n`` need not share a scale with a
+    decade and a half of ``log10 k``; merge them and the ratio below goes to one.
+    """
+    panel = stack_window._element_editor._preview
+    n, log_k = panel.set_material(material_for_name("N-BK7"))
+    band, index_window, log_k_window = panel.chart.windows()
+
+    for values, window in (
+        (n, index_window),
+        (log_k, log_k_window),
+        (panel.wavelengths_nm, band),
+    ):
+        assert window[0] <= values.min() and window[1] >= values.max()
+        span = values.max() - values.min()
+        assert window[1] - window[0] < span * (1.0 + 2.0 * _AXIS_PAD + 1e-6)
+
+    assert index_window == _axis_range(n)
+    assert log_k_window == _axis_range(log_k)
+    assert (log_k_window[1] - log_k_window[0]) / (index_window[1] - index_window[0]) > 10.0
+
+    # The wavelength axis is the one quantity both traces share, band and all.
+    assert band[0] <= PREVIEW_BAND_NM[0] and band[1] >= PREVIEW_BAND_NM[1]
+
+    # A degenerate curve still gets a window a box can be drawn in.
+    flat = _axis_range(np.full(8, 1.5))
+    assert flat[1] - flat[0] > 0.0
+    assert _axis_range(np.array([np.nan, np.nan])) == (-_AXIS_PAD, 1.0 + _AXIS_PAD)
+
+
+def test_the_ticks_land_on_round_numbers():
+    """Values the eye can read a value off, with decimals that tell them apart.
+
+    The arithmetic midpoints of a padded window -- 1.5036, 1.5183, 1.5329 -- are what
+    an unsophisticated axis labels itself with. These are 1/2/5 steps of a power of
+    ten, and the label precision follows from the step, so ``n`` gets its hundredths
+    and ``log10 k`` gets its half-decades.
+    """
+    for low, high in ((1.4975, 1.5438), (-7.07, -5.40), (390.25, 709.75)):
+        ticks = _nice_ticks(low, high)
+        assert 2 <= len(ticks) <= 5
+        assert all(low - 1e-9 <= value <= high + 1e-9 for value in ticks)
+        steps = {round(b - a, 10) for a, b in itertools.pairwise(ticks)}
+        assert len(steps) == 1
+        step = steps.pop()
+        assert round(step / 10.0 ** np.floor(np.log10(step)), 9) in (1.0, 2.0, 5.0)
+
+
+def test_text_gets_a_rect_at_least_its_own_width():
+    """``drawText`` clips to its rectangle, so the rect is measured, not guessed.
+
+    The wavelength title was the casualty: its rectangle was a multiple of the line
+    height, which is narrower than the string, and a clipped string is not overflowed or
+    wrapped by Qt -- it is truncated. The slack has to hang off the end the anchor does
+    not care about, so every anchor is checked here, not just the centred one.
+    """
+    for anchor, start in (("left", 100.0), ("right", 40.0), ("center", 70.0)):
+        rect = _text_rect(anchor, 100.0, 40.0, 60.0, 16.0)
+        assert rect.left() == pytest.approx(start)
+        assert rect.width() >= 60.0
+        assert rect.height() >= 16.0
+        assert (rect.top() + rect.bottom()) / 2.0 == pytest.approx(40.0)
+
+
+def test_the_chart_leaves_room_for_the_text_it_draws(stack_window):
+    """Every gutter is measured from the labels about to be drawn in it.
+
+    The old panel printed an axis across its own numbers because the room an axis was
+    given and the width of its labels were two unrelated numbers. They are one
+    computation now, so the invariants are worth pinning: the box sits inside the
+    widget with the majority of its height, each gutter exceeds what it holds, and the
+    legend is inside the box at its top-right instead of somewhere the curve also runs.
+    """
+    panel = stack_window._element_editor._preview
+    panel.set_material(material_for_name("N-BK7"))
+    chart = panel.chart
+    chart.resize(PREVIEW_WIDTH_PX, PREVIEW_HEIGHT_PX)
+
+    box = chart.plot_rect()
+    widget = QtCore.QRectF(chart.rect())
+    assert box.left() >= widget.left() and box.right() <= widget.right()
+    assert box.top() >= widget.top() and box.bottom() <= widget.bottom()
+    assert box.height() > PREVIEW_HEIGHT_PX / 2.0  # chrome lost the argument
+    assert box.width() > 0.0
+
+    layout = chart._layout()
+    metrics = QtGui.QFontMetricsF(chart._tick_font())
+    for labels, gutter in (
+        (layout.ticks_left, box.left() - widget.left()),
+        (layout.ticks_right, widget.right() - box.right()),
+    ):
+        assert gutter > max(metrics.horizontalAdvance(text) for _, text in labels)
+        assert all(text for _, text in labels)
+
+    legend = chart.legend_rect()
+    assert box.contains(legend.topLeft())
+    assert box.contains(legend.bottomRight())
+    assert legend.top() > box.top()  # the box's own edge is not the legend's ceiling
+    assert legend.right() == pytest.approx(box.right() - _LEGEND_EDGE_PX, abs=1.0)
+
+
+def test_a_curve_breaks_where_the_material_has_no_answer(qt_app):  # noqa: ARG001
+    """A wavelength the model refuses is a gap in the trace, not a point invented for it."""
+    path = _MaterialChart._path(
+        np.array([400.0, 500.0, 600.0, 700.0]),
+        np.array([1.5, np.nan, 1.6, 1.7]),
+        lambda value: value,
+        lambda value: value,
+    )
+    moves = [
+        index
+        for index in range(path.elementCount())
+        if path.elementAt(index).type == QtGui.QPainterPath.ElementType.MoveToElement
+    ]
+    assert len(moves) == 2
