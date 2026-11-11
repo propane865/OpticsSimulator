@@ -54,7 +54,7 @@ class OptimizeProblem {
     std::size_t n_groups_ = 0;
     std::size_t dest_plane_ = 1;
     std::vector<std::size_t> free_slots_;
-    // Optional rigid grouping (validated copies; empty = legacy bijection).
+    // Optional rigid grouping (validated copies; empty = the plain bijection).
     std::vector<std::int64_t> slot_of_element_;
     std::vector<double> tail_span_;
 };
@@ -89,7 +89,6 @@ struct OptimizerSettings {
     std::int64_t stall_generations;
     double xatol;
     double fatol;
-    bool enable_pipeline;
     std::int64_t ray_pilot;
     std::int64_t ray_coarse;
     std::int64_t ray_medium;
@@ -131,7 +130,6 @@ struct OptimizerSettings {
         stall_generations = d.stall_generations;
         xatol = d.xatol;
         fatol = d.fatol;
-        enable_pipeline = d.enable_pipeline;
         ray_pilot = static_cast<std::int64_t>(d.ray_pilot);
         ray_coarse = static_cast<std::int64_t>(d.ray_coarse);
         ray_medium = static_cast<std::int64_t>(d.ray_medium);

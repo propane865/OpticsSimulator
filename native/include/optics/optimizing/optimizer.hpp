@@ -60,7 +60,7 @@ struct OptimizerSpec {
     // plane origin z. With ``slot_of_element`` set this is each parameter's
     // anchor element; otherwise it is the full one-parameter-one-element map.
     std::vector<std::size_t> free_indices;
-    // Optional rigid grouping (empty = legacy bijection derived from
+    // Optional rigid grouping (empty = the plain bijection derived from
     // ``free_indices``). One entry per stack element: the parameter that
     // translates it, or -1 for a fixed element. Several elements sharing one
     // slot move rigidly together -- each member takes the anchor's delta.
@@ -140,19 +140,18 @@ struct OptimizerSpec {
     double xatol = 1e-6;  // relative simplex x spread (fraction of box span)
     double fatol = 1e-10;
 
-    // --- Phase-2 coarse-to-fine pipeline ------------------------------------
-    // When enabled the global DE search runs at a coarse ray budget behind a
-    // geometry precheck and a catastrophic-only pilot filter; a diverse archive
-    // of distinct coarse winners is re-ranked at medium fidelity and candidates
-    // are validated at the whole fan -- in best-candidate order, continuing into
-    // the archive until one passes or the budget reserve runs out -- where the
-    // hard focus acceptance is the sole success gate. Disabled (the C++ default)
-    // the driver reproduces the legacy full-fidelity-per-candidate search
-    // exactly; the Python wrapper turns the pipeline on by default.
-    // ``enable_pipeline`` never weakens the acceptance contract -- a low
-    // coarse/medium objective is not success, only a full-fidelity candidate
-    // that passes ``focus_accepted`` is.
-    bool enable_pipeline = false;
+    // --- Coarse-to-fine levels ----------------------------------------------
+    // The global DE search runs at a coarse ray budget behind a geometry
+    // precheck and a catastrophic-only pilot filter; a diverse archive of
+    // distinct coarse winners is re-ranked at medium fidelity and candidates are
+    // validated at the whole fan -- in best-candidate order, continuing into the
+    // archive until one passes or the budget reserve runs out -- where the hard
+    // focus acceptance is the sole success gate. Staging never weakens the
+    // acceptance contract: a low coarse/medium objective is not success, only a
+    // full-fidelity candidate that passes ``focus_accepted`` is. The budgets are
+    // the only dial -- set them all to the fan size and the "pipeline" is a
+    // plain full-fidelity-per-candidate search, which is why there is one
+    // driver and no switch.
     // Per-level ray budgets (each clamped to the fan size, never upsampled).
     // Higher levels are supersets of lower ones: every budget traces whole
     // object points, each with a nested subset of its own cone, so a reduced

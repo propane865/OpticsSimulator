@@ -198,9 +198,13 @@ def test_early_focus_stop_saves_evaluations():
         optimization=replace(full, stop_on_focus=False),
     )
     # "a valid focused layout" is accepted early instead of grinding through
-    # the whole budget proving global optimality -- at equal sharpness.
+    # the whole budget proving global optimality -- at equal sharpness. The
+    # margin is a fraction of the exhaustive run's bill, not an exact count:
+    # which candidate happens to be the first accepted one depends on the search
+    # order, and there is one search order now.
     assert early.status == "ok" and exhaustive.status == "ok"
-    assert early.evaluations < exhaustive.evaluations * 0.4
+    assert early.evaluations < exhaustive.evaluations
+    assert early.evaluations < exhaustive.evaluations * 0.6
     assert early.spot_radius_mm <= exhaustive.spot_radius_mm * 1.05
 
 

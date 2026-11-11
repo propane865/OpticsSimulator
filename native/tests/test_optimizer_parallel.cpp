@@ -23,7 +23,6 @@ void test_candidate_concurrency_parity() {
     OptimizerSpec base = problem.spec;
     base.blur_ref = 1e9;          // the full gate accepts any traced layout
     base.autofocus_plane = true;
-    base.enable_pipeline = true;
     base.ray_pilot = 4;
     base.ray_coarse = 8;
     base.ray_medium = 12;

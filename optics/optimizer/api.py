@@ -175,14 +175,6 @@ def optimize_layout(
     )
     groups = object_point_groups(origins)
 
-    # Coarse-to-fine only pays off when the coarse budget is genuinely below the
-    # fan size; on a small fan the coarse level equals the whole fan (no ray
-    # savings) and the pipeline also gives up DE early-stop, so keep such runs on
-    # the proven legacy path. Real workloads (fans well above ``ray_coarse``) run
-    # the pipeline. An explicit ``enable_pipeline=False`` is always honored.
-    n_rays = int(np.asarray(origins).reshape(-1, 3).shape[0])
-    pipeline_on = bool(layout.enable_pipeline) and int(layout.ray_coarse) < n_rays
-
     # The problem (geometry, box, ray fan) and the tuning knobs travel as one
     # object each; every knob is passed explicitly, so the native defaults are
     # a direct native-call convenience, never a silent influence on this
@@ -191,7 +183,7 @@ def optimize_layout(
         system, units, x_init, lo, hi, gaps,
         origins, dirs, powers, wavelengths, source_plane, image_plane, groups,
     )
-    settings = build_native_settings(layout, blur_ref=blur_ref, pipeline_on=pipeline_on)
+    settings = build_native_settings(layout, blur_ref=blur_ref)
     outcome = _native.optimize_layout(problem, settings, progress_callback)
 
     return _result_from_outcome(

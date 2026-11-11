@@ -23,9 +23,10 @@ namespace detail {
 void nelder_mead(LayoutObjective& obj, const OptimizerSpec& spec, std::vector<double>& x,
                  LayoutObjective::Stats& best_stats);
 
-// The two search drivers (defined in ``optimizer_legacy.cpp`` and
-// ``optimizer_pipeline.cpp``); ``optimize_layout`` selects between them.
-void legacy_run(const OptimizerSpec& spec, OptimizerOutcome& out);
+// The search driver (defined in ``optimizer_pipeline.cpp``). It degenerates to
+// a full-fidelity-per-candidate search on its own, by ray budget: with
+// ``ray_coarse``/``ray_medium`` at or above the fan size every level traces the
+// whole fan, so there is no second driver to keep in step.
 void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out);
 
 }  // namespace detail

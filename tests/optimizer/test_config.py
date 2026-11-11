@@ -15,12 +15,12 @@ def test_magnification_knobs_reach_native_settings():
     spec = LensOptimization(
         target_magnification=0.4, weight_magnification=2.5, max_magnification_error=0.03
     )
-    settings = build_native_settings(spec, blur_ref=1.0, pipeline_on=False)
+    settings = build_native_settings(spec, blur_ref=1.0)
     assert settings.target_scale == 0.4
     assert settings.w_magnification == 2.5
     assert settings.max_scale_error == 0.03
     # Unset target: the native magnification term stays off.
-    off = build_native_settings(LensOptimization(), blur_ref=1.0, pipeline_on=False)
+    off = build_native_settings(LensOptimization(), blur_ref=1.0)
     assert off.target_scale == 0.0
 
 

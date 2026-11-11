@@ -210,7 +210,7 @@ void LayoutObjective::focus_plane(std::vector<double>& xf, Stats& best, std::siz
 
 // One full-layout trace at a complete parameter vector (d_ entries), using the
 // fidelity level of ray budget ``rays`` (0 or >= the fan size: the whole fan, in
-// its natural order, exactly as the legacy path traces it).
+// its natural order -- what "full fidelity" means here).
 LayoutObjective::Stats LayoutObjective::trace_at(const double* x_full, std::size_t rays,
                                                  bool expensive) {
     const RayLevel& lvl = level(rays);
@@ -295,7 +295,7 @@ LayoutObjective::Stats LayoutObjective::trace_at(const double* x_full, std::size
     // a perfectly sharp field point that was never measured. Such points are
     // masked out of the pooled radii, and a candidate whose sampled field is not
     // at least half measurable is unmeasurable rather than sharp. Full fidelity
-    // traces every ray, so nothing is masked and the metric is exactly the legacy
+    // traces every ray, so nothing is masked and the metric is the plain
     // one.
     const unsigned char* floor_mask = nullptr;
     if (lvl.reduced && grouped) {
@@ -410,7 +410,7 @@ LayoutObjective::Stats LayoutObjective::trace_at(const double* x_full, std::size
 // Rays of one ray budget, gathered on first use and cached (a handful of
 // distinct budgets per run). A budget at or above the fan size -- or an ungrouped
 // fan -- traces the whole fan in its natural order, so full fidelity is
-// bit-identical to the legacy metric.
+// the plain whole-fan metric, with no reordering applied to it.
 const RayLevel& LayoutObjective::level(std::size_t budget) {
     const std::size_t key = budget > n_rays_ ? 0 : budget;
     const auto seen = levels_.find(key);

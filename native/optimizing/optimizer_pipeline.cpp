@@ -227,8 +227,8 @@ struct CoarseSearchResult {
 // geometry precheck and shallow pilot gate discard hopeless trials before they
 // pay for the coarse trace. Under ``stop_on_focus`` the coarse best is
 // periodically whole-fan probed, and a *validated* focused winner (the full
-// trace IS the acceptance gate) ends the search early -- exactly the legacy
-// early stop, but gated on full fidelity.
+// trace IS the acceptance gate) ends the search early. A degenerate budget
+// asks the same gate of every candidate instead, for free.
 CoarseSearchResult run_coarse_search(LayoutObjective& obj, const OptimizerSpec& spec,
                                      OptimizerOutcome& out, std::size_t k_coarse,
                                      std::size_t k_full, std::mt19937_64& rng) {
@@ -300,8 +300,16 @@ CoarseSearchResult run_coarse_search(LayoutObjective& obj, const OptimizerSpec& 
     // plane position their focus scan tried, so a focusable layout is never
     // thrown away for want of rays. Both keep the trial in place instead, which
     // is exactly what a hopeless trial would have done after tracing.
+    //
+    // The pilot is a proxy for the *coarse* trace, so it gates only a genuinely
+    // reduced-fidelity search. When the coarse budget already means the whole
+    // fan -- the degenerate configuration, which a small fan falls into on its
+    // own -- a sparser pilot measures a different trace, and rejecting on its
+    // correspondence count would discard layouts the coarse level goes on to
+    // focus. Same reasoning as ``fidelity_ray_order``: a budget at or above the
+    // fan stops being a budget.
     const std::size_t k_pilot = spec.ray_pilot > 0 ? std::min(spec.ray_pilot, n_fan) : 0;
-    const bool use_pilot = k_pilot > 0 && k_pilot < k_coarse;
+    const bool use_pilot = k_pilot > 0 && k_pilot < k_coarse && k_coarse < n_fan;
     auto trial_survives = [&](const double* x) {
         {
             PhaseTimer timer(out.diagnostics.ns_geometry);
@@ -371,6 +379,17 @@ CoarseSearchResult run_coarse_search(LayoutObjective& obj, const OptimizerSpec& 
             }
             out.diagnostics.coarse_evals++;
             out.diagnostics.rays_traced += static_cast<std::int64_t>(ft.n_traced);
+            // Degenerate budget: this trace already covers the whole fan, so the
+            // acceptance gate can be asked of every candidate for free -- which
+            // is what the full-fidelity search does. The periodic probe below
+            // exists to bound that gate's overhead when the coarse level is
+            // sparse; here there is no overhead to bound.
+            if (spec.stop_on_focus && k_coarse == k_full && focus_accepted(spec, ft)) {
+                c.win = ft;
+                c.win_x = trial;
+                c.won = true;
+                break;
+            }
             if (better_stats(spec, ft, pf[static_cast<std::size_t>(p)])) {
                 std::copy(trial.begin(), trial.end(), &px[static_cast<std::size_t>(p) * d]);
                 pf[static_cast<std::size_t>(p)] = ft;
@@ -415,6 +434,19 @@ CoarseSearchResult run_coarse_search(LayoutObjective& obj, const OptimizerSpec& 
         if (obj.evals() >= coarse_budget || stalled >= spec.stall_generations) {
             break;
         }
+    }
+
+    // A degenerate budget -- coarse and full asking for the same rays -- means
+    // the trace this loop already ran *is* the whole-fan trace. Its best is
+    // therefore acceptance-grade: it may win outright, and at worst it is the
+    // least-bad layout the run reports, exactly as a full-fidelity search
+    // reports one. With a genuinely reduced coarse level the same stats measure
+    // a sparse trace, so only whole-fan validation may say either thing -- that
+    // is the one rule the staging adds.
+    if (!c.won && k_coarse == k_full && c.best_stats.cost < kBadCost) {
+        c.win = c.best_stats;
+        c.win_x = c.best_swept;
+        c.won = focus_accepted(spec, c.win);
     }
     return c;
 }
@@ -503,7 +535,7 @@ void adopt_validated_winner(CoarseSearchResult& coarse, const ValidationResult& 
     }
 }
 
-// Gated Nelder-Mead polish (the shared rule with the legacy driver): an accepted
+// Gated Nelder-Mead polish: an accepted
 // winner always polishes, and so does a promising near-focus best -- dragging a
 // layout the global search only got close to focus over the acceptance line.
 void polish_finalists(LayoutObjective& obj, const OptimizerSpec& spec, CoarseSearchResult& coarse) {
@@ -568,8 +600,8 @@ namespace detail {
 // objective is never success -- it only decides which candidates earn a
 // full-fidelity trace -- so the pipeline can reorder search but never weakens
 // the acceptance contract or reports an unfocused layout as focused. A validated
-// winner, and any promising near-focus best, then gets the same gated
-// Nelder-Mead polish the legacy path runs. The search is single-threaded and
+// winner, and any promising near-focus best, then gets the gated Nelder-Mead
+// polish. The search is single-threaded and
 // fully seeded, so it is bit-reproducible run to run.
 void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
     LayoutObjective obj(spec);
@@ -621,11 +653,7 @@ void pipeline_run(const OptimizerSpec& spec, OptimizerOutcome& out) {
 
 OptimizerOutcome optimize_layout(const OptimizerSpec& spec) {
     OptimizerOutcome out;
-    if (spec.enable_pipeline) {
-        pipeline_run(spec, out);
-    } else {
-        legacy_run(spec, out);
-    }
+    pipeline_run(spec, out);
     return out;
 }
 

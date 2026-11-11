@@ -196,7 +196,6 @@ py::dict py_optimize_layout(const OptimizeProblem& problem, const OptimizerSetti
     spec.polish_gate = s.polish_gate;
     spec.stop_on_focus = s.stop_on_focus;
     spec.autofocus_plane = s.autofocus_plane;
-    spec.enable_pipeline = s.enable_pipeline;
     spec.ray_pilot = static_cast<std::size_t>(std::max<std::int64_t>(0, s.ray_pilot));
     spec.ray_coarse = static_cast<std::size_t>(std::max<std::int64_t>(0, s.ray_coarse));
     spec.ray_medium = static_cast<std::size_t>(std::max<std::int64_t>(0, s.ray_medium));

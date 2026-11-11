@@ -9,7 +9,6 @@ import pytest
 
 from optics.optimizer import OptimizationError, optimize_layout
 from tests.optimizer._common import (
-    _FAST,
     _GROUPED,
     _PIPELINE,
     _WIDE_BOUNDS,
@@ -76,14 +75,21 @@ def test_pipeline_candidate_concurrency_matches_serial():
     assert serial.rays_traced == conc.rays_traced
 
 
-def test_pipeline_traces_fewer_rays_than_legacy():
+def test_the_ray_budgets_are_what_the_ray_budgets_pay_for():
     schema, source, p1, p2 = _problem()
-    pipe = _optimize_pipeline(schema, source, p1, p2)
-    legacy = _optimize_pipeline(schema, source, p1, p2, replace(_FAST, enable_pipeline=False))
-    assert pipe.status == "ok" and legacy.status == "ok"
-    # Coarse-to-fine must trace strictly fewer total rays than the legacy
-    # full-fidelity-per-candidate search for the same problem and seed.
-    assert pipe.rays_traced < legacy.rays_traced
+    staged = _optimize_pipeline(schema, source, p1, p2)
+    # Every level at "0" means the whole fan, so the same driver degenerates to
+    # full-fidelity-per-candidate search: the budgets are the only dial, and no
+    # run's behaviour depends on how the fan happens to compare to them.
+    full = _optimize_pipeline(
+        schema, source, p1, p2,
+        replace(_PIPELINE, ray_pilot=0, ray_coarse=0, ray_medium=0),
+    )
+    assert staged.status == "ok" and full.status == "ok"
+    # Staging must trace strictly fewer total rays for the same problem and seed,
+    # and still reach a winner that passes the same whole-fan acceptance.
+    assert staged.rays_traced < full.rays_traced
+    assert staged.spot_radius_mm <= full.spot_radius_mm * 1.1
 
 
 def test_pipeline_reports_a_structured_failure_reason():
@@ -107,19 +113,11 @@ def test_pipeline_converges_on_a_grouped_fan_in_one_run():
         image_bounds=_WIDE_IMAGE_BOUNDS,
         optimization=_GROUPED,
     )
-    legacy = optimize_layout(
-        schema,
-        p1,
-        p2,
-        fan,
-        element_bounds=_WIDE_BOUNDS,
-        image_bounds=_WIDE_IMAGE_BOUNDS,
-        optimization=replace(_GROUPED, enable_pipeline=False, allow_suboptimal=True),
-    )
     # The coarse level gets 48 rays for 64 object points. Spread one ray per
     # object point, a point's spread about itself is zero: the coarse stage
-    # ranks layouts on how many rays survive and never sees blur at all, so the
-    # run stalls on a best-effort layout and only walks into focus over several
-    # repeated clicks (each re-centering the window on the last best effort).
+    # ranks layouts on how many rays survive and never sees blur at all -- so
+    # this asserts the run still walks into focus in a single pass, against the
+    # fan's own defocused starting point rather than against another driver.
+    base_radius = _spot_radius(_system(schema), p2, fan, p1)
     assert result.status == "ok"
-    assert result.spot_radius_mm <= legacy.spot_radius_mm * 1.15
+    assert result.spot_radius_mm < base_radius / 3.0

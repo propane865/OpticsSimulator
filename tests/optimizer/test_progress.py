@@ -15,8 +15,9 @@ def test_optimize_layout_progress_callback_ticks_per_evaluation_interval():
     # The live progress sink fires roughly every 100 objective evaluations --
     # evaluation-driven, not per generation -- carrying the running best and
     # the generation it was found in. Consecutive ticks are at least 100
-    # evaluations apart and generations may repeat. Autofocus is off; the legacy
-    # (non-pipeline) path traces the whole fan, keeping this a couple of seconds.
+    # evaluations apart and generations may repeat. Autofocus is off and every
+    # ray budget is the whole fan, so this is the degenerate full-fidelity
+    # configuration: no level skips a ray, and the cadence is pure DE.
     schema, source, p1, p2 = _problem()
     fan = source.emit_arrays()
     ticks: list[tuple[int, float, float, int]] = []
@@ -28,7 +29,9 @@ def test_optimize_layout_progress_callback_ticks_per_evaluation_interval():
         stop_on_focus=False,
         stall_generations=1000,
         autofocus_image_plane=False,
-        enable_pipeline=False,
+        ray_pilot=0,
+        ray_coarse=0,
+        ray_medium=0,
         # Tight simplex tolerances: the polish must run long enough (well over
         # one evaluation interval) to prove it ticks, not converge in a few
         # full-fidelity vertices between two DE ticks.

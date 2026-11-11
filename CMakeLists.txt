@@ -43,7 +43,6 @@ add_library(optics_core OBJECT
   native/optimizing/objective.cpp
   native/optimizing/acceptance.cpp
   native/optimizing/optimizer_de.cpp
-  native/optimizing/optimizer_legacy.cpp
   native/optimizing/optimizer_pipeline.cpp)
 target_include_directories(optics_core PUBLIC native/include)
 target_compile_options(optics_core PUBLIC

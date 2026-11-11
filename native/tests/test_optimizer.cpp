@@ -1,5 +1,5 @@
-// End-to-end layout-driver coverage on the default (legacy full-fidelity-per-
-// candidate) path: status reporting (accepted / honest no-focus-found / polish
+// End-to-end layout-driver coverage on the full-budget configuration (every
+// budget the whole fan, so every candidate is traced at full fidelity): status reporting (accepted / honest no-focus-found / polish
 // gating), LHS determinism, nested autofocus (the plane z recovered by the
 // focus scan trails the last element and matches bit-for-bit run to run), and
 // the optional magnification target (honored when reachable, reported as a

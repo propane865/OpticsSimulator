@@ -178,7 +178,7 @@ void test_grouped_gaps_run_tail_to_head() {
 }
 
 void test_ungrouped_gaps_keep_the_single_element_rule() {
-    // Without grouping (the legacy bijection) the same numbers keep the plain
+    // Without grouping (the plain bijection) the same numbers keep the
     // x0 - x1 >= gap rule -- a 6.5 mm parameter spacing is fine.
     GroupedFixture f;
     const LayoutObjective obj(f.spec);

@@ -1,7 +1,8 @@
-// The coarse-to-fine pipeline driver: staged coarse->medium->full success with a
-// whole-fan winner, bit-reproducibility, the validated early-focus stop, an
-// honest structured failure, and the live progress sink firing from every
-// evaluation-charging phase (including the post-DE refinement sentinel).
+// The search driver: staged coarse->medium->full success with a whole-fan
+// winner, bit-reproducibility, the validated early-focus stop, an honest
+// structured failure, and the live progress sink firing from every
+// evaluation-charging phase (including the post-DE refinement sentinel). Also
+// the degenerate end of the same driver, where every budget is the whole fan.
 #include <vector>
 
 #include "optics/optimizing/optimizer.hpp"
@@ -27,7 +28,6 @@ void test_optimize_layout_pipeline() {
     OptimizerSpec pipe = problem.spec;
     pipe.blur_ref = 1e9;  // accept any traced layout at the full gate
     pipe.autofocus_plane = true;
-    pipe.enable_pipeline = true;
     pipe.ray_pilot = 4;
     pipe.ray_coarse = 8;
     pipe.ray_medium = 12;
@@ -73,24 +73,30 @@ void test_optimize_layout_pipeline() {
     CHECK(strict_run.diagnostics.full_failures >= 1);
 }
 
-// The live progress sink must fire from every evaluation-charging phase --
-// DE loops, probes, medium re-rank, validation and the Nelder-Mead polish --
-// so a long tail phase can never leave the caller's log silent while the
-// search still bills evaluations. Exercises both drivers (legacy and pipeline).
+// The live progress sink must fire from every evaluation-charging phase -- DE
+// loop, whole-fan probes, medium re-rank, validation and the Nelder-Mead polish
+// -- so a long tail phase can never leave the caller's log silent while the
+// search still bills evaluations.
 void test_optimize_layout_progress_ticks() {
     DriverProblem problem;
 
-    // Legacy: open at the baseline, keep the evaluation-driven cadence through
-    // the DE loop, tick the polish with the refinement sentinel, and leave no
-    // silent tail (at most one interval plus one simplex iteration).
-    OptimizerSpec legacy = problem.spec;
-    legacy.blur_ref = 1e9;
-    legacy.generations = 6;
-    legacy.stall_generations = 6;
-    legacy.stop_on_focus = false;
+    // Open at the baseline, keep the evaluation-driven cadence (no tick is
+    // closer than an interval to the one before), tick the polish with the
+    // refinement sentinel, and leave no silent tail: the last tick is within an
+    // interval plus one simplex iteration of the billed total even though the
+    // post-DE phases each trace the whole fan (<= 25 focus scans per candidate).
+    OptimizerSpec spec = problem.spec;
+    spec.blur_ref = 1e9;
+    spec.autofocus_plane = true;
+    spec.ray_pilot = 4;
+    spec.ray_coarse = 8;
+    spec.ray_medium = 12;
+    spec.generations = 6;
+    spec.stall_generations = 6;
+    spec.stop_on_focus = false;
     std::vector<OptimizerProgress> ticks;
-    legacy.progress = [&](const OptimizerProgress& p) { ticks.push_back(p); };
-    const OptimizerOutcome run = optics::native::optimize_layout(legacy);
+    spec.progress = [&](const OptimizerProgress& p) { ticks.push_back(p); };
+    const OptimizerOutcome run = optics::native::optimize_layout(spec);
     CHECK(run.status == "ok");
     CHECK(ticks.size() >= 2);
     CHECK(ticks.front().generation == 0);
@@ -107,31 +113,43 @@ void test_optimize_layout_progress_ticks() {
     CHECK(monotone);
     CHECK(cadence);
     CHECK(polished);  // the gated Nelder-Mead polish ticks after the DE loop
-    CHECK(run.evals - ticks.back().evals < 110);
+    CHECK(run.evals - ticks.back().evals < 150);
+}
 
-    // Pipeline: the post-DE refinement phases (probe/medium/validation/polish)
-    // tick with the same sentinel, and the whole-fan focus scan per candidate
-    // (<= 25 traces) still leaves the final tick within an interval plus one
-    // iteration of the total.
-    OptimizerSpec pipe = problem.spec;
-    pipe.blur_ref = 1e9;
-    pipe.autofocus_plane = true;
-    pipe.enable_pipeline = true;
-    pipe.ray_pilot = 4;
-    pipe.ray_coarse = 8;
-    pipe.ray_medium = 12;
-    pipe.stop_on_focus = true;
-    std::vector<OptimizerProgress> pipe_ticks;
-    pipe.progress = [&](const OptimizerProgress& p) { pipe_ticks.push_back(p); };
-    const OptimizerOutcome pipe_run = optics::native::optimize_layout(pipe);
-    CHECK(pipe_run.status == "ok");
-    CHECK(pipe_ticks.size() >= 2);
-    bool pipe_polished = false;
-    for (const OptimizerProgress& p : pipe_ticks) {
-        pipe_polished = pipe_polished || p.generation == kRefinementGeneration;
-    }
-    CHECK(pipe_polished);
-    CHECK(pipe_run.evals - pipe_ticks.back().evals < 150);
+// With every ray budget at "the whole fan" the staged levels collapse into the
+// search itself: the trace a candidate pays for is the acceptance-grade trace,
+// so it can win directly and its best is the layout reported when the run runs
+// out of budget. No sparser proxy gates candidates and no separate validation
+// round is needed to prove them.
+void test_full_budget_configuration_is_a_full_fidelity_search() {
+    DriverProblem problem;
+
+    OptimizerSpec full = problem.spec;
+    full.blur_ref = 1e9;
+    full.autofocus_plane = true;
+    full.ray_pilot = 0;
+    full.ray_coarse = 0;
+    full.ray_medium = 0;
+    full.ray_full = 0;
+    full.generations = 4;
+    full.stall_generations = 4;
+    full.stop_on_focus = false;
+    const OptimizerOutcome run = optics::native::optimize_layout(full);
+    CHECK(run.status == "ok");
+    CHECK(run.diagnostics.pilot_rejects == 0);
+    CHECK(run.diagnostics.full_evals == 0);  // the coarse trace already was the fan
+    CHECK(run.diagnostics.coarse_evals >= 1);
+
+    // A budget too small to reach the refinement stages still reports the
+    // least-bad whole-fan layout it traced, never an empty "infeasible".
+    OptimizerSpec tight = full;
+    tight.generations = 1;
+    tight.stall_generations = 1;
+    tight.max_evals = 2;
+    const OptimizerOutcome t = optics::native::optimize_layout(tight);
+    CHECK(t.status != "infeasible");
+    CHECK(t.diagnostics.coarse_evals >= 1);
+    CHECK(t.best.size() == full.lo.size());
 }
 
 }  // namespace
@@ -139,4 +157,5 @@ void test_optimize_layout_progress_ticks() {
 void test_optimizer_pipeline() {
     test_optimize_layout_pipeline();
     test_optimize_layout_progress_ticks();
+    test_full_budget_configuration_is_a_full_fidelity_search();
 }

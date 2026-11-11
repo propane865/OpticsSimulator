@@ -43,7 +43,7 @@ inline double clamp_box(double v, double lo, double hi) {
 }
 
 // The rays one fidelity level traces: either the whole fan in its natural order
-// (bit-identical to the legacy path) or a gathered group-aware subset. The
+// (rays in their natural order) or a gathered group-aware subset. The
 // wavelengths ride along so a gathered subset keeps tracing each ray at its own
 // wavelength.
 struct RayLevel {
@@ -135,7 +135,7 @@ class LayoutObjective {
 
     // Rays of one ray budget, gathered on first use and cached. A budget at or
     // above the fan size -- or an ungrouped fan -- traces the whole fan in its
-    // natural order, so full fidelity is bit-identical to the legacy metric.
+    // natural order, so full fidelity traces the fan exactly as it lies.
     const RayLevel& level(std::size_t budget);
 
   private:

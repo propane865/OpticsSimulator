@@ -101,19 +101,17 @@ class LensOptimization:
     # DE leaves the global search once no candidate improved for this many
     # generations.
     stall_generations: int = 60
-    # Coarse-to-fine pipeline (default on at this layer; the C++ default is
-    # off so the native solver stays bit-identical to the legacy search unless
-    # asked). Global DE runs at a coarse ray budget and only a few diverse
-    # finalists are re-traced at the whole fan, where the hard focus acceptance
-    # is the sole success gate -- so this reorders *which* candidates reach full
-    # fidelity but never weakens the acceptance contract. A reduced-fidelity
+    # The search is coarse-to-fine: global DE runs at a coarse ray budget and
+    # only a few diverse finalists are re-traced at the whole fan, where the hard
+    # focus acceptance is the sole success gate -- so the budgets reorder *which*
+    # candidates reach full fidelity but never weaken the acceptance contract. A
+    # reduced-fidelity
     # budget traces whole object points (``min_rays_per_group`` rays of each
     # sampled point's own cone), so a coarse candidate is a sparse-field blur
     # estimate rather than the degenerate zero a one-ray-per-point subset would
     # report; higher levels are supersets of lower ones under a deterministic
     # ordering, and whole-fan validation traces every ray in its natural order.
     # Budgets are clamped to the fan size (a 0 ray budget means "whole fan").
-    enable_pipeline: bool = True
     ray_pilot: int = 48
     ray_coarse: int = 512
     ray_medium: int = 3072
@@ -139,7 +137,7 @@ class LensOptimization:
 
 
 def build_native_settings(
-    layout: LensOptimization, *, blur_ref: float, pipeline_on: bool
+    layout: LensOptimization, *, blur_ref: float
 ) -> Any:
     """Translate the Python knobs into a native ``OptimizerSettings``."""
     settings = _native.OptimizerSettings()
@@ -169,7 +167,6 @@ def build_native_settings(
     settings.xatol = float(layout.xatol)
     settings.fatol = float(layout.fatol)
     settings.stall_generations = int(layout.stall_generations)
-    settings.enable_pipeline = pipeline_on
     settings.ray_pilot = int(layout.ray_pilot)
     settings.ray_coarse = int(layout.ray_coarse)
     settings.ray_medium = int(layout.ray_medium)

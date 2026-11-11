@@ -112,13 +112,12 @@ def _sweep_best_z(system, source_plane, image_plane, fan):
     return float(zs[best]), float(radii[best])
 
 
-# --- Coarse-to-fine pipeline (ray budgets below the fan enable it) ----------
-# The point-source fan is 128 rays, so a coarse budget of 24 keeps the pipeline
-# on while the final validation still traces the whole fan -- the hard focus
-# acceptance the legacy path uses is the sole success gate here too.
+# --- Reduced ray budgets (the fan is 128 rays) ------------------------------
+# A coarse budget of 24 keeps the staged levels genuinely sparse while the final
+# validation still traces the whole fan -- the hard focus acceptance is the sole
+# success gate either way.
 _PIPELINE = replace(
     _FAST,
-    enable_pipeline=True,
     ray_pilot=12,
     ray_coarse=24,
     ray_medium=48,

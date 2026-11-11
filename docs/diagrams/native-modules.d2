@@ -8,7 +8,7 @@ consumers: "consumers: not layers" {
 
 kernels: "kernel layers: arrows are includes" {
   direction: down
-  optimizing: "optimizing/: coarse DE -> promotion -> medium ->\nwhole-fan validate -> gated NM; also includes tracing"
+  optimizing: "optimizing/: one driver, ray budgets are the dial:\nprecheck+pilot -> coarse DE -> promotion -> medium ->\nwhole-fan validate -> gated NM; also includes tracing"
   measurement: "measurement/: power accumulation, Wendland C2\nreconstruction; also includes intersection"
   tracing: "tracing/: element, trace-stack state, refraction,\nstack walk; also includes geometry"
   intersection: "intersection/: Surface operations, Newton solver,\nclosed form, inversion, rim mesh"

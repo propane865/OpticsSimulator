@@ -61,7 +61,6 @@ void register_optimizer(py::module_& m) {
         .def_readwrite("stall_generations", &OptimizerSettings::stall_generations)
         .def_readwrite("xatol", &OptimizerSettings::xatol)
         .def_readwrite("fatol", &OptimizerSettings::fatol)
-        .def_readwrite("enable_pipeline", &OptimizerSettings::enable_pipeline)
         .def_readwrite("ray_pilot", &OptimizerSettings::ray_pilot)
         .def_readwrite("ray_coarse", &OptimizerSettings::ray_coarse)
         .def_readwrite("ray_medium", &OptimizerSettings::ray_medium)

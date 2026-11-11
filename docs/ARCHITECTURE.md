@@ -139,16 +139,19 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
   - `measurement/`: plane power accumulation, adaptive-kernel (Wendland C2)
     irradiance reconstruction, direct/stacked plane measurement, fused
     trace+planes batch pass
-  - `optimizing/`: best-focus layout solver. Two drivers share one objective:
-    the legacy full-fan DE (`optimizer_legacy.cpp`) and the coarse-to-fine
-    pipeline (`optimizer_pipeline.cpp`: a pure-arithmetic precheck plus a
-    shallow pilot gate drop hopeless trials, coarse-budget DE fills a diverse
-    archive, a deterministic promotion gate hands a subset to a medium-fidelity
-    re-rank, finalists are validated at the whole ray fan -- the sole success
-    gate -- and the winner gets the gated Nelder-Mead polish). The C++ default
-    is the legacy driver; the Python layer enables the pipeline (its
-    `enable_pipeline` knob) whenever its coarse ray budget is genuinely below
-    the fan, so small fans stay on the proven legacy path. Transform-only stack
+  - `optimizing/`: best-focus layout solver (`optimizer_pipeline.cpp`) against
+    a single objective: a pure-arithmetic precheck plus a shallow pilot gate
+    drop hopeless trials, coarse-budget DE fills a diverse archive, a
+    deterministic promotion gate hands a subset to a medium-fidelity re-rank,
+    finalists are validated at the whole ray fan -- the sole success gate -- and
+    the winner gets the gated Nelder-Mead polish. The per-level ray budgets are
+    the only dial: a budget at or above the fan traces the whole fan, and when
+    *every* budget does the levels collapse into a plain full-fidelity search --
+    the coarse trace is then the acceptance-grade trace, so it can win a
+    candidate on the spot and its best is what a budget-starved run reports.
+    That is why there is one driver and no `enable_pipeline` switch: a second
+    driver meant a run's algorithm depended on how its fan happened to compare
+    to a budget. Transform-only stack
     variants; a deterministic nested 1-D best-focus scan can profile the
     destination-plane z out of the global sweep; candidates are compared
     focus-first and a run reports `ok` only when the winner passes acceptance.

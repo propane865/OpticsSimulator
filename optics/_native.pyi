@@ -310,7 +310,6 @@ class OptimizerSettings:
     stall_generations: int
     xatol: float
     fatol: float
-    enable_pipeline: bool
     ray_pilot: int
     ray_coarse: int
     ray_medium: int
