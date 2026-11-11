@@ -6,16 +6,19 @@ import copy
 import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PySide6 import QtWidgets
 
 from optics.config import (
+    MaterialConfig,
+    SurfaceConfig,
     element_orientation,
     element_position,
     material_from_config,
     refractive_element_from_config,
 )
+from optics.element import RefractiveElement
 from optics.materials.catalog import (
     DEFAULT_MATERIAL_NAME,
     catalog_name_for,
@@ -26,7 +29,12 @@ from optics.materials.catalog import (
 from optics.primitive import DEFAULT_WAVELENGTH_NM, Material
 
 from ..material_preview import MaterialPreviewPanel
-from ..project.elements import DEFAULT_ELEMENT_CONFIG, classify_element_edit
+from ..project.elements import (
+    DEFAULT_ELEMENT_APERTURE_RADIUS,
+    DEFAULT_ELEMENT_CONFIG,
+    ElementDocumentConfig,
+    classify_element_edit,
+)
 from ..project.state import ProjectState
 from ..scene import sync_scene
 from ..widgets import (
@@ -40,7 +48,9 @@ from ..widgets import (
 )
 from .base import EditorContext, SelectorEditor
 
-_DEFAULT_APERTURE_RADIUS = float(DEFAULT_ELEMENT_CONFIG["surface1"]["aperture"]["radius"])
+# What an apply builds: the row's name, the config the form now holds, and the
+# element built from it, so a commit never rebuilds what validation already built.
+BuiltElement = tuple[str, ElementDocumentConfig, RefractiveElement]
 
 # The parameter view's caption, and what the readouts say when the material has no
 # index to quote. Designer seeds the labels; the controller restates the caption so a
@@ -53,7 +63,7 @@ MATERIAL_IMPORT_FILTER = "Material JSON (*.json);;All files (*.*)"
 MATERIAL_IMPORT_ERROR_TITLE = "Invalid Material File"
 CUSTOM_MATERIAL_DOCUMENT = (
     'expected {"name": ..., "lorentz": {"epsilon_inf": ..., "oscillators": '
-    "[{\"strength\": ..., \"resonance_ev\": ..., \"damping_ev\": ...}, ...]}}"
+    '[{"strength": ..., "resonance_ev": ..., "damping_ev": ...}, ...]}}'
 )
 
 
@@ -69,7 +79,17 @@ def _label_wavelength_nm(state: ProjectState) -> float:
     return DEFAULT_WAVELENGTH_NM if source is None else float(source.wavelength)
 
 
-def material_block_of(config: Mapping[str, Any]) -> dict[str, Any]:
+def catalog_material(name: str) -> MaterialConfig:
+    """One catalog glass as a material block.
+
+    The block is assembled at runtime from the shipped glass table, so the checker
+    cannot see its shape and the contract :func:`optics.config.material_from_config`
+    enforces is stated here instead.
+    """
+    return cast(MaterialConfig, material_block(name))
+
+
+def material_block_of(config: Mapping[str, Any]) -> MaterialConfig:
     """The ``lorentz`` block a loaded element config carries, as canonical numbers.
 
     A config's material is its own (the project file is self-contained), so this is
@@ -77,13 +97,15 @@ def material_block_of(config: Mapping[str, Any]) -> dict[str, Any]:
     vacuum, which is the same default the loader gives it; a material the validator
     rejects is the loader's problem before it is the form's.
     """
+    # A catalog block is assembled from the glass table, so the checker cannot see
+    # its shape; material_from_config has just validated this one.
     try:
-        return material_block_for(material_from_config(config.get("material")))
+        return cast(MaterialConfig, material_block_for(material_from_config(config.get("material"))))
     except (TypeError, ValueError):
-        return material_block_for(material_from_config(None))
+        return cast(MaterialConfig, material_block_for(material_from_config(None)))
 
 
-def _material_config_from_json(text: str) -> tuple[dict[str, Any], str | None]:
+def _material_config_from_json(text: str) -> tuple[MaterialConfig, str | None]:
     """Parse an imported material document into ``(lorentz_block, name_or_None)``.
 
     Three spellings are accepted, because all three are things a user has on disk:
@@ -111,7 +133,7 @@ def _material_config_from_json(text: str) -> tuple[dict[str, Any], str | None]:
     material_from_config({"lorentz": block})
     name = document.get("name")
     label = name.strip() if isinstance(name, str) and name.strip() else None
-    return {"lorentz": copy.deepcopy(dict(block))}, label
+    return cast(MaterialConfig, {"lorentz": copy.deepcopy(dict(block))}), label
 
 
 class ElementEditor(SelectorEditor):
@@ -164,7 +186,7 @@ class ElementEditor(SelectorEditor):
         # The form's material, decoupled from the picker: a selection names a catalog
         # entry, an import supplies parameters, and both end up here as the one thing
         # the config writer and the readouts read.
-        self._material: dict[str, Any] = material_block(DEFAULT_MATERIAL_NAME)
+        self._material = catalog_material(DEFAULT_MATERIAL_NAME)
         configure_material_combo(self._material_selection, material_names())
         self._material_selection.currentIndexChanged.connect(self._on_material_selection)
         self._load_material_button.clicked.connect(self._on_load_material)
@@ -186,14 +208,14 @@ class ElementEditor(SelectorEditor):
         self._show_preview()
         self._update_calculated_response()
 
-    def _set_material(self, block: Mapping[str, Any]) -> None:
+    def _set_material(self, block: MaterialConfig) -> None:
         """Make ``block`` (a whole ``material`` block) the form's material.
 
         The picker is matched by exact parameters, never by a remembered name: a
         project file that happens to say ``N-BK7`` but carries different numbers reads
         as ``Custom``, which is the honest answer and the one that survives a save.
         """
-        self._material = copy.deepcopy(dict(block))
+        self._material = copy.deepcopy(block)
         blocked = self._material_selection.blockSignals(True)
         try:
             select_material_name(self._material_selection, catalog_name_for(self._material))
@@ -201,7 +223,7 @@ class ElementEditor(SelectorEditor):
             self._material_selection.blockSignals(blocked)
         self.refresh_material_labels()
 
-    def material_block(self) -> dict[str, Any]:
+    def material_block(self) -> MaterialConfig:
         """A copy of the ``material`` block the form currently holds.
 
         The whole block, in the shape a config's ``material`` key uses -- which is
@@ -228,7 +250,7 @@ class ElementEditor(SelectorEditor):
         name = self._material_selection.currentText()
         if name == CUSTOM_MATERIAL_LABEL:
             return
-        self._set_material(material_block(name))
+        self._set_material(catalog_material(name))
 
     def _on_load_material(self) -> None:
         """Import a material JSON file as the selected lens's parameters.
@@ -261,9 +283,7 @@ class ElementEditor(SelectorEditor):
         if loaded is None:
             return
         name = self.selected_name()
-        self._set_status(
-            f"Loaded material {loaded}" + (f" into {name}" if name else " into the form")
-        )
+        self._set_status(f"Loaded material {loaded}" + (f" into {name}" if name else " into the form"))
 
     def _show_preview(self) -> None:
         """Redraw the curves, or leave them as they are when the parameters are junk."""
@@ -287,9 +307,7 @@ class ElementEditor(SelectorEditor):
         wavelength = _label_wavelength_nm(self._state)
         try:
             index = material.complex_index_at(wavelength)
-            self._show_response(
-                index.real, index.imag, material.absorption_coefficient_at(wavelength), ""
-            )
+            self._show_response(index.real, index.imag, material.absorption_coefficient_at(wavelength), "")
         except ValueError as exc:
             self._show_response(None, None, None, str(exc))
 
@@ -303,9 +321,7 @@ class ElementEditor(SelectorEditor):
         """Write the three readouts, with the refusal reason as their shared tip."""
         self._index_value.setText(f"{index:.6f}" if index is not None else NO_INDEX_TEXT)
         self._extinction_value.setText(f"{extinction:.3e}" if extinction is not None else NO_INDEX_TEXT)
-        self._absorption_value.setText(
-            f"{absorption:.3e} 1/mm" if absorption is not None else NO_INDEX_TEXT
-        )
+        self._absorption_value.setText(f"{absorption:.3e} 1/mm" if absorption is not None else NO_INDEX_TEXT)
         for widget in (self._index_value, self._extinction_value, self._absorption_value):
             widget.setToolTip(reason)
 
@@ -339,7 +355,7 @@ class ElementEditor(SelectorEditor):
         radius1 = aperture1.get("radius")
         radius2 = aperture2.get("radius")
         if radius1 is None:
-            radius1 = radius2 if radius2 is not None else _DEFAULT_APERTURE_RADIUS
+            radius1 = radius2 if radius2 is not None else DEFAULT_ELEMENT_APERTURE_RADIUS
         if radius2 is None:
             radius2 = radius1
         self._radius_spin.setValue(float(radius1))
@@ -351,7 +367,7 @@ class ElementEditor(SelectorEditor):
         for spin, value in zip(self._normal_spins, element_orientation(config)):
             spin.setValue(float(value))
 
-    def _build_current(self) -> tuple[str, dict[str, Any], Any] | None:
+    def _build_current(self) -> BuiltElement | None:
         schema = self._state.schema
         name = self.selected_name()
         if not schema or name is None:
@@ -366,15 +382,24 @@ class ElementEditor(SelectorEditor):
         config["surface2"]["z"] = self._surface2_edit.text()
         config["position"] = [float(spin.value()) for spin in self._pos_spins]
         config["orientation"] = [float(spin.value()) for spin in self._normal_spins]
-        for key, spin in (("surface1", self._radius_spin), ("surface2", self._radius2_spin)):
-            aperture = config[key].get("aperture")
-            if aperture is None:
-                aperture = {"type": "circular"}
-                config[key]["aperture"] = aperture
-            aperture["radius"] = float(spin.value())
+        self._apply_aperture(config["surface1"], self._radius_spin.value())
+        self._apply_aperture(config["surface2"], self._radius2_spin.value())
         return name, config, refractive_element_from_config(config)
 
-    def _commit_current(self, built: tuple[str, dict[str, Any], Any]) -> None:
+    @staticmethod
+    def _apply_aperture(surface: SurfaceConfig, radius: float) -> None:
+        """Set one surface's aperture radius, giving the surface an aperture if it has none.
+
+        The two surfaces get their own call rather than a loop over their key names:
+        a document names exactly two, and the editor's own fields are named after them.
+        """
+        aperture = surface.get("aperture")
+        if aperture is None:
+            surface["aperture"] = {"type": "circular", "radius": float(radius)}
+        else:
+            aperture["radius"] = float(radius)
+
+    def _commit_current(self, built: BuiltElement) -> None:
         name, config, element = built
         kind = classify_element_edit((self._state.schema or {}).get(name), config)
         self._state.stack.replace(name, config, element)
@@ -399,12 +424,12 @@ class ElementEditor(SelectorEditor):
     def _after_removal(self) -> None:
         self._refresh()
 
-    def _build_new(self) -> tuple[str, dict[str, Any], Any]:
+    def _build_new(self) -> BuiltElement:
         name = self._state.stack.new_name()
         config = copy.deepcopy(DEFAULT_ELEMENT_CONFIG)
         return name, config, refractive_element_from_config(config)
 
-    def _register_new(self, built: tuple[str, dict[str, Any], Any]) -> str:
+    def _register_new(self, built: BuiltElement) -> str:
         name, config, element = built
         self._state.stack.add(name, config, element)
         sync_scene(self._state, self._scene)

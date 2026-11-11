@@ -1,11 +1,11 @@
 """Project document format: elements, light source, measurement planes."""
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
-from .config import require_key
+from .config import MaterialConfig, require_key
 from .materials import DEFAULT_MATERIAL_NAME, material_block
 from .measurement_plane import MeasurementPlane
 from .primitive import DEFAULT_WAVELENGTH_NM
@@ -45,7 +45,10 @@ DEFAULT_MEASUREMENT_CONFIG: dict[str, Any] = {
 # it is written out inline -- a project document carries its material parameters
 # rather than a name, so it stays readable if the catalog changes. The parameters
 # themselves are provisional placeholders (see optics.materials.catalog).
-DEFAULT_ELEMENT_MATERIAL: "dict[str, Any]" = material_block(DEFAULT_MATERIAL_NAME)
+# The catalog block is assembled at import from the shipped glass table, so the
+# type checker cannot see its shape; the cast states the contract that
+# :func:`optics.config.material_from_config` enforces on every reader.
+DEFAULT_ELEMENT_MATERIAL: MaterialConfig = cast(MaterialConfig, material_block(DEFAULT_MATERIAL_NAME))
 
 
 def source_from_config(config: object) -> PointSource:

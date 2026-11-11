@@ -8,12 +8,22 @@ the shipped catalog with :func:`crown_material` or :func:`flint_material`, which
 also what the lens editor offers and the Zemax importer resolves.
 """
 
-from typing import Any
+from typing import cast
 
+from optics.config import MaterialConfig
 from optics.materials import material_block
 
 
-def constant_material(index: float) -> "dict[str, Any]":
+def _catalog(name: str) -> MaterialConfig:
+    """One shipped glass as a material block.
+
+    The catalog assembles the block at import, so its shape is stated rather than
+    inferred -- it is the same block ``material_from_config`` accepts everywhere.
+    """
+    return cast(MaterialConfig, material_block(name))
+
+
+def constant_material(index: float) -> MaterialConfig:
     """The material config holding a wavelength-independent ``index``.
 
     With no oscillator to resonate, the permittivity is the constant ``n**2`` and
@@ -24,14 +34,14 @@ def constant_material(index: float) -> "dict[str, Any]":
     return {"lorentz": {"epsilon_inf": n * n, "oscillators": []}}
 
 
-def crown_material() -> "dict[str, Any]":
+def crown_material() -> MaterialConfig:
     """N-BK7: the weakly dispersing crown every dispersion fixture compares against."""
-    return material_block("N-BK7")
+    return _catalog("N-BK7")
 
 
-def flint_material() -> "dict[str, Any]":
+def flint_material() -> MaterialConfig:
     """N-SF11: the strongly dispersing flint that separates the two colours further."""
-    return material_block("N-SF11")
+    return _catalog("N-SF11")
 
 
 # Damping that makes the infrared band bite: 100x the catalog placeholder's, which
@@ -39,7 +49,7 @@ def flint_material() -> "dict[str, Any]":
 DARK_DAMPING_EV = 0.03
 
 
-def dark_material() -> "dict[str, Any]":
+def dark_material() -> MaterialConfig:
     """A test-only dark crown: the N-BK7 shape with its infrared band damped hard.
 
     Nothing shipped in the catalog absorbs this much visible light (alpha of order
@@ -58,4 +68,6 @@ def dark_material() -> "dict[str, Any]":
     for entry in block["oscillators"]:
         infrared = entry["resonance_ev"] == min(other["resonance_ev"] for other in block["oscillators"])
         oscillators.append({**entry, "damping_ev": DARK_DAMPING_EV} if infrared else dict(entry))
-    return {"lorentz": {"epsilon_inf": block["epsilon_inf"], "oscillators": oscillators}}
+    # Derived from a catalog block read back as loose values, so the assembled
+    # shape is stated; constant_material above builds the same shape from literals.
+    return cast(MaterialConfig, {"lorentz": {"epsilon_inf": block["epsilon_inf"], "oscillators": oscillators}})

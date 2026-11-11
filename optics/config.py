@@ -1,7 +1,7 @@
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 
@@ -70,6 +70,81 @@ ELEMENT_CONFIG_FIELDS = ElementConfigFields(
 )
 
 
+# The same inventory seen as types: what a caller *building* a config must
+# produce. A value read from JSON arrives as ``Any`` and is still checked by the
+# validators below -- the wire has no types -- but a config assembled in code is
+# checked now instead of at the first trace of a loaded file, where a misspelt key
+# would otherwise read as an omitted one and take a default silently.
+#
+# Each shape is a required part plus a ``total=False`` part, because the optional
+# keys are optional by documented convention (an omitted placement means "at the
+# origin facing +Z", an omitted aperture means "no clip"), not because nobody got
+# round to filling them in.
+class _ApertureOptionals(TypedDict, total=False):
+    type: str  # only "circular" exists; absent means the same thing
+    center: tuple[float, float] | list[float]
+
+
+class ApertureConfig(_ApertureOptionals):
+    """The one aperture the reader accepts: a radius, optionally off-axis."""
+
+    radius: float
+
+
+class _SurfaceOptionals(TypedDict, total=False):
+    u_range: Sequence[float]
+    v_range: Sequence[float]
+    aperture: ApertureConfig | None
+
+
+class SurfaceConfig(_SurfaceOptionals):
+    """One surface: an expression pair, a sag expression, and their domains."""
+
+    x: str
+    y: str
+    z: str
+
+
+class OscillatorConfig(TypedDict):
+    """One Lorentz resonance -- none of it defaults into something meaningful."""
+
+    strength: float
+    resonance_ev: float
+    damping_ev: float
+
+
+class LorentzConfig(TypedDict):
+    """A dielectric model; an empty ``oscillators`` list is a constant index n."""
+
+    epsilon_inf: float
+    oscillators: Sequence[OscillatorConfig]
+
+
+class MaterialConfig(TypedDict):
+    """An element material. ``lorentz`` is the whole of it: no Sellmeier, no n."""
+
+    lorentz: LorentzConfig
+
+
+class _ElementOptionals(TypedDict, total=False):
+    position: Sequence[float]
+    orientation: Sequence[float]
+
+
+class ElementConfig(_ElementOptionals):
+    """One lens: two surfaces, a material, and where the pair sits in space.
+
+    An omitted placement pair means "at the origin facing +Z", which is a real
+    document convention rather than an unfinished config. A consumer that groups
+    lenses in a project tree extends this with its own key -- see
+    :class:`ui.project.elements.ElementDocumentConfig`.
+    """
+
+    surface1: SurfaceConfig
+    surface2: SurfaceConfig
+    material: MaterialConfig
+
+
 def element_position(config: Mapping[str, Any]) -> list[float]:
     """Element placement from a config, with the implicit origin default."""
     return [float(v) for v in config.get("position", DEFAULT_ELEMENT_POSITION)]
@@ -80,7 +155,7 @@ def element_orientation(config: Mapping[str, Any]) -> list[float]:
     return [float(v) for v in config.get("orientation", DEFAULT_ELEMENT_ORIENTATION)]
 
 
-def aperture_from_config(config: dict[str, Any]) -> CircularAperture:
+def aperture_from_config(config: ApertureConfig) -> CircularAperture:
     if not isinstance(config, dict):
         raise ValueError("Aperture config must be an object")
     kind = str(config.get("type", "circular")).lower()
@@ -92,7 +167,7 @@ def aperture_from_config(config: dict[str, Any]) -> CircularAperture:
     )
 
 
-def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface:
+def surface_from_config(config: SurfaceConfig, transform: Transform) -> Surface:
     if not isinstance(config, dict):
         raise ValueError("Surface config must be an object")
     for key in ("x", "y", "z"):
@@ -170,7 +245,7 @@ def require_key(mapping: object, key: str, context: str) -> Any:
 
 
 def refractive_element_from_config(
-    config: dict[str, Any],
+    config: ElementConfig | dict[str, Any],
     orientation: np.ndarray | Sequence[float] | None = None,
     position: np.ndarray | Sequence[float] | None = None,
 ) -> RefractiveElement:

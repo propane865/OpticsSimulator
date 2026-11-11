@@ -5,17 +5,21 @@ cascading placement, name de-duplication, keeping the current source/planes,
 and leaving state untouched when an import fails.
 """
 
+
+import copy
 from typing import Any
 
 import numpy as np
 import pytest
 
+from optics.config import SurfaceConfig
 from tests.materials import constant_material
+from ui.project.elements import DEFAULT_ELEMENT_CONFIG, ElementDocumentConfig
 from ui.project.state import ProjectState
 
 
-def _flat_lens(front_z: float, rear_offset: float, n: float = 1.5) -> dict[str, Any]:
-    def surface(z: str) -> dict[str, Any]:
+def _flat_lens(front_z: float, rear_offset: float, n: float = 1.5) -> ElementDocumentConfig:
+    def surface(z: str) -> SurfaceConfig:
         return {
             "x": "u",
             "y": "v",
@@ -37,7 +41,9 @@ def _flat_lens(front_z: float, rear_offset: float, n: float = 1.5) -> dict[str, 
 def _state_with_one_lens(make_element) -> ProjectState:
     state = ProjectState()
     first = make_element("0.1*u*u+0.5", "0.1*v*v-0.5")
-    state.stack.add("lens1", {}, first)
+    # The default config reads exactly as the empty dict this fixture used to pass:
+    # no placement (so the implicit origin) and the default aperture.
+    state.stack.add("lens1", copy.deepcopy(DEFAULT_ELEMENT_CONFIG), first)
     return state
 
 

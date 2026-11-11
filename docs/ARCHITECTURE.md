@@ -242,7 +242,16 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
   - `config.py`: JSON -> element/stack loading (a material must carry a `lorentz`
     block; the removed `refractive_index` key and a `sellmeier` block are both
     refusals naming what to write, not compatibility paths -- Sellmeier coefficients
-    state no damping, so there is no `k` to recover from them)
+    state no damping, so there is no `k` to recover from them). Owns both readings
+    of the element config: `ELEMENT_CONFIG_FIELDS` (which key is which *kind* of
+    thing) and the `TypedDict`s `ElementConfig` / `SurfaceConfig` / `MaterialConfig`
+    (which keys a config *has*). The wire is JSON and loads as `Any`, so the types
+    describe what a caller **assembling** a config in code must produce; a value
+    read from disk is still checked by the validators here. The UI extends the shape
+    rather than editing it -- `ui.project.elements.ElementDocumentConfig` adds the
+    one grouping key optics ignores -- and
+    `tests/model/test_config_types.py` pins the two declarations against each other,
+    because neither can be generated from the other
   - `io.py`: JSON project-document loading (Zemax `.zmx` is import-only)
   - `project.py`: project documents (elements + source + measurement
     planes)

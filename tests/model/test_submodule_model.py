@@ -6,17 +6,17 @@ the stack rows whose visuals the scene must rebuild, and the cached system being
 dropped only when something actually moved.
 """
 
-from typing import Any
 
 import numpy as np
 
-from optics.config import refractive_element_from_config
+from optics.config import SurfaceConfig, refractive_element_from_config
 from tests.materials import constant_material
+from ui.project.elements import ElementDocumentConfig
 from ui.project.state import ProjectState
 
 
-def _flat_lens(front_z: float, y: float = 0.0) -> dict[str, Any]:
-    def surface(z: str) -> dict[str, Any]:
+def _flat_lens(front_z: float, y: float = 0.0) -> ElementDocumentConfig:
+    def surface(z: str) -> SurfaceConfig:
         return {
             "x": "u",
             "y": "v",
