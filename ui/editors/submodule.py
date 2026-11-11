@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from ..scene import sync_scene
 from .base import EditorContext, SelectorEditor
 
 
@@ -71,7 +72,7 @@ class SubmoduleEditor(SelectorEditor):
             self._set_status(f"No changes to {name}")
             return
         moved = self._state.stack.move_submodule(name, delta)
-        for index, element in moved:
-            self._scene.replace_element_nodes(index, element)
+        if moved:
+            sync_scene(self._state, self._scene)
         self._refresh()
         self._set_status(f"Moved {len(moved)} element(s) in {name}")

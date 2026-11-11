@@ -109,7 +109,7 @@ class PlaneEditor(SelectorEditor):
             return
         pinned = self._state.measurements.set_locked(index, checked)
         if pinned is not None:
-            self._scene.replace_plane_nodes(index, pinned, self._state.plane_results[index])
+            self._scene.sync_planes(self._state.planes, self._state.plane_results)
             for spin, value in zip(self._pos_spins, pinned.o):
                 spin.setValue(float(value))
             self._refresh()
@@ -142,7 +142,7 @@ class PlaneEditor(SelectorEditor):
     def _commit_current(self, built: tuple[int, MeasurementPlane]) -> None:
         index, updated = built
         self._state.measurements.replace(index, updated)
-        self._scene.replace_plane_nodes(index, updated, self._state.plane_results[index])
+        self._scene.sync_planes(self._state.planes, self._state.plane_results)
         self._refresh()
         self._set_status(f"Updated properties for {self._state.plane_names[index]}")
 
@@ -151,8 +151,8 @@ class PlaneEditor(SelectorEditor):
         if index < 0 or index >= len(self._state.planes):
             return None
         name = self._state.plane_names[index]
-        self._scene.remove_plane_nodes(index)
         self._state.measurements.remove(index)
+        self._scene.sync_planes(self._state.planes, self._state.plane_results)
         return name
 
     def _build_new(self) -> MeasurementPlane:
@@ -162,6 +162,6 @@ class PlaneEditor(SelectorEditor):
 
     def _register_new(self, built: MeasurementPlane) -> str:
         name = self._state.measurements.new_name()
-        result = self._state.measurements.add(name, built)
-        self._scene.add_plane_nodes(built, result)
+        self._state.measurements.add(name, built)
+        self._scene.sync_planes(self._state.planes, self._state.plane_results)
         return name

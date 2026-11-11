@@ -28,6 +28,7 @@ from optics.primitive import DEFAULT_WAVELENGTH_NM, Material
 from ..material_preview import MaterialPreviewPanel
 from ..project.elements import DEFAULT_ELEMENT_CONFIG, classify_element_edit
 from ..project.state import ProjectState
+from ..scene import sync_scene
 from ..widgets import (
     CUSTOM_MATERIAL_LABEL,
     configure_material_combo,
@@ -376,12 +377,11 @@ class ElementEditor(SelectorEditor):
     def _commit_current(self, built: tuple[str, dict[str, Any], Any]) -> None:
         name, config, element = built
         kind = classify_element_edit((self._state.schema or {}).get(name), config)
-        index = self._state.stack.replace(name, config, element)
+        self._state.stack.replace(name, config, element)
         if kind == "none":
             self._set_status(f"No changes to {name}")
             return
-        if kind in ("geometry", "transform"):
-            self._scene.replace_element_nodes(index, element)
+        sync_scene(self._state, self._scene, geometry_changed=kind != "index")
         self._refresh()
         self._set_status(f"Updated properties for {name}")
 
@@ -392,8 +392,8 @@ class ElementEditor(SelectorEditor):
             return None
         if name not in schema:
             return None
-        self._scene.remove_element_nodes(list(schema.keys()).index(name))
         self._state.stack.remove(name)
+        sync_scene(self._state, self._scene)
         return name
 
     def _after_removal(self) -> None:
@@ -407,7 +407,7 @@ class ElementEditor(SelectorEditor):
     def _register_new(self, built: tuple[str, dict[str, Any], Any]) -> str:
         name, config, element = built
         self._state.stack.add(name, config, element)
-        self._scene.add_element_nodes(element)
+        sync_scene(self._state, self._scene)
         self._refresh()
         return name
 
@@ -427,8 +427,8 @@ class ElementEditor(SelectorEditor):
         )
         if built is None:
             return
-        new_name, index, element = built
-        self._scene.insert_element_nodes(index, element)
+        new_name, _index, _element = built
+        sync_scene(self._state, self._scene)
         self._refresh()
         self.refresh()
         self.select(new_name)

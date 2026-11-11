@@ -359,7 +359,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             state.measurements.measure_all()
             results = state.plane_results
             self._scene.retrace(system, rays)
-        self._scene.rebuild_planes(planes, results)
+        self._scene.sync_planes(planes, results)
         self._update_plane_view()
 
     def _refresh_after_source(self) -> None:
@@ -373,7 +373,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     def _on_display_mode_changed(self, index: int) -> None:
         """Re-derive every plane image in the selected display mode (no re-trace)."""
         results = self._state.measurements.set_display_mode(index == 1)
-        self._scene.rebuild_planes(self._state.planes, results)
+        self._scene.sync_planes(self._state.planes, results)
         self._update_plane_view()
 
     def _set_status(self, message: str) -> None:
@@ -419,7 +419,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
         self._scene.full_rebuild(self._state.elements, self._state.rays)
         self._scene.refresh_source(self._state.source)
-        self._scene.rebuild_planes(self._state.planes, self._state.plane_results)
+        self._scene.sync_planes(self._state.planes, self._state.plane_results)
         self.frame_to_scene()
         # A load replaces every element, so session-only empty submodules from
         # the previous project must not haunt the fresh tree.

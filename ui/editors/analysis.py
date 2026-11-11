@@ -13,6 +13,7 @@ from optics.plane_transform import plane_transform
 from optics.project import plane_from_config
 
 from ..optimize import LayoutOptimizer
+from ..scene import sync_scene
 from ..widgets import enable_widgets, find_child
 from .base import EditorContext
 
@@ -414,10 +415,9 @@ class AnalysisEditor:
         for name, config in result.elements_config.items():
             if name not in names or config == schema[name]:
                 continue
-            index = names.index(name)
             element = refractive_element_from_config(config)
             self._state.stack.replace(name, config, element)
-            self._scene.replace_element_nodes(index, element)
+        sync_scene(self._state, self._scene)
         image = self._image_combo.currentIndex()
         if not self._lock_image_check.isChecked() and image < len(self._state.planes):
             self._state.measurements.replace(image, plane_from_config(result.image_plane_config))

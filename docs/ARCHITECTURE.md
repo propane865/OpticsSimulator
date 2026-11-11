@@ -272,15 +272,24 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     source-locked planes), `persistence.py` (project-document
     (de)serialization, swapping the whole project through
     `ProjectState.replace_project`)
-  - `scene.py`: `make_display` and `SceneController` - vispy view and node
-    bookkeeping for elements, rays, the source marker, measurement planes,
-    selection highlight (tinted lenses, rim-tinted plane), and the viewport's
-    clear colour (`set_viewport_theme`, the one theme colour vispy keeps to
-    itself: no `QPalette` owns the GL framebuffer)
+  - `scene.py`: `make_display`, `SceneController` and `sync_scene` - vispy view
+    and node bookkeeping for elements, rays, the source marker, measurement
+    planes, selection highlight (tinted lenses, rim-tinted plane), and the
+    viewport's clear colour (`set_viewport_theme`, the one theme colour vispy
+    keeps to itself: no `QPalette` owns the GL framebuffer). The element and
+    plane node lists are derived state: callers hand over the model's lists and
+    `sync_scene` diffs them (by element object identity, by geometry key for
+    planes) and applies the insertions, moves, replacements and removals, so no
+    caller adds or removes individual nodes or has to know the index a mutation
+    left behind. `classify_element_edit`'s verdict rides along as
+    `geometry_changed`, which is how a material-only edit skips re-meshing
   - `editors/`: one controller per property page over widgets that stay in
     `main.ui` (looked up by object name, never re-parented) - `base.py`
     (`SelectorEditor`: the selection-driven lifecycle the element, plane and
-    submodule editors share, plus `on_items_changed` reporting), `element.py`,
+    submodule editors share, plus `on_items_changed` reporting; `EditorContext`
+    carries the window, state, scene and the two callbacks every editor needs,
+    so construction is one argument and editors mutate state and call
+    `sync_scene` rather than touching nodes), `element.py`,
     `source.py` (singleton form), `plane.py`, `submodule.py` (translate a whole
     group), `analysis.py` (plane-to-plane transform plus the Optimize Layout
     panel: element/submodule z-lock table, image-plane lock, magnification
