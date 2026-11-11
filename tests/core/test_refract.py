@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from optics.constants import HC_EV_NM
+from optics.constants import C_LINE_NM, D_LINE_NM, F_LINE_NM, HC_EV_NM
 from optics.primitive import Ray
 from optics.system import OpticalSystem
 from tests.materials import crown_material
@@ -288,7 +288,7 @@ def test_crown_plate_separates_colours(make_element):
     start = np.array([0.0, 0.0, 2.5])
 
     transverse = {}
-    for wavelength in (486.13, 656.27):
+    for wavelength in (F_LINE_NM, C_LINE_NM):
         segments, out = system.trace_path(Ray(start, d, 1.0, wavelength), 3.0)
         assert out is not None
         np.testing.assert_allclose(out.direction, d, atol=1e-9)
@@ -297,7 +297,7 @@ def test_crown_plate_separates_colours(make_element):
         direction = internal[0][1] - internal[0][0]
         transverse[wavelength] = float(np.linalg.norm(direction[:2]))
 
-    assert transverse[486.13] < transverse[656.27]
+    assert transverse[F_LINE_NM] < transverse[C_LINE_NM]
 
 
 def test_internal_path_follows_the_material_index(make_element):
@@ -307,7 +307,7 @@ def test_internal_path_follows_the_material_index(make_element):
     d = np.array([0.4, -0.2, -1.0])
     d = d / np.linalg.norm(d)
 
-    for wavelength in (486.13, 587.56, 656.27):
+    for wavelength in (F_LINE_NM, D_LINE_NM, C_LINE_NM):
         index = elem.material.index_at(wavelength)
         sin_t = np.linalg.norm(d[:2]) / index
         expected = sin_t / np.sqrt(1.0 - sin_t * sin_t)  # internal slope |xy| / |z|

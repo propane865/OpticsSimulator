@@ -162,7 +162,9 @@ def test_the_vectorised_model_is_the_traced_model():
     evaluates produces materials that are wrong in a way no test would notice.
     """
     material = truth_model()
-    wavelengths = np.array([350.0, 405.0, 486.13, 550.0, 587.56, 656.27, 850.0, 1550.0])
+    wavelengths = np.array(
+        [350.0, 405.0, F_LINE_NM, 550.0, D_LINE_NM, C_LINE_NM, 850.0, 1550.0]
+    )
 
     n, k = fitter.complex_index(wavelengths, material.model.epsilon_inf, parameters_of(material))
 

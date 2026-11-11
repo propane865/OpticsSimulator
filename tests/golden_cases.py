@@ -14,6 +14,7 @@ import re
 import numpy as np
 
 from optics.config import refractive_element_from_config
+from optics.constants import F_LINE_NM
 from optics.measurement_plane import MeasurementPlane, rays_to_arrays
 from optics.primitive import CircularAperture, Ray, Surface, Transform
 from optics.primitive.vector import rotation_from_z
@@ -393,7 +394,7 @@ def case_batch() -> dict:
     powers = np.full(n, 1.0)
     # One colour per ray index, so the batch golden covers the wavelength column
     # of the fan as well as the geometry.
-    wavelengths = 486.13 + 170.14 * (np.arange(n) % 3) / 2.0
+    wavelengths = F_LINE_NM + 170.14 * (np.arange(n) % 3) / 2.0
 
     system = OpticalSystem(elements)
     starts, ends, kinds, counts, _transmissions = system.trace_segments(

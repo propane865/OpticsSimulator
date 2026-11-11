@@ -113,7 +113,7 @@ class TestDielectricEvaluation:
 class TestPassiveBranch:
     def test_the_square_of_the_complex_index_is_the_permittivity(self):
         for model in (_CROWN, LorentzModel.constant(1.5), _single_oscillator(1.0, 3.0, 0.2)):
-            for wavelength in (350.0, 486.13, D_LINE_NM, 1550.0):
+            for wavelength in (350.0, F_LINE_NM, D_LINE_NM, 1550.0):
                 root = model.complex_index_at(wavelength)
                 assert root * root == pytest.approx(model.dielectric_at(wavelength), rel=1e-13)
 
@@ -170,7 +170,7 @@ class TestAbsorption:
         resonance that has no loss to leak it from.
         """
         model = _single_oscillator(0.3, 3.0, 0.0)
-        for wavelength in (350.0, 486.13, D_LINE_NM, 1550.0):
+        for wavelength in (350.0, F_LINE_NM, D_LINE_NM, 1550.0):
             assert model.extinction_at(wavelength) == 0.0
             assert model.absorption_coefficient_at(wavelength) == 0.0
 
@@ -183,7 +183,7 @@ class TestAbsorption:
 
     def test_absorption_is_four_pi_k_over_the_wavelength_in_per_mm(self):
         lossy = _single_oscillator(1.0, 3.0, 0.05)
-        for wavelength in (350.0, 486.13, 600.0, 1550.0):
+        for wavelength in (350.0, F_LINE_NM, 600.0, 1550.0):
             k = lossy.extinction_at(wavelength)
             expected = 4.0 * math.pi * k / (wavelength * 1.0e-6)
             assert lossy.absorption_coefficient_at(wavelength) == pytest.approx(

@@ -15,13 +15,15 @@ import numpy as np
 import pytest
 
 from optics import _native
-from optics.constants import HC_EV_NM
+from optics.constants import C_LINE_NM, D_LINE_NM, F_LINE_NM, HC_EV_NM
 from optics.primitive import LorentzModel, LorentzOscillator, Material
 
 # The band a traced ray can occupy, plus the two catalogue Fraunhofer lines: enough
 # spread to catch a wrong wavelength conversion and enough resolution to catch a
 # wrong resonance or damping term.
-WAVELENGTHS_NM = (350.0, 405.0, 486.13, 550.0, 587.56, 656.27, 850.0, 1550.0)
+WAVELENGTHS_NM = (
+    350.0, 405.0, F_LINE_NM, 550.0, D_LINE_NM, C_LINE_NM, 850.0, 1550.0
+)
 
 RTOL = 1e-12
 
