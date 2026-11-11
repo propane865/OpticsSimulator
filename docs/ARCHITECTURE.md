@@ -8,10 +8,13 @@ only.
 ### Block diagrams
 
 [D2](https://d2lang.com) sources live under `./diagrams/`; re-render after
-editing one (from this directory):
+editing one (from this directory). The committed SVGs are laid out with TALA, so
+say so on the command line or use the script that already does — rendering one
+without it silently reflows every other diagram in the same commit:
 
 ```sh
-d2 diagrams/native-modules.d2 diagrams/native-modules.svg
+d2 --layout=tala diagrams/native-modules.d2 diagrams/native-modules.svg
+python3 diagrams/regenerate.py   # all of them
 ```
 
 **1. Layers and the Python/native boundary.** The domain layer sends contiguous
