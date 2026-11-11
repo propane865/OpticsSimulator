@@ -40,13 +40,33 @@ def test_a_fan_checks_its_arrays_by_field() -> None:
     origins, dirs, _powers, wavelengths = fan()
     with pytest.raises(RuntimeError, match="dirs"):
         fan_buffers(origins, dirs[:, :2], wavelengths)
-    with pytest.raises(RuntimeError, match="wavelengths"):
+    # A wavelength list of the wrong length is caught while *broadcasting* it
+    # across the fan: that comparison needs the fan's own count, so it happens on
+    # the way in rather than as a cross-array refusal. Either way the caller is
+    # told which field is wrong and what the fan expected.
+    with pytest.raises(ValueError, match="Wavelengths must be a scalar or hold 4"):
         fan_buffers(origins, dirs, wavelengths[:-1])
     with pytest.raises(RuntimeError, match="powers"):
         fan_buffers(origins, dirs, wavelengths, np.ones(2))
     # A ragged batch is rejected rather than silently zero-padded.
     with pytest.raises(RuntimeError, match="origins"):
         fan_buffers(np.zeros((4, 2)), dirs, wavelengths)
+
+
+def test_a_fan_broadcasts_what_the_caller_meant_for_every_ray() -> None:
+    """A scalar wavelength, or none at all, is a whole fan, not a missing column.
+
+    Every traced entry point accepts these -- a single-wavelength source states
+    one number -- and the kernel still receives exactly one value per ray.
+    """
+    origins, dirs, powers, wavelengths = fan()
+    assert fan_buffers(origins, dirs, 587.56, powers).count == 4
+    from optics.primitive import DEFAULT_WAVELENGTH_NM
+
+    missing = fan_buffers(origins, dirs, None, powers)
+    assert missing.count == 4
+    assert fan_buffers(origins, dirs, wavelengths, powers).count == 4
+    assert DEFAULT_WAVELENGTH_NM > 0
 
 
 def test_a_trace_only_fan_refuses_to_pass_for_a_measured_one() -> None:

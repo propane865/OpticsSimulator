@@ -9,7 +9,7 @@ from typing import Any, cast
 import numpy as np
 
 from .. import _native
-from .._util import coerce_fan
+from .._util import coerce_ray_arrays, wavelength_array
 from ..config import element_position, stack_from_config
 from ..measurement_plane import MeasurementPlane, arrays_to_rays
 from ..plane_transform import PlaneTransform, plane_transform
@@ -141,7 +141,11 @@ def optimize_layout(
     if len(set(free)) != len(free):
         raise ValueError("free_element_names contains duplicates")
 
-    origins, dirs, powers, wavelengths = coerce_fan(*fan)
+    # The optimizer's fan is read by Python as well as traced (the object-point
+    # groups, the rays rebuilt for the magnification fit), so it is coerced to
+    # arrays here; turning it into a native fan happens where it is traced.
+    origins, dirs, powers = coerce_ray_arrays(fan[0], fan[1], fan[2])
+    wavelengths = wavelength_array(fan[3], int(origins.shape[0]))
     n_rays = int(origins.shape[0])
     if n_rays < 4:
         raise ValueError("optimization needs at least 4 rays")

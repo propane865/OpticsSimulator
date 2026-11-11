@@ -5,7 +5,7 @@ import numpy as np
 
 from . import _native
 from . import constants as _c
-from ._util import coerce_fan, wavelength_array
+from ._util import coerce_ray_arrays, wavelength_array
 from .primitive import Ray
 from .primitive.vector import as_finite_vector, normalize
 
@@ -71,14 +71,24 @@ def direct_hits(
     nowhere but straight, so ``wavelengths`` (nm, one per ray) only keeps the
     fan whole: the native view carries it unchanged.
     """
-    from .system import fan_buffers, plane_batch  # one marshalling convention
+    from .system import fan_buffers  # one marshalling convention
 
-    n = origins.shape[0]
+    return _direct_hits(plane, fan_buffers(origins, dirs, wavelengths, powers))
+
+
+def _direct_hits(
+    plane: "MeasurementPlane", fan: "_native.FanBuffers"
+) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+    """:func:`direct_hits` over an already-built fan, for measuring one fan
+    against several planes without coercing and re-checking it per plane."""
+    from .system import plane_batch
+
+    n = fan.count
     us = np.full(n, np.nan)
     vs = np.full(n, np.nan)
     pws = np.zeros(n)
     _native.measure_direct(
-        fan_buffers(origins, dirs, wavelengths, powers),
+        fan,
         plane_batch([plane]),
         us=us,
         vs=vs,
@@ -331,16 +341,15 @@ class MeasurementPlane:
         plane_list = list(planes)
         if not plane_list:
             return []
-        origins, dirs, powers, wavelengths = coerce_fan(
-            origins, dirs, powers, wavelengths
-        )
+        origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
+        wavelengths = wavelength_array(wavelengths, int(origins.shape[0]))
         if origins.shape[0] == 0:
             return [plane.new_result() for plane in plane_list]
         if system is None:
-            direct = [
-                direct_hits(plane, origins, dirs, powers, wavelengths)
-                for plane in plane_list
-            ]
+            from .system import fan_buffers  # one marshalling convention
+
+            fan = fan_buffers(origins, dirs, wavelengths, powers)
+            direct = [_direct_hits(plane, fan) for plane in plane_list]
             us = np.vstack([d[0] for d in direct])
             vs = np.vstack([d[1] for d in direct])
             pws = np.vstack([d[2] for d in direct])

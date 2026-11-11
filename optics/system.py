@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from . import _native
-from ._util import coerce_fan, wavelength_array
+from ._util import wavelength_array
 from .element import RefractiveElement
 from .primitive import Ray
 
@@ -66,10 +66,19 @@ def plane_batch(planes: "Sequence[MeasurementPlane]") -> "_native.PlaneBatch":
 def fan_buffers(
     origins: np.ndarray,
     dirs: np.ndarray,
-    wavelengths: np.ndarray,
+    wavelengths: "np.ndarray | Sequence[float] | float | None",
     powers: "np.ndarray | None" = None,
 ) -> "_native.FanBuffers":
     """The ray fan as the one native argument the kernels take.
+
+    This is where Python stops reshaping and the boundary starts checking. The
+    arrays are restated as contiguous ``float64`` and the wavelengths broadcast
+    across the fan -- a scalar (a single-wavelength source) or ``None`` (the
+    project default) is a legitimate way to say "every ray", and a native view
+    needs one value per ray -- because a C++ kernel cannot ask Python for either.
+    Whether the four then *agree* (equal counts, ``(N, 3)`` geometry, no empty
+    fan) is decided once, by :class:`optics._native.FanBuffers`, where the fan is
+    about to be read; nothing here re-implements those refusals.
 
     ``powers`` is ``None`` for the trace kernels, which refract each ray at its
     own wavelength and never read a power; a measurement fan carries it and
@@ -78,8 +87,8 @@ def fan_buffers(
     return _native.FanBuffers(
         np.ascontiguousarray(origins, dtype=float),
         np.ascontiguousarray(dirs, dtype=float),
-        np.ascontiguousarray(wavelengths, dtype=float),
-        powers,
+        wavelength_array(wavelengths, int(np.asarray(origins).shape[0])),
+        None if powers is None else np.ascontiguousarray(powers, dtype=float),
     )
 
 
@@ -194,13 +203,11 @@ class OpticalSystem:
         ``transmissions[i, j]`` is the fraction of ray ``i``'s power still
         travelling at the start of segment ``j``.
         """
-        origins = np.ascontiguousarray(origins, dtype=float)
-        dirs = np.ascontiguousarray(dirs, dtype=float)
-        wavelengths = wavelength_array(wavelengths, int(origins.shape[0]))
-        starts, ends, kinds, transmissions, counts = self._segment_buffers(origins.shape[0])
+        fan = fan_buffers(origins, dirs, wavelengths)
+        starts, ends, kinds, transmissions, counts = self._segment_buffers(fan.count)
         _native.trace_segments_batch(
             self._stack,
-            fan_buffers(origins, dirs, wavelengths),
+            fan,
             float(ray_length),
             starts,
             ends,
@@ -226,13 +233,11 @@ class OpticalSystem:
         directly against each plane. ``wavelengths`` (nm) is per ray, a scalar,
         or ``None`` for the project default.
         """
-        origins, dirs, powers, wavelengths = coerce_fan(
-            origins, dirs, powers, wavelengths
-        )
-        us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
+        fan = fan_buffers(origins, dirs, wavelengths, powers)
+        us, vs, pws = self._plane_buffers(fan.count, len(planes))
         _native.measure_planes_multi(
             self._stack,
-            fan_buffers(origins, dirs, wavelengths, powers),
+            fan,
             plane_batch(planes),
             us=us,
             vs=vs,
@@ -259,14 +264,12 @@ class OpticalSystem:
         ``wavelengths`` (nm) is per ray, a scalar, or ``None`` for the project
         default.
         """
-        origins, dirs, powers, wavelengths = coerce_fan(
-            origins, dirs, powers, wavelengths
-        )
-        starts, ends, kinds, transmissions, counts = self._segment_buffers(origins.shape[0])
-        us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
+        fan = fan_buffers(origins, dirs, wavelengths, powers)
+        starts, ends, kinds, transmissions, counts = self._segment_buffers(fan.count)
+        us, vs, pws = self._plane_buffers(fan.count, len(planes))
         _native.trace_segments_and_planes(
             self._stack,
-            fan_buffers(origins, dirs, wavelengths, powers),
+            fan,
             float(ray_length),
             plane_batch(planes),
             starts=starts,

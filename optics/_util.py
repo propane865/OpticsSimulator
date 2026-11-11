@@ -54,7 +54,9 @@ def wavelength_array(
     (broadcast across the fan -- the single-wavelength source) or a per-ray
     sequence of ``count`` values (what :func:`rays_to_arrays` returns). Purely
     structural, like :func:`coerce_ray_arrays`; the value itself is validated on
-    the :class:`~optics.primitive.ray.Ray`. Imported lazily because
+    the :class:`~optics.primitive.ray.Ray`, and a fan that disagrees with itself
+    on ``count`` is refused where it is read, in
+    :class:`optics._native.FanBuffers`. Imported lazily because
     :mod:`optics.primitive` reaches this module, so a module-level import would
     close a cycle.
     """
@@ -71,26 +73,3 @@ def wavelength_array(
             f"Wavelengths must be a scalar or hold {n} values, got {values.shape}"
         ) from None
     return np.ascontiguousarray(broadcast, dtype=float)
-
-
-def coerce_fan(
-    origins: np.ndarray,
-    dirs: np.ndarray,
-    powers: np.ndarray,
-    wavelengths: np.ndarray | Sequence[float] | float | None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers/wavelengths.
-
-    The one fan coercion every traced batch entry performs: geometry and powers
-    are restated through :func:`coerce_ray_arrays` while the wavelengths (nm)
-    are normalized across the fan by :func:`wavelength_array` -- a scalar (or
-    ``None``, the project default) broadcasts to every ray, so what reaches the
-    native view holds exactly one value per ray.
-    """
-    geometry = coerce_ray_arrays(origins, dirs, powers)
-    return (
-        geometry[0],
-        geometry[1],
-        geometry[2],
-        wavelength_array(wavelengths, int(geometry[2].shape[0])),
-    )
