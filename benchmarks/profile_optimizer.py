@@ -191,7 +191,7 @@ def prepare(problem: Problem, times: "dict[str, float] | None" = None) -> Prep:
         sp, ip = problem.source_plane, problem.image_plane
         # The solver walks the persistent native stack directly, like the wrapper does.
         native_problem = _native.OptimizeProblem(
-            system._stack,
+            system.native_stack,
             problem.indices,
             problem.x_init,
             np.asarray(problem.lo, dtype=float),

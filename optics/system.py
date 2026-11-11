@@ -6,7 +6,9 @@ stack assembled from it. Each element already carries its own native element
 once), so the system is a thin owning aggregate: it builds the native
 ``TraceStack`` a single time at construction and every trace or measurement
 reuses it. It is the only public tracing entry point: the native stack is an
-implementation detail reached through the system's methods, never handed out.
+implementation detail reached through the system's methods, or read as the
+handle it is through :attr:`native_stack` by the one consumer that builds a
+native problem over it.
 
 Construction is the validation point: building the native surfaces and the
 trace stack happens here, when the system is built, rather than at the first
@@ -72,6 +74,17 @@ class OpticalSystem:
     @property
     def elements(self) -> tuple[RefractiveElement, ...]:
         return self._elements
+
+    @property
+    def native_stack(self) -> _native.TraceStack:
+        """The native ``TraceStack`` assembled from this element stack.
+
+        Exposed (like :attr:`RefractiveElement.native_element`) for the one
+        consumer that needs the handle itself rather than a trace: the layout
+        optimizer borrows it to build its problem, so it does not reach into a
+        private attribute. Everything else traces through the methods below.
+        """
+        return self._stack
 
     def __len__(self) -> int:
         return len(self._elements)

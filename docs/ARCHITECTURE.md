@@ -261,13 +261,17 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     import merge, menu dialogs, `main()` entry point (`make_display` is defined
     in `scene.py` and re-exported here); runs the unified refresh
   - `project/`: the Qt-free document model - `state.py` (`ProjectState`, the
-    aggregate root owning element stack, source, cached ray arrays and the
-    lazily rebuilt `OpticalSystem`, and composing the plane subsystem),
-    `elements.py` (naming, add/replace/remove/duplicate, submodule membership
-    and moves, `classify_element_edit` for the fast lens-edit path),
+    aggregate root: it owns the source and its cached ray arrays and composes
+    the two subsystems, exposing them as `stack`/`measurements` rather than
+    re-exporting their operations), `elements.py` (`ElementStack`: the config
+    schema, the built elements and the lazily rebuilt `OpticalSystem` in one
+    place, every mutation ending in one `_invalidate()`; plus naming,
+    duplication, the import cascade, submodule membership and moves, and
+    `classify_element_edit` for the fast lens-edit path),
     `measurements.py` (plane list, cached hits, raw-vs-reconstruct display,
     source-locked planes), `persistence.py` (project-document
-    (de)serialization)
+    (de)serialization, swapping the whole project through
+    `ProjectState.replace_project`)
   - `scene.py`: `make_display` and `SceneController` - vispy view and node
     bookkeeping for elements, rays, the source marker, measurement planes,
     selection highlight (tinted lenses, rim-tinted plane), and the viewport's

@@ -296,11 +296,11 @@ def build_native_problem(
     its anchor so the stacking gaps run group-edge to group-edge.
     """
     free_indices = [unit.indices[0] for unit in units]
-    slot_of_element = unit_slot_map(units, len(system._stack))
+    slot_of_element = unit_slot_map(units, len(system.native_stack))
     tail_span = [unit.tail_span for unit in units]
     po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns([source_plane, image_plane])
     return _native.OptimizeProblem(
-        system._stack,
+        system.native_stack,
         free_indices,
         x_init,
         np.asarray(lo, dtype=float),
