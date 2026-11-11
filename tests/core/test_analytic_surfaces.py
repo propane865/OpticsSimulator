@@ -38,8 +38,14 @@ def _surface_config(z: str, aperture: float | None = 0.75) -> dict:
 
 
 def _surface(z: str, aperture: float | None = 0.75) -> Surface:
-    return Surface("u", "v", z, u_range=(-1.0, 1.0), v_range=(-1.0, 1.0),
-                   aperture=None if aperture is None else CircularAperture(aperture))
+    return Surface(
+        "u",
+        "v",
+        z,
+        u_range=(-1.0, 1.0),
+        v_range=(-1.0, 1.0),
+        aperture=None if aperture is None else CircularAperture(aperture),
+    )
 
 
 def _element(front: str, rear: str, n: float = 1.5) -> RefractiveElement:

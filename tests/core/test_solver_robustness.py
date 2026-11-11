@@ -79,9 +79,7 @@ def test_ray_starting_inside_slab_exits_through_other_face(make_element):
     assert exit_pt is not None
     np.testing.assert_allclose(exit_pt[2], 2.0, atol=1e-8)
     assert out is not None
-    np.testing.assert_allclose(
-        out.direction, _snell_exit(d, 1.5, 1.0), atol=1e-9
-    )
+    np.testing.assert_allclose(out.direction, _snell_exit(d, 1.5, 1.0), atol=1e-9)
 
 
 def test_ray_starting_inside_reports_internal_path(make_element):

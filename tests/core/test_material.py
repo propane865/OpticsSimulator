@@ -28,8 +28,9 @@ _CROWN = LorentzModel(
 )
 
 
-def _single_oscillator(strength: float, resonance_ev: float, damping_ev: float,
-                       epsilon_inf: float = 1.0) -> LorentzModel:
+def _single_oscillator(
+    strength: float, resonance_ev: float, damping_ev: float, epsilon_inf: float = 1.0
+) -> LorentzModel:
     return LorentzModel(
         epsilon_inf=epsilon_inf,
         oscillators=[LorentzOscillator(strength, resonance_ev, damping_ev)],
@@ -73,8 +74,7 @@ class TestDielectricEvaluation:
         hand (``1 / (a - i b) = (a + i b) / (a^2 + b^2)``) so the two derivations
         only agree if the sign of the damping term is the passive one.
         """
-        model = _single_oscillator(strength=1.2, resonance_ev=2.0, damping_ev=0.3,
-                                   epsilon_inf=2.0)
+        model = _single_oscillator(strength=1.2, resonance_ev=2.0, damping_ev=0.3, epsilon_inf=2.0)
         wavelength = 700.0
         energy = HC_EV_NM / wavelength
         re_den = 2.0**2 - energy**2
@@ -91,9 +91,7 @@ class TestDielectricEvaluation:
         model = _single_oscillator(strength=0.8, resonance_ev=2.0, damping_ev=0.05)
         long_wave = HC_EV_NM / 1.0  # exactly 1 eV
         short_wave = HC_EV_NM / 2.0  # exactly 2 eV -- the resonance itself is damped
-        assert model.dielectric_at(long_wave).real != pytest.approx(
-            model.dielectric_at(short_wave).real
-        )
+        assert model.dielectric_at(long_wave).real != pytest.approx(model.dielectric_at(short_wave).real)
 
     def test_oscillators_sum(self):
         """A model is its background plus every oscillator, in order and no more."""
@@ -131,9 +129,7 @@ class TestPassiveBranch:
             root = _CROWN.complex_index_at(wavelength)
             assert root.real >= 0.0
             assert root.imag >= 0.0
-            assert root.real * root.real - root.imag * root.imag == pytest.approx(
-                epsilon.real, rel=1e-13, abs=1e-15
-            )
+            assert root.real * root.real - root.imag * root.imag == pytest.approx(epsilon.real, rel=1e-13, abs=1e-15)
             assert 2.0 * root.real * root.imag == pytest.approx(epsilon.imag, rel=1e-13, abs=1e-20)
 
     def test_a_negative_permittivity_gives_a_zero_index_and_positive_k(self):
@@ -144,8 +140,7 @@ class TestPassiveBranch:
         purely imaginary -- ``n == 0``. The trace treats such a material as opaque;
         the model's job is to state it rather than hide it.
         """
-        model = _single_oscillator(strength=3.0, resonance_ev=1.0, damping_ev=0.0,
-                                   epsilon_inf=1.0)
+        model = _single_oscillator(strength=3.0, resonance_ev=1.0, damping_ev=0.0, epsilon_inf=1.0)
         wavelength = HC_EV_NM / 1.5  # 1.5 eV: above the 1 eV resonance
         root = model.complex_index_at(wavelength)
         assert root.real == pytest.approx(0.0, abs=1e-15)
@@ -186,9 +181,7 @@ class TestAbsorption:
         for wavelength in (350.0, F_LINE_NM, 600.0, 1550.0):
             k = lossy.extinction_at(wavelength)
             expected = 4.0 * math.pi * k / (wavelength * 1.0e-6)
-            assert lossy.absorption_coefficient_at(wavelength) == pytest.approx(
-                expected, rel=1e-14
-            )
+            assert lossy.absorption_coefficient_at(wavelength) == pytest.approx(expected, rel=1e-14)
 
     def test_transmission_is_beer_lambert_over_the_stated_thickness(self):
         lossy = _single_oscillator(1.0, 3.0, 0.05)
@@ -252,8 +245,11 @@ class TestRefusals:
             epsilon_inf=1.0,
             oscillators=[LorentzOscillator(0.4, 1.0, 0.0), LorentzOscillator(0.2, 2.0, 0.0)],
         )
-        with pytest.raises(ValueError, match=r"oscillator 1 resonates exactly at .* no "
-                                             r"dielectric response"):
+        with pytest.raises(
+            ValueError,
+            match=r"oscillator 1 resonates exactly at .* no "
+            r"dielectric response",
+        ):
             model.index_at(HC_EV_NM / 1.0)
 
     def test_a_damped_resonance_is_answerable(self):
@@ -281,9 +277,7 @@ class TestRefusals:
             (1.0, 5.0, None),
         ],
     )
-    def test_oscillator_parameters_must_be_meaningful_numbers(
-        self, strength, resonance, damping
-    ):
+    def test_oscillator_parameters_must_be_meaningful_numbers(self, strength, resonance, damping):
         with pytest.raises(ValueError, match="Lorentz oscillator"):
             LorentzOscillator(strength, resonance, damping)
 
@@ -322,13 +316,9 @@ class TestMaterial:
             assert material.absorption_coefficient_at(wavelength) == pytest.approx(
                 model.absorption_coefficient_at(wavelength)
             )
-            assert material.transmission_at(wavelength, 3.0) == pytest.approx(
-                model.transmission_at(wavelength, 3.0)
-            )
+            assert material.transmission_at(wavelength, 3.0) == pytest.approx(model.transmission_at(wavelength, 3.0))
 
     def test_two_materials_differ_only_by_their_model(self):
         assert Material(LorentzModel.constant(1.5)) == Material(LorentzModel.constant(1.5))
         assert Material(LorentzModel.constant(1.5)) != Material(LorentzModel.constant(1.6))
-        assert Material(_CROWN) != Material(
-            LorentzModel(epsilon_inf=1.0, oscillators=list(_CROWN.oscillators[:-1]))
-        )
+        assert Material(_CROWN) != Material(LorentzModel(epsilon_inf=1.0, oscillators=list(_CROWN.oscillators[:-1])))

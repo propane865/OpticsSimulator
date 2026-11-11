@@ -56,9 +56,7 @@ def test_a_trace_only_fan_refuses_to_pass_for_a_measured_one() -> None:
     origins_out, dirs_out, powers_out, wavelengths_out = fan()
     us = np.full(4, np.nan)
     with pytest.raises(RuntimeError, match="no ray powers"):
-        _native.measure_direct(
-            trace_only, plane_batch([plane(0.0)]), us=us, vs=us.copy(), pws=np.zeros(4)
-        )
+        _native.measure_direct(trace_only, plane_batch([plane(0.0)]), us=us, vs=us.copy(), pws=np.zeros(4))
     assert origins_out.shape == dirs_out.shape == (4, 3)
     assert powers_out.shape == wavelengths_out.shape == (4,)
 
@@ -115,14 +113,18 @@ def test_the_segment_reader_takes_both_shapes_and_the_kernel_its_one() -> None:
     # The single-ray form is the batch form with the leading axis dropped: the
     # same reader, with the count coming back from the kernel instead of a
     # buffer...
-    _native.trace_stack_segments(
-        stack, np.array([0.0, 0.0, -1.0]), np.array([0.0, 0.0, 1.0]), 587.56, 3.0, *single
-    )
+    _native.trace_stack_segments(stack, np.array([0.0, 0.0, -1.0]), np.array([0.0, 0.0, 1.0]), 587.56, 3.0, *single)
     _native.trace_segments_batch(stack, fan_arg, 3.0, *batched)
     # ...but the batched kernel still needs the batched shape. Reading a
     # one-ray buffer set as an (N, cap) block is refused rather than overrun.
     with pytest.raises(RuntimeError, match="segment buffers"):
         _native.trace_segments_batch(
-            stack, fan_arg, 3.0, single[0], single[1], single[2], single[3],
+            stack,
+            fan_arg,
+            3.0,
+            single[0],
+            single[1],
+            single[2],
+            single[3],
             np.zeros(1, dtype=np.int64),
         )

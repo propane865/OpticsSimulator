@@ -268,6 +268,4 @@ def _editor_page(window):
 
 
 def _show_plane_page(window):
-    _editor_stack(window).setCurrentWidget(
-        window.findChild(QtWidgets.QWidget, "editorPagePlane")
-    )
+    _editor_stack(window).setCurrentWidget(window.findChild(QtWidgets.QWidget, "editorPagePlane"))

@@ -22,9 +22,7 @@ def test_native_path_active_for_standard_surface(make_element):
     np.testing.assert_array_equal(ru_native, ru)
     np.testing.assert_array_equal(rv_native, rv)
     np.testing.assert_allclose(native.normal(0.1, 0.2), s.normal(0.1, 0.2))
-    np.testing.assert_array_equal(
-        s._model.eval_local(0.1, 0.2), s.evaluate_local(0.1, 0.2)
-    )
+    np.testing.assert_array_equal(s._model.eval_local(0.1, 0.2), s.evaluate_local(0.1, 0.2))
 
 
 def test_scalar_eval_matches_array(make_element):

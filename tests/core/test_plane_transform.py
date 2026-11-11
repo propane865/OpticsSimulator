@@ -48,22 +48,16 @@ class TestFitSimilarity:
         theta = np.deg2rad(37.0)
         rotation = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
         dst = 1.7 * (src @ rotation.T) + np.array([2.0, -0.5])
-        fit = _native.fit_clipped_similarity(
-            np.ascontiguousarray(src), np.ascontiguousarray(dst), iters=0
-        )
+        fit = _native.fit_clipped_similarity(np.ascontiguousarray(src), np.ascontiguousarray(dst), iters=0)
         assert fit["valid"]
         assert fit["scale"] == pytest.approx(1.7, rel=1e-12)
-        assert np.degrees(np.arctan2(fit["rotation"][1, 0], fit["rotation"][0, 0])) == pytest.approx(
-            37.0, abs=1e-10
-        )
+        assert np.degrees(np.arctan2(fit["rotation"][1, 0], fit["rotation"][0, 0])) == pytest.approx(37.0, abs=1e-10)
         np.testing.assert_allclose(fit["translation"], [2.0, -0.5], atol=1e-12)
 
     def test_degenerate_correspondences_are_invalid(self):
         src = np.ones((6, 2))
         dst = np.tile([3.0, 4.0], (6, 1))
-        fit = _native.fit_clipped_similarity(
-            np.ascontiguousarray(src), np.ascontiguousarray(dst), iters=0
-        )
+        fit = _native.fit_clipped_similarity(np.ascontiguousarray(src), np.ascontiguousarray(dst), iters=0)
         assert not fit["valid"]
 
 
@@ -77,9 +71,7 @@ class TestStraightRayMappings:
         assert transform.n_used == transform.n_total == 81
 
     def test_cone_scale_is_distance_ratio(self):
-        transform = plane_transform(
-            _cone_rays([0.0, 0.0, 2.0], -2.0), [_plane(0.0), _plane(-2.0)]
-        )
+        transform = plane_transform(_cone_rays([0.0, 0.0, 2.0], -2.0), [_plane(0.0), _plane(-2.0)])
         assert transform.scale == pytest.approx(2.0, rel=1e-9)
         assert transform.rotation_deg == pytest.approx(0.0, abs=1e-9)
         assert transform.rms_error < 1e-12
@@ -100,9 +92,7 @@ class TestStraightRayMappings:
 class TestElementMappings:
     def test_wedge_translates_without_magnification(self, make_element):
         wedge = make_element("0.2 * x", "-0.9 - 0.2 * x")
-        transform = plane_transform(
-            _collimated(2.0), [_plane(-2.0), _plane(-2.5)], OpticalSystem([wedge])
-        )
+        transform = plane_transform(_collimated(2.0), [_plane(-2.0), _plane(-2.5)], OpticalSystem([wedge]))
         assert abs(transform.translation[0]) > 0.02
         assert transform.translation[1] == pytest.approx(0.0, abs=1e-9)
         assert transform.scale == pytest.approx(1.0, abs=0.02)
@@ -111,9 +101,7 @@ class TestElementMappings:
         assert transform.n_used == 81
 
     def test_focus_flips_and_demagnifies(self, make_element):
-        lens = make_element(
-            "sqrt(1 - (x**2) - (y**2))", "-1", aperture_radius=0.9
-        )
+        lens = make_element("sqrt(1 - (x**2) - (y**2))", "-1", aperture_radius=0.9)
         transform = plane_transform(
             _cone_rays([0.0, 0.0, 6.0], 1.0, half=0.5),
             [_plane(-1.0), _plane(-3.0)],
@@ -127,9 +115,7 @@ class TestElementMappings:
         assert 4 <= transform.n_used <= transform.n_total
 
     def test_distortion_grows_with_optical_power(self, make_element):
-        lens = make_element(
-            "sqrt(1 - (x**2) - (y**2))", "-1", aperture_radius=0.9
-        )
+        lens = make_element("sqrt(1 - (x**2) - (y**2))", "-1", aperture_radius=0.9)
         rays = _cone_rays([0.0, 0.0, 6.0], 1.0, half=0.5)
         free = plane_transform(rays, [_plane(-2.0), _plane(-3.5)])
         bent = plane_transform(rays, [_plane(-2.0), _plane(-3.5)], OpticalSystem([lens]))
@@ -147,9 +133,7 @@ class TestElementMappings:
 
 class TestFittingOptions:
     def test_iters_zero_uses_every_shared_hit(self, make_element):
-        lens = make_element(
-            "sqrt(1 - (x**2) - (y**2))", "-1", aperture_radius=0.9
-        )
+        lens = make_element("sqrt(1 - (x**2) - (y**2))", "-1", aperture_radius=0.9)
         transform = plane_transform(
             _cone_rays([0.0, 0.0, 6.0], 1.0, half=0.5),
             [_plane(-1.0), _plane(-3.0)],
@@ -159,9 +143,7 @@ class TestFittingOptions:
         assert transform.n_used == transform.n_total
 
     def test_aggressive_clipping_keeps_at_least_four(self, make_element):
-        lens = make_element(
-            "sqrt(1 - (x**2) - (y**2))", "-1", aperture_radius=0.9
-        )
+        lens = make_element("sqrt(1 - (x**2) - (y**2))", "-1", aperture_radius=0.9)
         transform = plane_transform(
             _cone_rays([0.0, 0.0, 6.0], 1.0, half=0.5),
             [_plane(-1.0), _plane(-3.0)],
@@ -194,9 +176,7 @@ class TestErrorsAndDeterminism:
         rays = []
         for x in np.linspace(-0.4, 0.4, 9):
             for y in np.linspace(-0.4, 0.4, 9):
-                rays.append(
-                    Ray(np.array([x, y, 2.0]), np.array([0.0, 0.0, -1.0]), 0.0)
-                )
+                rays.append(Ray(np.array([x, y, 2.0]), np.array([0.0, 0.0, -1.0]), 0.0))
         with pytest.raises(ValueError, match="share 0"):
             plane_transform(rays, [_plane(0.0), _plane(-2.0)])
 

@@ -20,6 +20,7 @@ def test_scalar_multiple_direction_normalized():
     ray = Ray(np.zeros(3), 7.0 * np.array([0.0, 0.0, -1.0]), 1.0)
     np.testing.assert_allclose(ray.direction, [0.0, 0.0, -1.0], atol=1e-12)
 
+
 def test_zero_direction_rejected():
     with pytest.raises(ValueError):
         Ray(np.zeros(3), np.zeros(3), 1.0)
@@ -112,6 +113,7 @@ def test_bad_shape_origin_reported_before_finiteness():
 def test_negative_power_message_updated():
     with pytest.raises(ValueError, match="Power cannot be negative"):
         Ray(np.zeros(3), np.array([0.0, 0.0, 1.0]), -0.5)
+
 
 # --- wavelength (nanometres, carried unchanged) ---
 def test_wavelength_defaults_to_the_project_default():

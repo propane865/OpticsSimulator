@@ -93,9 +93,7 @@ def test_measure_batch_matches_per_plane_measure(name):
     # The batch measure takes the whole fan, wavelengths included -- the same
     # per-ray colours the object list carries into ``plane.measure``.
     origins, dirs, powers, wavelengths = rays_to_arrays(rays)
-    batch_results = MeasurementPlane.measure_batch_arrays(
-        planes, origins, dirs, powers, wavelengths, system
-    )
+    batch_results = MeasurementPlane.measure_batch_arrays(planes, origins, dirs, powers, wavelengths, system)
     batch_grids = [r.grid.copy() for r in batch_results]
 
     per_totals = []
@@ -107,9 +105,7 @@ def test_measure_batch_matches_per_plane_measure(name):
         per_grids.append(per_result.grid.copy())
 
     for q in range(len(planes)):
-        assert batch_results[q].total == pytest.approx(
-            per_totals[q], rel=1e-12, abs=1e-12
-        )
+        assert batch_results[q].total == pytest.approx(per_totals[q], rel=1e-12, abs=1e-12)
         np.testing.assert_array_equal(batch_grids[q], per_grids[q])
 
 
@@ -128,9 +124,7 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
     # Reference plane hits.
     ref_grids = []
     for plane in planes:
-        ref_grids.append(
-            plane.measure(_rays_as_objects(origins, dirs), system).grid.copy()
-        )
+        ref_grids.append(plane.measure(_rays_as_objects(origins, dirs), system).grid.copy())
 
     starts, ends, kinds, counts, dims, us, vs, pws = system.trace_segments_and_planes(
         origins, dirs, powers, wavelengths, RAY_LENGTH, planes
@@ -159,8 +153,6 @@ def test_measure_batch_arrays_empty_and_no_planes():
     empty1 = np.empty((0,), dtype=float)
     assert MeasurementPlane.measure_batch_arrays([], empty3, empty3, empty1, None) == []
     planes = _planes([-3.0])
-    results = MeasurementPlane.measure_batch_arrays(
-        planes, empty3, empty3, empty1, None, OpticalSystem()
-    )
+    results = MeasurementPlane.measure_batch_arrays(planes, empty3, empty3, empty1, None, OpticalSystem())
     assert [r.total for r in results] == [0.0]
     assert all(r.grid.sum() == 0.0 for r in results)

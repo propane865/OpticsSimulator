@@ -54,6 +54,7 @@ def test_explicit_90_degree_rotation_about_minus_x(make_element):
     )
     np.testing.assert_allclose(elem.transform.rotation, expected, atol=1e-12)
 
+
 def test_rotation_from_z_accepts_nonunit_direction():
     R = rotation_from_z([2, 0, 0])
 

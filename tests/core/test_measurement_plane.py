@@ -150,11 +150,7 @@ def test_contains_bounds():
 def test_measure_conserves_power_on_bin_centers():
     plane = _plane(resolution=(4, 4))
     centers = [-1.5, -0.5, 0.5, 1.5]
-    rays = [
-        Ray(np.array([u, v, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
-        for u in centers
-        for v in centers
-    ]
+    rays = [Ray(np.array([u, v, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0) for u in centers for v in centers]
     result = plane.measure(rays)
     assert result.total == pytest.approx(16.0)
     assert result.grid.sum() == pytest.approx(16.0)
@@ -173,11 +169,7 @@ def test_measure_excludes_out_of_bounds():
 def test_irradiance_uniform_beam():
     plane = _plane(resolution=(4, 4))
     centers = [-1.5, -0.5, 0.5, 1.5]
-    rays = [
-        Ray(np.array([u, v, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
-        for u in centers
-        for v in centers
-    ]
+    rays = [Ray(np.array([u, v, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0) for u in centers for v in centers]
     result = plane.measure(rays)
     irr = result.irradiance()
     assert np.allclose(irr, 1.0 / plane.bin_area)
@@ -379,6 +371,7 @@ def test_fused_trace_measure_matches_above_zero(make_element):
     np.testing.assert_array_equal(fused_us, us)
     np.testing.assert_array_equal(fused_vs, vs)
     np.testing.assert_array_equal(fused_pws, pws)
+
 
 # --- Ray <-> array round trip keeps the wavelength (nm) ---
 def _wavelength_pair():

@@ -69,8 +69,7 @@ def plate(make_element):
 
     def _plate(material: dict) -> OpticalSystem:
         return OpticalSystem(
-            [make_element(str(_PLATE_FRONT), str(_PLATE_REAR), material=material,
-                          aperture_radius=_APERTURE)]
+            [make_element(str(_PLATE_FRONT), str(_PLATE_REAR), material=material, aperture_radius=_APERTURE)]
         )
 
     return _plate
@@ -131,8 +130,7 @@ class TestClearMaterialStillConervesPower:
                 "lorentz": {
                     "epsilon_inf": DARK["lorentz"]["epsilon_inf"],
                     "oscillators": [
-                        dict(oscillator, damping_ev=1.0e-5)
-                        for oscillator in DARK["lorentz"]["oscillators"]
+                        dict(oscillator, damping_ev=1.0e-5) for oscillator in DARK["lorentz"]["oscillators"]
                     ],
                 }
             }
@@ -164,9 +162,7 @@ class TestBeerLambertThroughTheTracedPath:
         assert final.power < 3.0
         assert final.wavelength == 850.0  # absorption bends nothing, colour rides on
 
-    def test_an_oblique_ray_pays_the_refracted_path_not_the_thickness(
-        self, plate, dark_material
-    ):
+    def test_an_oblique_ray_pays_the_refracted_path_not_the_thickness(self, plate, dark_material):
         """``L = t / cos(theta_t)`` with ``sin(theta_t) = sin(theta_i) / n``.
 
         The glass is 1 mm thick but the ray travels longer than 1 mm inside it, and
@@ -183,24 +179,18 @@ class TestBeerLambertThroughTheTracedPath:
             direction = np.array([math.sin(theta_i), 0.0, -math.cos(theta_i)])
             # Aimed at the centre of the front face, so a steep ray still lands on
             # the glass instead of sailing past its aperture.
-            origin = np.array(
-                [-(_START_Z - _PLATE_FRONT) * math.tan(theta_i), 0.0, _START_Z]
-            )
+            origin = np.array([-(_START_Z - _PLATE_FRONT) * math.tan(theta_i), 0.0, _START_Z])
             power = _measured_power(system, Ray(origin, direction, 1.0, 550.0), _detector())
             assert power == pytest.approx(math.exp(-alpha * length), rel=1e-12)
 
-    def test_internal_bounces_are_integrated_over_the_whole_polyline(
-        self, make_element, dark_material
-    ):
+    def test_internal_bounces_are_integrated_over_the_whole_polyline(self, make_element, dark_material):
         """A wedged plate folds the ray back, and every segment counts.
 
         The expected path length is summed from the segments the renderer is handed,
         so this checks the detector and the picture are built from one walk instead
         of two stories about the same ray.
         """
-        system = OpticalSystem(
-            [make_element("0.5", "-0.5 + 1.0*u", material=DARK, aperture_radius=_APERTURE)]
-        )
+        system = OpticalSystem([make_element("0.5", "-0.5 + 1.0*u", material=DARK, aperture_radius=_APERTURE)])
         ray = Ray(np.array([0.0, 0.0, _START_Z]), np.array([0.0, 0.0, -1.0]), 1.0, 550.0)
         segments, final = system.trace_path(ray, _RAY_LENGTH)
         internal = [seg for seg in segments if seg[2] == "internal"]
@@ -218,13 +208,9 @@ class TestBeerLambertThroughTheTracedPath:
         alpha = dark_material.absorption_coefficient_at(850.0)
         single = math.exp(-alpha * _PLATE_THICKNESS)
         ray = Ray(np.array([0.0, 0.0, _START_Z]), np.array([0.0, 0.0, -1.0]), 1.0, 850.0)
-        assert _measured_power(system, ray, _detector()) == pytest.approx(
-            single * single, rel=1e-12
-        )
+        assert _measured_power(system, ray, _detector()) == pytest.approx(single * single, rel=1e-12)
 
-    def test_absorption_is_colour_dependent_in_the_way_the_model_says(
-        self, plate, dark_material
-    ):
+    def test_absorption_is_colour_dependent_in_the_way_the_model_says(self, plate, dark_material):
         """Infrared loses more than visible in this glass, per its own spectrum."""
         system = plate(DARK)
         powers = {}
@@ -245,9 +231,7 @@ class TestWhereAlongThePath:
         alpha = dark_material.absorption_coefficient_at(550.0)
         ray = Ray(np.array([0.0, 0.0, _START_Z]), np.array([0.0, 0.0, -1.0]), 1.0, 550.0)
         inside = _detector(z=0.0)
-        assert _measured_power(system, ray, inside) == pytest.approx(
-            math.exp(-alpha * (_PLATE_FRONT - 0.0)), rel=1e-12
-        )
+        assert _measured_power(system, ray, inside) == pytest.approx(math.exp(-alpha * (_PLATE_FRONT - 0.0)), rel=1e-12)
 
     def test_a_plane_in_front_of_the_glass_sees_full_power(self, plate):
         system = plate(DARK)
@@ -259,9 +243,7 @@ class TestWhereAlongThePath:
         resonant = {
             "lorentz": {
                 "epsilon_inf": 2.0,
-                "oscillators": [
-                    {"strength": 1.0, "resonance_ev": HC_EV_NM / 550.0, "damping_ev": 0.0}
-                ],
+                "oscillators": [{"strength": 1.0, "resonance_ev": HC_EV_NM / 550.0, "damping_ev": 0.0}],
             }
         }
         system = plate(resonant)

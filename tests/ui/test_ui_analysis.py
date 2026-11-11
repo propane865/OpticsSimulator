@@ -517,9 +517,7 @@ def _optimize_request_sets(window, monkeypatch, qt_app):
 
     def spy(elements_schema, source_plane, image_plane, fan, **kwargs):
         captured["free"] = list(kwargs.get("free_element_names") or [])
-        captured["groups"] = [
-            (label, list(members)) for label, members in (kwargs.get("free_groups") or [])
-        ]
+        captured["groups"] = [(label, list(members)) for label, members in (kwargs.get("free_groups") or [])]
         return stub(elements_schema, source_plane, image_plane, fan, **kwargs)
 
     monkeypatch.setattr("ui.optimize.optimize_layout", spy)

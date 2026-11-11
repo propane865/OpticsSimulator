@@ -26,9 +26,7 @@ def _plane(
     )
 
 
-def _fib_disk(
-    n: int = 4096, radius: float = 1.0, sigma: float = 0.65
-) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+def _fib_disk(n: int = 4096, radius: float = 1.0, sigma: float = 0.65) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """Quasi-uniform disk hits with a known Gaussian power profile."""
     i = np.arange(n)
     golden_angle = np.pi * (3.0 - np.sqrt(5.0))
@@ -162,17 +160,13 @@ def test_reconstruct_rejects_bad_parameters():
     with pytest.raises(RuntimeError):
         result.reconstruct(np.array([0.1]), np.array([0.1]), np.array([1.0]), neighbors=0)
     with pytest.raises(RuntimeError):
-        result.reconstruct(
-            np.array([0.1]), np.array([0.1]), np.array([1.0]), bandwidth_scale=-1.0
-        )
+        result.reconstruct(np.array([0.1]), np.array([0.1]), np.array([1.0]), bandwidth_scale=-1.0)
 
 
 def test_measure_reconstruct_matches_histogram_totals():
     rng = np.random.default_rng(12345)
     n = 500
-    origins = np.column_stack(
-        [rng.uniform(-0.9, 0.9, n), rng.uniform(-0.9, 0.9, n), np.full(n, 3.0)]
-    )
+    origins = np.column_stack([rng.uniform(-0.9, 0.9, n), rng.uniform(-0.9, 0.9, n), np.full(n, 3.0)])
     dirs = np.tile(np.array([0.0, 0.0, -1.0]), (n, 1))
     rays = [Ray(origins[i], dirs[i], 1.0) for i in range(n)]
     plane = _plane(resolution=(64, 64))
@@ -190,20 +184,14 @@ def test_measure_reconstruct_matches_histogram_totals():
 def test_measure_batch_arrays_reconstruct_flag():
     rng = np.random.default_rng(99)
     n = 300
-    origins = np.column_stack(
-        [rng.uniform(-0.8, 0.8, n), rng.uniform(-0.8, 0.8, n), np.full(n, 3.0)]
-    )
+    origins = np.column_stack([rng.uniform(-0.8, 0.8, n), rng.uniform(-0.8, 0.8, n), np.full(n, 3.0)])
     dirs = np.tile(np.array([0.0, 0.0, -1.0]), (n, 1))
     powers = np.full(n, 1.0)
     plane_a = _plane(resolution=(48, 48))
     plane_b = _plane(resolution=(48, 48), v_range=(-0.5, 0.5))
     # No wavelength column of its own: the project default serves every ray.
-    plain = MeasurementPlane.measure_batch_arrays(
-        [plane_a, plane_b], origins, dirs, powers, None
-    )
-    recon = MeasurementPlane.measure_batch_arrays(
-        [plane_a, plane_b], origins, dirs, powers, None, reconstruct=True
-    )
+    plain = MeasurementPlane.measure_batch_arrays([plane_a, plane_b], origins, dirs, powers, None)
+    recon = MeasurementPlane.measure_batch_arrays([plane_a, plane_b], origins, dirs, powers, None, reconstruct=True)
     for expected, actual in zip(plain, recon):
         assert actual.total == pytest.approx(expected.total, rel=1e-9)
     # Hits outside plane_b's v range are dropped by both paths.

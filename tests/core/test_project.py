@@ -30,9 +30,7 @@ def _plane(z=-3.0):
 
 
 def test_source_round_trip():
-    source = PointSource(
-        position=[1.0, 2.0, 3.0], power=2.5, wavelength=532.0, num_rays=8, cone_angle=30.0
-    )
+    source = PointSource(position=[1.0, 2.0, 3.0], power=2.5, wavelength=532.0, num_rays=8, cone_angle=30.0)
     restored = source_from_config(source_to_config(source))
     np.testing.assert_allclose(restored.position, source.position)
     assert restored.power == pytest.approx(source.power)
@@ -56,8 +54,14 @@ def test_source_from_config_rejects_point_array_without_image():
 def test_point_array_source_round_trip():
     grid = np.array([[0.0, 1.0], [2.0, 0.0]])
     source = PointSource(
-        position=[0.0, 0.0, 3.0], power=1.5, wavelength=488.0, num_rays=4,
-        source_type="point_array", cone_angle=60.0, pixel_pitch=0.1, weights=grid,
+        position=[0.0, 0.0, 3.0],
+        power=1.5,
+        wavelength=488.0,
+        num_rays=4,
+        source_type="point_array",
+        cone_angle=60.0,
+        pixel_pitch=0.1,
+        weights=grid,
     )
     config = source_to_config(source)
     assert config["source_type"] == "point_array"
@@ -97,18 +101,28 @@ def test_plane_round_trip():
 
 def test_plane_from_config_requires_keys():
     with pytest.raises(ValueError, match="resolution"):
-        plane_from_config({"origin": [0, 0, 0], "normal": [0, 0, 1],
-                           "u_range": [-1, 1], "v_range": [-1, 1]})
+        plane_from_config({"origin": [0, 0, 0], "normal": [0, 0, 1], "u_range": [-1, 1], "v_range": [-1, 1]})
 
 
 def test_parse_project_full_document():
     document = {
         "elements": {"lens1": {}},
-        "source": {"position": [0, 0, 3], "power": 1.0, "num_rays": 4,
-                   "source_type": "single_point", "cone_angle": 60.0},
+        "source": {
+            "position": [0, 0, 3],
+            "power": 1.0,
+            "num_rays": 4,
+            "source_type": "single_point",
+            "cone_angle": 60.0,
+        },
         "measurement_planes": [
-            {"name": "p1", "origin": [0, 0, -3], "normal": [0, 0, 1],
-             "u_range": [-2, 2], "v_range": [-2, 2], "resolution": [8, 8]},
+            {
+                "name": "p1",
+                "origin": [0, 0, -3],
+                "normal": [0, 0, 1],
+                "u_range": [-2, 2],
+                "v_range": [-2, 2],
+                "resolution": [8, 8],
+            },
         ],
     }
     elements_config, source, planes = parse_project(document)
@@ -182,9 +196,7 @@ class TestLorentzBreak:
             None,
         ],
     )
-    def test_a_material_that_is_not_a_dielectric_model_names_the_key_to_write(
-        self, material
-    ):
+    def test_a_material_that_is_not_a_dielectric_model_names_the_key_to_write(self, material):
         with pytest.raises(ValueError) as raised:
             material_from_config(material)
         assert "material.lorentz" in str(raised.value)

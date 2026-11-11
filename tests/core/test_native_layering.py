@@ -67,11 +67,7 @@ def module_of(path: Path) -> str | None:
 
 
 def test_the_native_sources_are_layered_upwards() -> None:
-    offenders = [
-        (issuer, included)
-        for issuer, included in include_edges()
-        if included not in ALLOWED[issuer]
-    ]
+    offenders = [(issuer, included) for issuer, included in include_edges() if included not in ALLOWED[issuer]]
     assert not offenders, f"includes that break the layering: {sorted(set(offenders))}"
 
 

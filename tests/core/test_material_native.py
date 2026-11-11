@@ -21,9 +21,7 @@ from optics.primitive import LorentzModel, LorentzOscillator, Material
 # The band a traced ray can occupy, plus the two catalogue Fraunhofer lines: enough
 # spread to catch a wrong wavelength conversion and enough resolution to catch a
 # wrong resonance or damping term.
-WAVELENGTHS_NM = (
-    350.0, 405.0, F_LINE_NM, 550.0, D_LINE_NM, C_LINE_NM, 850.0, 1550.0
-)
+WAVELENGTHS_NM = (350.0, 405.0, F_LINE_NM, 550.0, D_LINE_NM, C_LINE_NM, 850.0, 1550.0)
 
 RTOL = 1e-12
 
@@ -103,9 +101,7 @@ class TestNativeMatchesThePythonModel:
     def test_absorption_coefficient_agrees(self, native_for, material, wavelength_nm):
         """Same units on both sides: per millimetre, from a nanometre wavelength."""
         native = _native_material(native_for(material), wavelength_nm)[2]
-        assert native == pytest.approx(
-            material.absorption_coefficient_at(wavelength_nm), rel=RTOL
-        )
+        assert native == pytest.approx(material.absorption_coefficient_at(wavelength_nm), rel=RTOL)
 
     def test_a_constant_index_agrees_exactly(self, make_element):
         """Not approximately: ``sqrt(n**2)`` is ``n`` bit for bit on both sides.
@@ -115,8 +111,9 @@ class TestNativeMatchesThePythonModel:
         """
         for index in (1.0, 1.5, 2.0):
             element = make_element(
-                "-2.5", "2.5", material={"lorentz": {"epsilon_inf": index * index,
-                                                     "oscillators": []}},
+                "-2.5",
+                "2.5",
+                material={"lorentz": {"epsilon_inf": index * index, "oscillators": []}},
                 aperture_radius=5.0,
             )
             for wavelength_nm in WAVELENGTHS_NM:
@@ -146,7 +143,9 @@ class TestNativeMatchesThePythonModel:
     def test_no_oscillators_is_vacuum_like_not_undefined(self, make_element):
         """The empty oscillator list is a valid material, not a missing one."""
         element = make_element(
-            "-2.5", "2.5", material={"lorentz": {"epsilon_inf": 1.0, "oscillators": []}},
+            "-2.5",
+            "2.5",
+            material={"lorentz": {"epsilon_inf": 1.0, "oscillators": []}},
             aperture_radius=5.0,
         )
         assert _native_material(element.native_element, 550.0) == (1.0, 0.0, 0.0)
@@ -155,9 +154,7 @@ class TestNativeMatchesThePythonModel:
 class TestNativeRefusals:
     """The two implementations refuse the same inputs, each in its own idiom."""
 
-    def test_an_undamped_resonance_landed_on_raises_here_and_is_nan_there(
-        self, make_element
-    ):
+    def test_an_undamped_resonance_landed_on_raises_here_and_is_nan_there(self, make_element):
         """Python says which oscillator; the trace gets an unindexable ray.
 
         The trace cannot raise per ray -- a thousand rays must not spend a
@@ -178,9 +175,7 @@ class TestNativeRefusals:
             material={
                 "lorentz": {
                     "epsilon_inf": 1.0,
-                    "oscillators": [
-                        {"strength": 1.0, "resonance_ev": 2.0, "damping_ev": 0.0}
-                    ],
+                    "oscillators": [{"strength": 1.0, "resonance_ev": 2.0, "damping_ev": 0.0}],
                 }
             },
             aperture_radius=5.0,
@@ -189,14 +184,10 @@ class TestNativeRefusals:
         assert math.isnan(n) and math.isnan(k) and math.isnan(alpha)
         # A wavelength off the resonance is answerable again on both sides.
         off = HC_EV_NM / 1.4
-        assert _native_material(element.native_element, off)[0] == pytest.approx(
-            material.index_at(off), rel=RTOL
-        )
+        assert _native_material(element.native_element, off)[0] == pytest.approx(material.index_at(off), rel=RTOL)
 
     @pytest.mark.parametrize("wavelength_nm", [0.0, -500.0, float("nan"), float("inf")])
-    def test_an_uninterpretable_wavelength_raises_here_and_is_nan_there(
-        self, native_for, wavelength_nm
-    ):
+    def test_an_uninterpretable_wavelength_raises_here_and_is_nan_there(self, native_for, wavelength_nm):
         element = native_for(CROWN)
         with pytest.raises(ValueError):
             CROWN.index_at(wavelength_nm)
@@ -210,9 +201,7 @@ class TestNativeRefusals:
         renderer shows as absorbing rather than one that bends light with a
         nonsense index -- and the Python side reports the same numbers.
         """
-        model = LorentzModel(
-            epsilon_inf=1.0, oscillators=[LorentzOscillator(3.0, 1.0, 0.0)]
-        )
+        model = LorentzModel(epsilon_inf=1.0, oscillators=[LorentzOscillator(3.0, 1.0, 0.0)])
         material = Material(model)
         probe = HC_EV_NM / 1.5  # 1.5 eV probes a 1.0 eV oscillator from above
         assert material.index_at(probe) == 0.0
@@ -257,8 +246,7 @@ class TestMaterialValidation:
             ([[1.0, 3.0, -0.01]], r"damping_ev"),
         ],
     )
-    def test_the_native_builder_refuses_a_bad_oscillator_table(self, make_element, oscillators,
-                                                               message):
+    def test_the_native_builder_refuses_a_bad_oscillator_table(self, make_element, oscillators, message):
         """The binding checks the array itself, for callers that build it by hand.
 
         Without that check a malformed row would be read as some other material

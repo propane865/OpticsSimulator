@@ -242,9 +242,7 @@ def test_plane_selection_rims_only_that_plane(window):
     _tree_select(window, "plane2")
 
     assert _outline_colors(window, 1) == pytest.approx(_rim_colors(window, 1, style.SELECTED_COLOR))
-    assert _outline_colors(window, 0) == pytest.approx(
-        _rim_colors(window, 0, style.MEASUREMENT_OUTLINE_COLOR)
-    )
+    assert _outline_colors(window, 0) == pytest.approx(_rim_colors(window, 0, style.MEASUREMENT_OUTLINE_COLOR))
 
 
 def test_plane_edit_keeps_the_selection_rim(window):
@@ -588,4 +586,3 @@ def test_element_name_resolves_only_lens_leaves(stack_window):
 
     _group_lens(window, "lens2", "submodule1")
     assert tree_ctrl._element_name(_tree_item(_tree(window), "submodule1")) is None
-

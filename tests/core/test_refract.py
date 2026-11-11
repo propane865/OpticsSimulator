@@ -328,9 +328,7 @@ def test_a_resonance_at_the_traced_wavelength_absorbs_the_ray(make_element):
     resonant = {
         "lorentz": {
             "epsilon_inf": 2.0,
-            "oscillators": [
-                {"strength": 1.0, "resonance_ev": HC_EV_NM / 500.0, "damping_ev": 0.0}
-            ],
+            "oscillators": [{"strength": 1.0, "resonance_ev": HC_EV_NM / 500.0, "damping_ev": 0.0}],
         }
     }
     elem = make_element("0", "-2", material=resonant)

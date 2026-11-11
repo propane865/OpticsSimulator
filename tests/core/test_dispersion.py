@@ -131,8 +131,7 @@ class TestChromaticFocusShift:
         assert focal(flint_system) < focal(crown_system)
         relative = lambda system: spread(system) / focal(system)  # noqa: E731
         predicted = (
-            material_from_config(crown_material()).abbe_number()
-            / material_from_config(flint_material()).abbe_number()
+            material_from_config(crown_material()).abbe_number() / material_from_config(flint_material()).abbe_number()
         )
         # The relative spread is ``1 / V_d``, so the ratio of the two lenses'
         # relative spreads is the ratio of their Abbe numbers -- a property of the
@@ -173,15 +172,9 @@ class TestPerRayWavelengths:
             segments, final = crown_system.trace_path(ray, _RAY_LENGTH)
             assert final is not None
             assert final.wavelength == wavelength
-            inside = sum(
-                float(np.linalg.norm(end - start))
-                for start, end, kind in segments
-                if kind == "internal"
-            )
+            inside = sum(float(np.linalg.norm(end - start)) for start, end, kind in segments if kind == "internal")
             assert inside > 0.0
-            assert final.power == pytest.approx(
-                ray.power * crown.transmission_at(wavelength, inside), rel=1e-12
-            )
+            assert final.power == pytest.approx(ray.power * crown.transmission_at(wavelength, inside), rel=1e-12)
             assert final.power < ray.power
 
     def test_a_ray_with_no_index_at_its_wavelength_is_absorbed(self, make_element):
@@ -196,14 +189,10 @@ class TestPerRayWavelengths:
         resonant = {
             "lorentz": {
                 "epsilon_inf": 1.0,
-                "oscillators": [
-                    {"strength": 1.0, "resonance_ev": HC_EV_NM / D_LINE_NM, "damping_ev": 0.0}
-                ],
+                "oscillators": [{"strength": 1.0, "resonance_ev": HC_EV_NM / D_LINE_NM, "damping_ev": 0.0}],
             }
         }
-        system = OpticalSystem(
-            [make_element(_FRONT, _REAR, material=resonant, aperture_radius=_APERTURE)]
-        )
+        system = OpticalSystem([make_element(_FRONT, _REAR, material=resonant, aperture_radius=_APERTURE)])
 
         ray = Ray(np.array([_HEIGHT, 0.0, _START_Z]), np.array([0.0, 0.0, -1.0]), 1.0, D_LINE_NM)
         _segments, absorbed = system.trace_path(ray, _RAY_LENGTH)
@@ -222,13 +211,9 @@ class TestPerRayWavelengths:
         resonant = {
             "lorentz": {
                 "epsilon_inf": 1.0,
-                "oscillators": [
-                    {"strength": 1.0, "resonance_ev": HC_EV_NM / D_LINE_NM, "damping_ev": 0.0}
-                ],
+                "oscillators": [{"strength": 1.0, "resonance_ev": HC_EV_NM / D_LINE_NM, "damping_ev": 0.0}],
             }
         }
-        system = OpticalSystem(
-            [make_element(_FRONT, _REAR, material=resonant, aperture_radius=_APERTURE)]
-        )
+        system = OpticalSystem([make_element(_FRONT, _REAR, material=resonant, aperture_radius=_APERTURE)])
         endpoints = _endpoints(system, np.array([D_LINE_NM, D_LINE_NM]))
         assert np.all(np.isfinite(endpoints))

@@ -18,9 +18,12 @@ GOLDEN_PATH = Path(__file__).resolve().parents[1] / "data" / "goldens.json"
 
 def _leaf_equal(got, exp, rtol, atol, path):
     exact = (
-        isinstance(exp, bool) or isinstance(got, bool)
-        or isinstance(exp, str) or isinstance(got, str)
-        or exp is None or got is None
+        isinstance(exp, bool)
+        or isinstance(got, bool)
+        or isinstance(exp, str)
+        or isinstance(got, str)
+        or exp is None
+        or got is None
         or (isinstance(exp, int) and not isinstance(exp, bool))
     )
     if exact:
@@ -41,10 +44,7 @@ def _leaf_equal(got, exp, rtol, atol, path):
 def _assert_match(got, exp, rtol, atol, path="$"):
     if isinstance(exp, dict):
         assert isinstance(got, dict), f"{path}: expected dict, got {type(got).__name__}"
-        assert set(got) == set(exp), (
-            f"{path}: keys differ, missing {set(exp) - set(got)}, "
-            f"extra {set(got) - set(exp)}"
-        )
+        assert set(got) == set(exp), f"{path}: keys differ, missing {set(exp) - set(got)}, extra {set(got) - set(exp)}"
         for key in exp:
             _assert_match(got[key], exp[key], rtol, atol, f"{path}.{key}")
     elif isinstance(exp, list):
@@ -72,9 +72,10 @@ def test_golden_case_names(goldens, live):
     assert set(goldens["cases"]) == set(live)
 
 
-@pytest.mark.parametrize("name", sorted(json.loads(
-    GOLDEN_PATH.read_text(encoding="utf-8") if GOLDEN_PATH.exists() else '{"cases":{}}'
-)["cases"]))
+@pytest.mark.parametrize(
+    "name",
+    sorted(json.loads(GOLDEN_PATH.read_text(encoding="utf-8") if GOLDEN_PATH.exists() else '{"cases":{}}')["cases"]),
+)
 def test_golden_case(name, goldens, live):
     entry = goldens["cases"][name]
     _assert_match(

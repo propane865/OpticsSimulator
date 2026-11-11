@@ -54,16 +54,12 @@ class TestConstruction:
         system = OpticalSystem()
         assert len(system) == 0
         origins, dirs, _powers, wavelengths = _rays()
-        starts, ends, kinds, counts, dims = system.trace_segments(
-            origins, dirs, wavelengths, RAY_LENGTH
-        )
+        starts, ends, kinds, counts, dims = system.trace_segments(origins, dirs, wavelengths, RAY_LENGTH)
         assert [int(kinds[0, k]) for k in range(int(counts[0]))] == [0]
         # Nothing in front of the detector but air: the drawn segment is undimmed.
         assert dims[0, 0] == 1.0
         np.testing.assert_allclose(starts[0, 0], origins[0], rtol=0.0, atol=0.0)
-        np.testing.assert_allclose(
-            ends[0, 0], origins[0] + RAY_LENGTH * dirs[0], rtol=1e-12
-        )
+        np.testing.assert_allclose(ends[0, 0], origins[0] + RAY_LENGTH * dirs[0], rtol=1e-12)
 
     def test_empty_system_measure_equals_direct(self):
         origins, dirs, powers, wavelengths = _rays()
@@ -93,18 +89,12 @@ class TestDeterminism:
             np.testing.assert_array_equal(x[1], y[1])
             np.testing.assert_array_equal(x[2], y[2])
         us1, vs1, pws1 = system.measure_planes(origins, dirs, powers, wavelengths, planes)
-        us2, vs2, pws2 = other.measure_planes(
-            origins, dirs, powers, wavelengths, planes
-        )
+        us2, vs2, pws2 = other.measure_planes(origins, dirs, powers, wavelengths, planes)
         np.testing.assert_array_equal(us1, us2)
         np.testing.assert_array_equal(vs1, vs2)
         np.testing.assert_array_equal(pws1, pws2)
-        c1 = system.trace_segments_and_planes(
-            origins, dirs, powers, wavelengths, RAY_LENGTH, planes
-        )
-        c2 = other.trace_segments_and_planes(
-            origins, dirs, powers, wavelengths, RAY_LENGTH, planes
-        )
+        c1 = system.trace_segments_and_planes(origins, dirs, powers, wavelengths, RAY_LENGTH, planes)
+        c2 = other.trace_segments_and_planes(origins, dirs, powers, wavelengths, RAY_LENGTH, planes)
         np.testing.assert_array_equal(c1[3], c2[3])  # counts
         for x, y in zip(_segments_prefix(*c1[:4]), _segments_prefix(*c2[:4])):
             np.testing.assert_array_equal(x[0], y[0])
@@ -147,6 +137,5 @@ class TestProjectStateSystem:
 
 def _segments_prefix(starts, ends, kinds, counts):
     return [
-        (starts[i, : int(counts[i])], ends[i, : int(counts[i])], kinds[i, : int(counts[i])])
-        for i in range(len(counts))
+        (starts[i, : int(counts[i])], ends[i, : int(counts[i])], kinds[i, : int(counts[i])]) for i in range(len(counts))
     ]

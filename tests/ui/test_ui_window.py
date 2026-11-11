@@ -345,17 +345,21 @@ def test_save_load_round_trip_preserves_position_and_resolution(stack_window, ma
 def test_unsupported_source_type_is_rejected(stack_window, repo_root, tmp_path):
     elements = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text())["elements"]
     path = tmp_path / "point_array.json"
-    path.write_text(json.dumps({
-        "elements": elements,
-        "source": {
-            "position": [0.0, 0.0, 3.0],
-            "power": 1.0,
-            "num_rays": 8,
-            "source_type": "point_array",
-            "cone_angle": 60.0,
-        },
-        "measurement_planes": [],
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "elements": elements,
+                "source": {
+                    "position": [0.0, 0.0, 3.0],
+                    "power": 1.0,
+                    "num_rays": 8,
+                    "source_type": "point_array",
+                    "cone_angle": 60.0,
+                },
+                "measurement_planes": [],
+            }
+        )
+    )
 
     window = stack_window
     rays_before = len(window.rays)
@@ -388,11 +392,16 @@ def test_load_project_invalid_source_keeps_state(stack_window, repo_root, tmp_pa
 
     bad = tmp_path / "bad_project.json"
     stack = json.loads((repo_root / "tests" / "data" / "test_stack.json").read_text(encoding="utf-8"))["elements"]
-    bad.write_text(json.dumps({
-        "elements": stack,
-        "source": {"cone_angle": 500.0},
-        "measurement_planes": [],
-    }), encoding="utf-8")
+    bad.write_text(
+        json.dumps(
+            {
+                "elements": stack,
+                "source": {"cone_angle": 500.0},
+                "measurement_planes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     with pytest.raises(ValueError):
         window.load_stack(bad)

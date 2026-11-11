@@ -84,9 +84,7 @@ def test_every_entry_round_trips_through_its_own_block(name):
     assert material == MATERIALS[name]
     # The same model read through the block is the same response at every probe.
     for wavelength in (350.0, 550.0, 1550.0):
-        assert material.complex_index_at(wavelength) == MATERIALS[
-            name
-        ].complex_index_at(wavelength)
+        assert material.complex_index_at(wavelength) == MATERIALS[name].complex_index_at(wavelength)
 
 
 @pytest.mark.parametrize("name", material_names())
@@ -222,9 +220,7 @@ def test_a_resonance_in_the_band_leaves_a_gap_rather_than_a_number():
         {
             "lorentz": {
                 "epsilon_inf": 2.0,
-                "oscillators": [
-                    {"strength": 1.0, "resonance_ev": 1239.8419843320028 / 550.0, "damping_ev": 0.0}
-                ],
+                "oscillators": [{"strength": 1.0, "resonance_ev": 1239.8419843320028 / 550.0, "damping_ev": 0.0}],
             }
         }
     )
@@ -247,9 +243,7 @@ def test_the_preview_refuses_inputs_it_cannot_plot():
 
 
 def test_a_constant_index_previews_as_a_flat_line_and_no_loss():
-    n, k = sample_material_curve(
-        Material(LorentzModel(epsilon_inf=2.25, oscillators=[])), preview_wavelengths()
-    )
+    n, k = sample_material_curve(Material(LorentzModel(epsilon_inf=2.25, oscillators=[])), preview_wavelengths())
 
     assert np.all(n == 1.5)  # sqrt(2.25) is exactly 1.5, so the line is genuinely flat
     assert np.all(k == 0.0)

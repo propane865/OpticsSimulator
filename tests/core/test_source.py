@@ -88,8 +88,9 @@ def test_point_array_grid_points_positions_and_weights():
 
 def test_point_array_emits_per_point_fan():
     weights = np.array([[0.0, 1.0], [1.0, 0.0]])
-    source = PointSource([0.0, 0.0, 3.0], power=2.0, num_rays=4, weights=weights,
-                         pixel_pitch=1.0, source_type=POINT_ARRAY)
+    source = PointSource(
+        [0.0, 0.0, 3.0], power=2.0, num_rays=4, weights=weights, pixel_pitch=1.0, source_type=POINT_ARRAY
+    )
     rays = source.emit_rays()
     assert len(rays) == 8  # 2 active points x 4 rays
     origins = np.array([ray.origin for ray in rays])
@@ -99,8 +100,9 @@ def test_point_array_emits_per_point_fan():
 
 def test_point_array_power_split_by_brightness():
     weights = np.array([[1.0, 3.0]])
-    source = PointSource([0.0, 0.0, 3.0], power=4.0, num_rays=2, weights=weights,
-                         pixel_pitch=1.0, source_type=POINT_ARRAY)
+    source = PointSource(
+        [0.0, 0.0, 3.0], power=4.0, num_rays=2, weights=weights, pixel_pitch=1.0, source_type=POINT_ARRAY
+    )
     powers = np.array([ray.power for ray in source.emit_rays()])
     assert powers.sum() == pytest.approx(4.0)
     dim = np.all([ray.power == pytest.approx(0.5) for ray in source.emit_rays()[:2]])
@@ -119,10 +121,8 @@ def test_point_array_directions_are_cone_fan():
 
 def test_point_array_cones_differ_per_point():
     weights = np.ones((1, 2))
-    source = PointSource([0.0, 0.0, 0.0], num_rays=16, weights=weights,
-                         pixel_pitch=1.0, source_type=POINT_ARRAY)
-    blocks = [np.array([r.direction for r in source.emit_rays()])[i:i + 16]
-              for i in (0, 16)]
+    source = PointSource([0.0, 0.0, 0.0], num_rays=16, weights=weights, pixel_pitch=1.0, source_type=POINT_ARRAY)
+    blocks = [np.array([r.direction for r in source.emit_rays()])[i : i + 16] for i in (0, 16)]
     assert blocks[0].shape == (16, 3) and blocks[1].shape == (16, 3)
     assert not np.allclose(blocks[0], blocks[1])
     # Each per-ray z and in-plane radius is preserved (pure rotation about z)
@@ -260,6 +260,7 @@ def test_emit_rays_zero_power_allowed():
     source = PointSource([0.0, 0.0, 3.0], power=0.0, num_rays=8)
     rays = source.emit_rays()
     assert all(ray.power == 0.0 for ray in rays)
+
 
 # --- wavelength (nanometres) ---
 def test_default_wavelength_is_the_project_default():
