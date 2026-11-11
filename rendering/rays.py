@@ -11,22 +11,13 @@ from optics.measurement_plane import rays_to_arrays
 from optics.primitive import Ray
 from optics.system import OpticalSystem
 
-from .style import DEFAULT_RAY_LENGTH, RAY_COLOR, _as_system, _attach, send_to_back
-
-
-def _make_segment(a: np.ndarray, b: np.ndarray, color: Any, width: int) -> Any:
-    if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
-        return None
-    segment = visuals.Line(pos=np.array([a, b]), color=color, width=width)
-    segment.update_gl_state(depth_test=False)
-    return segment
-
-
-def _add_segment(view: Any, a: np.ndarray, b: np.ndarray, color: Any, width: int) -> Any:
-    segment = _make_segment(a, b, color, width=width)
-    if segment is None:
-        return None
-    return _attach(view, segment)
+from .style import (
+    DEFAULT_RAY_LENGTH,
+    RAY_COLOR,
+    as_system,
+    attach,
+    send_to_back,
+)
 
 
 def _ray_line_data(
@@ -74,7 +65,7 @@ def _build_ray_visual_nodes(view: Any, pos: "np.ndarray | None", colors: "np.nda
         return []
     line = visuals.Line(pos=pos, connect="segments", color=colors, width=1)
     line.update_gl_state(depth_test=True, depth_mask=True)
-    nodes = [_attach(view, line)]
+    nodes = [attach(view, line)]
     send_to_back(nodes)
     return nodes
 
@@ -97,7 +88,7 @@ def build_ray_nodes(
     finite = np.isfinite(origins).all(axis=1) & np.isfinite(dirs).all(axis=1)
     if not finite.any():
         return []
-    starts, ends, _kinds, counts, transmissions = _as_system(system).trace_segments(
+    starts, ends, _kinds, counts, transmissions = as_system(system).trace_segments(
         origins[finite], dirs[finite], wavelengths[finite], ray_length=ray_length
     )
     return build_ray_nodes_from_segments(view, starts, ends, counts, transmissions)

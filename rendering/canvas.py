@@ -13,7 +13,7 @@ from vispy import scene
 from optics.element import RefractiveElement
 from optics.primitive import Ray
 
-from .camera import _add_axes, _scene_radius, scene_bounds
+from .camera import add_axes, scene_bounds, scene_radius
 from .rays import build_ray_nodes
 from .style import DEFAULT_RAY_LENGTH, VIEWPORT_BG_DARK
 from .surfaces import build_element_nodes
@@ -47,8 +47,8 @@ def build_scene(
     element_list = list(elements)
 
     if axis_length is None:
-        axis_length = _scene_radius(scene_bounds(element_list))
-    _add_axes(view, width=2, length=axis_length)
+        axis_length = scene_radius(scene_bounds(element_list))
+    add_axes(view, width=2, length=axis_length)
     element_nodes = []
     for element in element_list:
         element_nodes.append(build_element_nodes(view, element))

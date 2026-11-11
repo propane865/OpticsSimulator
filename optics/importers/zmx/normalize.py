@@ -8,7 +8,7 @@ converter must not re-derive.
 
 from collections.abc import Callable
 
-from .glass import _is_glass
+from .glass import is_glass
 from .model import UnsupportedZmxError, ZmxSurface
 
 __all__: list[str] = []
@@ -31,7 +31,7 @@ def flatten_dummy_surfaces(
         previous = kept[-1] if kept else None
         if (
             previous is not None
-            and _is_glass(previous.glass)
+            and is_glass(previous.glass)
             and surface.glass.strip().upper() == previous.glass.strip().upper()
         ):
             if surface.curvature != 0.0 or any(surface.coefficients):

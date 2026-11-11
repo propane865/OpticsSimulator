@@ -2,7 +2,7 @@
 
 :func:`conic_sag_expression` is the one emitter of the sag syntax;
 :func:`_surface_z_expression` applies the Zemax->simulator sign mirror, and
-:func:`_surface_config` wraps the expression with the surface's domain and
+:func:`surface_config` wraps the expression with the surface's domain and
 aperture. New Zemax surface families add an expression branch here, never to
 the parser.
 """
@@ -10,7 +10,7 @@ the parser.
 from collections.abc import Sequence
 from typing import Any
 
-from .model import _ODD_ASPHERE, UnsupportedZmxError, ZmxSurface
+from .model import ODD_ASPHERE, UnsupportedZmxError, ZmxSurface
 
 __all__: list[str] = ["conic_sag_expression"]
 
@@ -47,7 +47,7 @@ def conic_sag_expression(
 def _surface_z_expression(surface: ZmxSurface, vertex_offset: float) -> str:
     # z_sim = -z_zemax mirrors the sag: pass the negated Zemax curvature and
     # polynomial coefficients (the conic constant is invariant).
-    if surface.surface_type == _ODD_ASPHERE:
+    if surface.surface_type == ODD_ASPHERE:
         powers: list[int] | None = list(range(1, len(surface.coefficients) + 1))
     else:
         powers = None
@@ -64,7 +64,7 @@ def _surface_z_expression(surface: ZmxSurface, vertex_offset: float) -> str:
     return f"{vertex_offset!r} + {sag}"
 
 
-def _surface_config(surface: ZmxSurface, vertex_offset: float) -> dict[str, Any]:
+def surface_config(surface: ZmxSurface, vertex_offset: float) -> dict[str, Any]:
     semi_diameter = surface.semi_diameter
     if semi_diameter <= 0.0:
         raise UnsupportedZmxError(

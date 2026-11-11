@@ -1,7 +1,7 @@
 """PySide6 desktop application: composition root for the optics simulator.
 
 The window wires the Qt UI (``main.ui``) to the Qt-free domain
-(:mod:`ui.model`), the vispy view (:mod:`ui.scene`), the project tree
+(:mod:`ui.project`), the vispy view (:mod:`ui.scene`), the project tree
 (:mod:`ui.project_tree`) and the property editors (:mod:`ui.editors`); it stays
 a thin orchestrator that owns the selection shared between tree, editors and
 scene.
@@ -32,8 +32,9 @@ from optics.source import PointSource
 
 from . import imagecodec, theme
 from .editors import AnalysisEditor, ElementEditor, PlaneEditor, SourceEditor, SubmoduleEditor
-from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
 from .plane_view import PlaneView
+from .project.elements import DEFAULT_ELEMENT_CONFIG
+from .project.state import ProjectState
 from .project_tree import ELEMENT, PLANE, SOURCE, SUBMODULE, ProjectTree, Selection
 from .scene import RAY_LENGTH, SceneController, make_display
 from .widgets import find_child, run_validated
@@ -444,7 +445,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
         The current source and measurement planes are kept; the imported stack
         is cascaded downstream of the existing elements (see
-        :meth:`ui.model.ProjectState.import_elements`).
+        :meth:`ui.project.state.ProjectState.import_elements`).
         """
         path = Path(path)
         elements_config, geometry = load_zmx_elements(path)

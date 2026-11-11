@@ -21,10 +21,10 @@ from optics.source import (
 )
 
 from .. import imagecodec
-from ..model import ProjectState
+from ..project.state import ProjectState
 from ..scene import SceneController
 from ..widgets import configure_button_box, configure_spin, find_child, run_validated
-from .base import _REVERT_TIP
+from .base import REVERT_TIP
 
 SOURCE_TYPE_BY_LABEL = {
     "Single Point": SINGLE_POINT,
@@ -69,7 +69,7 @@ class SourceEditor:
         configure_button_box(
             self._button_box,
             "Apply the source settings and retrace",
-            _REVERT_TIP,
+            REVERT_TIP,
         )
         configure_spin(self._power_spin, 0.0, 1000.0, 0.1)
         # Range in code, like every sibling: Qt's own 0..99.99 default cannot

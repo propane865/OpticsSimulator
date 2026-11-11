@@ -50,7 +50,7 @@ def aperture_from_config(config: dict[str, Any]) -> CircularAperture:
     if kind != "circular":
         raise ValueError(f"Unknown aperture type: {kind}")
     return CircularAperture(
-        _require(config, "radius", "aperture config"),
+        require_key(config, "radius", "aperture config"),
         config.get("center", (0.0, 0.0)),
     )
 
@@ -59,7 +59,7 @@ def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface
     if not isinstance(config, dict):
         raise ValueError("Surface config must be an object")
     for key in ("x", "y", "z"):
-        _require(config, key, "surface config")
+        require_key(config, key, "surface config")
     aperture_config = config.get("aperture")
     return Surface(
         config["x"],
@@ -81,9 +81,9 @@ def lorentz_oscillator_from_config(config: object) -> LorentzOscillator:
     if not isinstance(config, dict):
         raise ValueError("Lorentz oscillator config must be an object")
     return LorentzOscillator(
-        strength=_require(config, "strength", "lorentz oscillator config"),
-        resonance_ev=_require(config, "resonance_ev", "lorentz oscillator config"),
-        damping_ev=_require(config, "damping_ev", "lorentz oscillator config"),
+        strength=require_key(config, "strength", "lorentz oscillator config"),
+        resonance_ev=require_key(config, "resonance_ev", "lorentz oscillator config"),
+        damping_ev=require_key(config, "damping_ev", "lorentz oscillator config"),
     )
 
 
@@ -96,7 +96,7 @@ def lorentz_from_config(config: object) -> LorentzModel:
     """
     if not isinstance(config, dict):
         raise ValueError("Lorentz material config must be an object")
-    raw = _require(config, "oscillators", "lorentz material config")
+    raw = require_key(config, "oscillators", "lorentz material config")
     if isinstance(raw, (str, bytes, dict)):
         raise ValueError("Lorentz oscillators must be a list of oscillator objects")
     try:
@@ -104,7 +104,7 @@ def lorentz_from_config(config: object) -> LorentzModel:
     except TypeError:
         raise ValueError("Lorentz oscillators must be a list of oscillator objects") from None
     return LorentzModel(
-        epsilon_inf=_require(config, "epsilon_inf", "lorentz material config"),
+        epsilon_inf=require_key(config, "epsilon_inf", "lorentz material config"),
         oscillators=[lorentz_oscillator_from_config(entry) for entry in entries],
     )
 
@@ -126,7 +126,7 @@ def material_from_config(config: object) -> Material:
     return Material(model=model)
 
 
-def _require(mapping: object, key: str, context: str) -> Any:
+def require_key(mapping: object, key: str, context: str) -> Any:
     if not isinstance(mapping, dict) or key not in mapping:
         raise ValueError(f"Missing required key {key!r} in {context}")
     return mapping[key]
@@ -147,10 +147,10 @@ def refractive_element_from_config(
     position = np.asarray(position, dtype=float)
     transform = Transform(rotation_from_z(orientation), position)
 
-    surface1 = surface_from_config(_require(config, "surface1", "element config"), transform)
-    surface2 = surface_from_config(_require(config, "surface2", "element config"), transform)
+    surface1 = surface_from_config(require_key(config, "surface1", "element config"), transform)
+    surface2 = surface_from_config(require_key(config, "surface2", "element config"), transform)
 
-    material = material_from_config(_require(config, "material", "element config"))
+    material = material_from_config(require_key(config, "material", "element config"))
 
     return RefractiveElement(
         surface1=surface1,

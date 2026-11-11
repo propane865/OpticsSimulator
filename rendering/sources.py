@@ -7,7 +7,7 @@ from vispy.scene import visuals
 
 from optics.source import POINT_ARRAY
 
-from .style import MARKER_RADIUS, SOURCE_COLOR, SOURCE_MARKER_RADIUS, _attach
+from .style import MARKER_RADIUS, SOURCE_COLOR, SOURCE_MARKER_RADIUS, attach
 
 
 def _marker_positions(
@@ -45,13 +45,13 @@ def _make_marker(pos: np.ndarray, color: Any, radius: float = MARKER_RADIUS) -> 
 
 
 def _add_marker(view: Any, pos: np.ndarray, color: Any, radius: float = MARKER_RADIUS) -> Any:
-    return _attach(view, _make_marker(pos, color, radius=radius))
+    return attach(view, _make_marker(pos, color, radius=radius))
 
 
 def _add_marker_cloud(view: Any, points: np.ndarray, color: Any, size: float = 8.0) -> Any:
     markers = visuals.Markers(pos=points, face_color=color, size=size, edge_width=0)
     markers.update_gl_state(depth_test=False)
-    return _attach(view, markers)
+    return attach(view, markers)
 
 
 def build_source_nodes(view: Any, source: Any, radius: float = SOURCE_MARKER_RADIUS) -> list[Any]:

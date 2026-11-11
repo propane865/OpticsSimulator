@@ -11,14 +11,14 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-from .glass import _register_glass
+from .glass import register_glass
 from .model import (
-    _ODD_ASPHERE,
+    ODD_ASPHERE,
     ZmxPrescription,
     ZmxSurface,
-    _float,
-    _unquote,
-    _warn_dedup,
+    to_float,
+    unquote,
+    warn_dedup,
 )
 from .normalize import accumulate_vertices
 
@@ -61,7 +61,7 @@ def _read_surf_with_glass(
     """
     surface.curvature = curvature
     surface.thickness = thickness
-    surface.glass = _unquote(rest[3]).strip()
+    surface.glass = unquote(rest[3]).strip()
     surface.semi_diameter = numeric[3] or 0.0
     conic = numeric[4] if len(numeric) > 4 else None
     surface.conic = conic if conic is not None else 0.0
@@ -108,20 +108,20 @@ def _parse_surf(
         warn("Ignored SURF line without a surface number")
         prescription.surfaces.append(surface)
         return surface
-    number = _float(rest[0])
+    number = to_float(rest[0])
     if number is not None:
         surface.index = int(number)
         rest = rest[1:]
     if rest and (
         rest[0].startswith('"')
-        or (_float(rest[0]) is not None and len(rest) > 1 and _float(rest[1]) is None)
+        or (to_float(rest[0]) is not None and len(rest) > 1 and to_float(rest[1]) is None)
     ):
         rest = rest[1:]
     if not rest:
         prescription.surfaces.append(surface)
         return surface
-    surface.surface_type = _unquote(rest[0]).upper()
-    numeric = [_float(token) for token in rest[1:]]
+    surface.surface_type = unquote(rest[0]).upper()
+    numeric = [to_float(token) for token in rest[1:]]
     curvature = numeric[0] if numeric else None
     thickness = numeric[1] if len(numeric) > 1 else None
     if curvature is not None and thickness is not None:
@@ -151,12 +151,12 @@ def _apply_surface_keyword(
         # r^4, r^6, ... slots (n - 2); for ODDASPHE, n = 1, 2, ... are the
         # r^1, r^2, ... slots (n - 1).  TYPE precedes PARM in every
         # Zemax-written surface block.
-        parameter = _float(fields[1]) if len(fields) > 1 else None
-        coefficient = _float(fields[2]) if len(fields) > 2 else None
+        parameter = to_float(fields[1]) if len(fields) > 1 else None
+        coefficient = to_float(fields[2]) if len(fields) > 2 else None
         if parameter is None or coefficient is None or not math.isfinite(coefficient):
             warn("Ignored malformed PARM line in ZMX")
             return
-        base = 1 if current.surface_type == _ODD_ASPHERE else 2
+        base = 1 if current.surface_type == ODD_ASPHERE else 2
         slot = int(parameter) - base
         if slot < 0:
             return
@@ -165,7 +165,7 @@ def _apply_surface_keyword(
         current.coefficients[slot] = coefficient
         return
     value = fields[1] if len(fields) > 1 else ""
-    number = _float(value)
+    number = to_float(value)
     if number is None or not math.isfinite(number):
         if tag == "DISZ":
             return  # infinite object/image-space distance: nothing to advance
@@ -190,18 +190,18 @@ def _apply_keyword(
 ) -> None:
     if tag == "WAVE":
         for token in fields[1:]:
-            value = _float(token)
+            value = to_float(token)
             if value is not None:
                 prescription.wavelengths.append(value)
     elif tag == "WAVM":
-        value = _float(fields[2]) if len(fields) > 2 else None
+        value = to_float(fields[2]) if len(fields) > 2 else None
         if value is not None:
             prescription.wavelengths.append(value)
     elif tag == "UNIT":
         if len(fields) > 1:
-            prescription.units = _unquote(fields[1]).upper()
+            prescription.units = unquote(fields[1]).upper()
     elif tag == "GLAS":
-        _register_glass(fields, current, prescription)
+        register_glass(fields, current, prescription)
     elif current is not None and tag in _SURFACE_TAGS:
         _apply_surface_keyword(tag, fields, current, warn)
     elif tag not in _KNOWN_GLOBAL_TAGS:
@@ -233,7 +233,7 @@ def parse_zmx(path: str | Path) -> ZmxPrescription:
     """Parse a ZMX text file (UTF-16 or UTF-8) into a :class:`ZmxPrescription`."""
     text = _read_text(path)
     prescription = ZmxPrescription(surfaces=[])
-    warn = _warn_dedup(prescription.warnings)
+    warn = warn_dedup(prescription.warnings)
 
     current: ZmxSurface | None = None
     for raw in text.splitlines():

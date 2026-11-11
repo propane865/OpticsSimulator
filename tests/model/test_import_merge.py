@@ -1,6 +1,6 @@
 """Tests for merging imported Zemax elements into an existing project state.
 
-Exercises :meth:`ui.model.ProjectState.import_elements` in isolation (Qt-free):
+Exercises :meth:`ui.project.state.ProjectState.import_elements` in isolation (Qt-free):
 cascading placement, name de-duplication, keeping the current source/planes,
 and leaving state untouched when an import fails.
 """
@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from tests.materials import constant_material
-from ui.model import ProjectState
+from ui.project.state import ProjectState
 
 
 def _flat_lens(front_z: float, rear_offset: float, n: float = 1.5) -> dict[str, Any]:

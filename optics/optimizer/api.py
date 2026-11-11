@@ -18,13 +18,13 @@ from ..system import OpticalSystem
 from .config import LensOptimization, build_native_settings
 from .layout import (
     TranslationUnit,
-    _stack_z_positions,
-    _window_limited,
     build_native_problem,
     build_windows,
     focus_reference,
     object_point_groups,
     stack_units,
+    stack_z_positions,
+    window_limited,
 )
 from .result import OptimizationError, OptimizationResult
 
@@ -146,7 +146,7 @@ def optimize_layout(
     if n_rays < 4:
         raise ValueError("optimization needs at least 4 rays")
 
-    base_z = _stack_z_positions(elements_schema)
+    base_z = stack_z_positions(elements_schema)
     z_image = float(image_plane.o[2])
     standalone = [names.index(name) for name in free]
     if sorted(standalone) != standalone:
@@ -234,9 +234,11 @@ def _result_from_outcome(
     best = np.asarray(outcome["best"], dtype=float)
     # An unfocused winner pressed against a bound means the answer is outside the
     # searched range, which is a different problem from an exhausted budget.
-    window_limited: tuple[str, ...] = ()
+    window_limits: tuple[str, ...] = ()
     if status != "ok":
-        window_limited = _window_limited(best, lo, hi, [*[u.display for u in units], "image plane"])
+        window_limits = window_limited(
+            best, lo, hi, [*[u.display for u in units], "image plane"]
+        )
     if status != "ok" and not (status == "no-focus-found" and layout.allow_suboptimal):
         # The native solver only reports ``ok`` for a layout that passed every
         # focus acceptance check; anything else is a failure, never a result,
@@ -250,9 +252,9 @@ def _result_from_outcome(
         reason_note = f" (reason: {reason})" if reason and reason != "none" else ""
         bound_note = (
             " Best layout is pinned to a search-window bound: "
-            f"{', '.join(window_limited)}; the focus likely lies outside the "
+            f"{', '.join(window_limits)}; the focus likely lies outside the "
             "searched range."
-            if window_limited
+            if window_limits
             else ""
         )
         mag_note = (
@@ -319,5 +321,5 @@ def _result_from_outcome(
         blur_all_mm=float(outcome["blur_all"]),
         worst_field_mm=float(outcome["blur_max"]),
         rays_traced=int(outcome["diagnostics"]["rays_traced"]),
-        window_limited=window_limited,
+        window_limited=window_limits,
     )

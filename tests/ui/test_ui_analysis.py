@@ -12,7 +12,7 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtCore, QtWidgets
 
-from tests.ui_helpers import (
+from tests.ui._helpers import (
     OK,
     _click_plane,
     _editor,

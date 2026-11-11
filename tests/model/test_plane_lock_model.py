@@ -11,8 +11,8 @@ import pytest
 
 from optics.measurement_plane import MeasurementPlane
 from optics.source import PointSource
-from ui.model import ProjectState
 from ui.project.measurements import _LOCK_SOURCE_OFFSET_Z
+from ui.project.state import ProjectState
 
 
 def _plane(z: float) -> MeasurementPlane:

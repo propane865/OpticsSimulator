@@ -26,7 +26,8 @@ from optics.materials.catalog import (
 from optics.primitive import DEFAULT_WAVELENGTH_NM, Material
 
 from ..material_preview import MaterialPreviewPanel
-from ..model import DEFAULT_ELEMENT_CONFIG, ProjectState, classify_element_edit
+from ..project.elements import DEFAULT_ELEMENT_CONFIG, classify_element_edit
+from ..project.state import ProjectState
 from ..scene import SceneController
 from ..widgets import (
     CUSTOM_MATERIAL_LABEL,
@@ -37,7 +38,7 @@ from ..widgets import (
     run_validated,
     select_material_name,
 )
-from .base import _SelectorEditor
+from .base import SelectorEditor
 
 _DEFAULT_APERTURE_RADIUS = float(DEFAULT_ELEMENT_CONFIG["surface1"]["aperture"]["radius"])
 
@@ -113,7 +114,7 @@ def _material_config_from_json(text: str) -> tuple[dict[str, Any], str | None]:
     return {"lorentz": copy.deepcopy(dict(block))}, label
 
 
-class ElementEditor(_SelectorEditor):
+class ElementEditor(SelectorEditor):
     """Editor for a single refractive element's lens properties."""
 
     ADD_TITLE = "Invalid Element Properties"

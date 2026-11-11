@@ -11,14 +11,14 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-from .expressions import _surface_config
-from .glass import _is_glass, _resolve_material
+from .expressions import surface_config
+from .glass import is_glass, resolve_material
 from .model import (
     UnsupportedZmxError,
     ZmxGeometry,
     ZmxPrescription,
     ZmxSurface,
-    _warn_dedup,
+    warn_dedup,
 )
 from .normalize import accumulate_vertices, flatten_dummy_surfaces
 from .parser import parse_zmx
@@ -41,7 +41,7 @@ def zmx_to_elements(
     :class:`UnsupportedZmxError` before any partial result is returned.
     """
     messages = prescription.warnings
-    warn = _warn_dedup(messages)
+    warn = warn_dedup(messages)
 
     for surface in prescription.surfaces:
         if surface.glass.strip().upper() == _MIRROR:
@@ -49,14 +49,14 @@ def zmx_to_elements(
 
     surfaces = flatten_dummy_surfaces(copy.deepcopy(prescription.surfaces), warn)
     accumulate_vertices(surfaces)
-    if _is_glass(surfaces[-1].glass):
+    if is_glass(surfaces[-1].glass):
         raise UnsupportedZmxError("Glass after the final surface has no exit surface")
 
     elements: dict[str, Any] = {}
     used: list[tuple[ZmxSurface, ZmxSurface]] = []
     radius = 0.0
     for front, rear in pairwise(surfaces):
-        if not _is_glass(front.glass):
+        if not is_glass(front.glass):
             continue
         if (
             front.surface_type not in _IMPORTABLE_TYPES
@@ -77,12 +77,12 @@ def zmx_to_elements(
         if semi > radius:
             radius = semi
         elements[f"lens{len(elements) + 1}"] = {
-            "surface1": _surface_config(front, 0.0),
-            "surface2": _surface_config(rear, -front.thickness),
+            "surface1": surface_config(front, 0.0),
+            "surface2": surface_config(rear, -front.thickness),
             # The catalog block goes in inline, like any other element's material:
             # a project file stays self-contained and never depends on the catalog
             # still holding the name the importer resolved.
-            "material": _resolve_material(
+            "material": resolve_material(
                 front.glass,
                 prescription.glasses,
                 warn,
@@ -108,7 +108,7 @@ def load_zmx_elements(path: str | Path) -> tuple[dict[str, Any], ZmxGeometry]:
 
     The elements carry no synthesized source or measurement planes: they are
     meant to be merged into an existing project (see
-    :meth:`ui.model.ProjectState.import_elements`), which supplies the
+    :meth:`ui.project.state.ProjectState.import_elements`), which supplies the
     placement anchor. Import caveats (unsupported keywords, monochromatic
     glass indices) are emitted as :class:`UserWarning`; unsupported constructs
     raise :class:`UnsupportedZmxError` before any partial result is returned.

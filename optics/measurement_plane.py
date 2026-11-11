@@ -56,7 +56,7 @@ def arrays_to_rays(
     ]
 
 
-def _direct_hits(
+def direct_hits(
     plane: "MeasurementPlane",
     origins: np.ndarray,
     dirs: np.ndarray,
@@ -345,7 +345,7 @@ class MeasurementPlane:
             return [plane.new_result() for plane in plane_list]
         if system is None:
             direct = [
-                _direct_hits(plane, origins, dirs, powers, wavelengths)
+                direct_hits(plane, origins, dirs, powers, wavelengths)
                 for plane in plane_list
             ]
             us = np.vstack([d[0] for d in direct])

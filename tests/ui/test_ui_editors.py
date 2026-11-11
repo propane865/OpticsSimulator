@@ -19,7 +19,7 @@ from optics.measurement_plane import MeasurementPlane
 from optics.primitive import DEFAULT_WAVELENGTH_NM
 from optics.project import DEFAULT_ELEMENT_MATERIAL
 from tests.materials import dark_material
-from tests.ui_helpers import (
+from tests.ui._helpers import (
     CANCEL,
     OK,
     _click,

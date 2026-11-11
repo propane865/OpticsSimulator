@@ -9,17 +9,16 @@ from optics.element import RefractiveElement
 from optics.measurement_plane import MeasurementPlane
 from optics.source import POINT_ARRAY
 
-from .rays import _add_segment
-from .style import AXIS_COLORS, BOUND_SAMPLE_N, FRAME_MARGIN
+from .style import AXIS_COLORS, BOUND_SAMPLE_N, FRAME_MARGIN, add_segment
 from .surfaces import surface_positions
 
 
-def _add_axes(view: Any, width: int, length: float) -> None:
+def add_axes(view: Any, width: int, length: float) -> None:
     origin = np.zeros(3)
     for name, ix in (("x", 0), ("y", 1), ("z", 2)):
         end = np.zeros(3)
         end[ix] = length
-        _add_segment(view, origin, end, AXIS_COLORS[name], width=width)
+        add_segment(view, origin, end, AXIS_COLORS[name], width=width)
 
 
 def scene_bounds(
@@ -97,7 +96,7 @@ def scene_bounds(
     return (lo[0], hi[0]), (lo[1], hi[1]), (lo[2], hi[2])
 
 
-def _scene_radius(bounds: Sequence[Sequence[float]]) -> float:
+def scene_radius(bounds: Sequence[Sequence[float]]) -> float:
     """Furthest reach of ``bounds`` from the origin, used as the axis length."""
     return max(max(abs(float(lo)), abs(float(hi))) for lo, hi in bounds)
 

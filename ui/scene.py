@@ -12,17 +12,30 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any
 
-import rendering.visualize as visualize
 from optics.element import RefractiveElement
 from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.primitive import Ray
+from rendering.camera import frame_view, scene_bounds
+from rendering.canvas import build_scene, clear_scene, create_canvas, remove_nodes
+from rendering.measurements import (
+    MeshTemplate,
+    build_measurement_nodes,
+    measurement_geometry_key,
+    measurement_mesh_template,
+    set_measurement_nodes_highlight,
+    update_measurement_colors,
+)
+from rendering.rays import build_ray_nodes, build_ray_nodes_from_segments
+from rendering.sources import build_source_nodes
+from rendering.style import DEFAULT_RAY_LENGTH
+from rendering.surfaces import build_element_nodes, set_element_nodes_highlight
 
 if TYPE_CHECKING:
     from optics.system import OpticalSystem
 
 __all__ = ["SceneController", "make_display"]
 
-RAY_LENGTH = visualize.DEFAULT_RAY_LENGTH
+RAY_LENGTH = DEFAULT_RAY_LENGTH
 
 
 def make_display(
@@ -38,12 +51,12 @@ def make_display(
     one: callers with a palette to read hand over :func:`ui.theme.viewport_bgcolor`, and
     the Qt-free ones take the dark default :func:`rendering.canvas.create_canvas` keeps.
     """
-    canvas = visualize.create_canvas(bgcolor=bgcolor)
+    canvas = create_canvas(bgcolor=bgcolor)
     view = canvas.central_widget.add_view(camera="turntable")
     canvas.unfreeze()
     canvas.view = view
     canvas.freeze()
-    visualize.build_scene(
+    build_scene(
         view, elements, rays, ray_length=ray_length, axis_length=axis_length
     )
     return canvas
@@ -60,7 +73,7 @@ class SceneController:
         self._ray_nodes: list[Any] = []
         self._plane_nodes: list[list[Any]] = []
         self._plane_keys: list[tuple] = []
-        self._plane_templates: list[visualize.MeshTemplate] = []
+        self._plane_templates: list[MeshTemplate] = []
         self._selected_elements: tuple[int, ...] = ()
         self._selected_plane: int | None = None
 
@@ -110,11 +123,11 @@ class SceneController:
 
     def _tint_element(self, index: int | None, highlighted: bool) -> None:
         if index is not None and 0 <= index < len(self._element_nodes):
-            visualize.set_element_nodes_highlight(self._element_nodes[index], highlighted)
+            set_element_nodes_highlight(self._element_nodes[index], highlighted)
 
     def _tint_plane(self, index: int | None, highlighted: bool) -> None:
         if index is not None and 0 <= index < len(self._plane_nodes):
-            visualize.set_measurement_nodes_highlight(self._plane_nodes[index], highlighted)
+            set_measurement_nodes_highlight(self._plane_nodes[index], highlighted)
 
     # -- full / partial rebuilds --------------------------------------------
     def full_rebuild(
@@ -123,7 +136,7 @@ class SceneController:
         rays: Sequence[Ray],
         ray_length: float = RAY_LENGTH,
     ) -> None:
-        visualize.clear_scene(self._view)
+        clear_scene(self._view)
         # ``clear_scene`` detaches the source marker and plane visuals too, but
         # only elements/rays are rebuilt here: drop their stale bookkeeping so a
         # later ``refresh_source``/``rebuild_planes`` re-attaches instead of
@@ -136,7 +149,7 @@ class SceneController:
         # nodes no longer exist.
         self._selected_elements = ()
         self._selected_plane = None
-        _, self._element_nodes, self._ray_nodes = visualize.build_scene(
+        _, self._element_nodes, self._ray_nodes = build_scene(
             self._view, elements, rays, ray_length=ray_length
         )
 
@@ -152,16 +165,16 @@ class SceneController:
         Called on project load/import only: the camera keeps the user's zoom
         and orbit across element edits and retraces.
         """
-        visualize.frame_view(
+        frame_view(
             self._view,
-            visualize.scene_bounds(
+            scene_bounds(
                 elements, source=source, planes=planes, ray_length=ray_length
             ),
         )
 
     def refresh_source(self, source: Any) -> None:
-        visualize.remove_nodes(self._source_nodes)
-        self._source_nodes = visualize.build_source_nodes(self._view, source)
+        remove_nodes(self._source_nodes)
+        self._source_nodes = build_source_nodes(self._view, source)
 
     def retrace(
         self,
@@ -170,8 +183,8 @@ class SceneController:
         ray_length: float = RAY_LENGTH,
     ) -> None:
         """Redraw the rays through a persistent :class:`OpticalSystem`."""
-        visualize.remove_nodes(self._ray_nodes)
-        self._ray_nodes = visualize.build_ray_nodes(self._view, system, rays, ray_length=ray_length)
+        remove_nodes(self._ray_nodes)
+        self._ray_nodes = build_ray_nodes(self._view, system, rays, ray_length=ray_length)
 
     def retrace_from_segments(
         self,
@@ -185,14 +198,14 @@ class SceneController:
         ``transmissions`` dims each drawn segment by the power still travelling on
         it, so the picture and the detector readings come from one walk and cannot
         disagree about how much light a dark element let through."""
-        visualize.remove_nodes(self._ray_nodes)
-        self._ray_nodes = visualize.build_ray_nodes_from_segments(
+        remove_nodes(self._ray_nodes)
+        self._ray_nodes = build_ray_nodes_from_segments(
             self._view, starts, ends, counts, transmissions
         )
 
     # -- elements ------------------------------------------------------------
     def add_element_nodes(self, element: RefractiveElement) -> None:
-        self._element_nodes.append(visualize.build_element_nodes(self._view, element))
+        self._element_nodes.append(build_element_nodes(self._view, element))
 
     def insert_element_nodes(self, index: int, element: RefractiveElement) -> None:
         """Attach a new element's visuals at ``index``, as a duplicate does.
@@ -200,21 +213,21 @@ class SceneController:
         Every element from ``index`` up shifts one row with the stack, so the
         selection tint follows it (the newly inserted row is not yet selected).
         """
-        self._element_nodes.insert(index, visualize.build_element_nodes(self._view, element))
+        self._element_nodes.insert(index, build_element_nodes(self._view, element))
         self._selected_elements = tuple(
             candidate + 1 if candidate >= index else candidate
             for candidate in self._selected_elements
         )
 
     def replace_element_nodes(self, index: int, element: RefractiveElement) -> None:
-        visualize.remove_nodes(self._element_nodes[index])
-        self._element_nodes[index] = visualize.build_element_nodes(self._view, element)
+        remove_nodes(self._element_nodes[index])
+        self._element_nodes[index] = build_element_nodes(self._view, element)
         # An applied edit swaps in untinted meshes: keep the edited element lit.
         if index in self._selected_elements:
             self._tint_element(index, True)
 
     def remove_element_nodes(self, index: int) -> None:
-        visualize.remove_nodes(self._element_nodes.pop(index))
+        remove_nodes(self._element_nodes.pop(index))
         # The removed element loses its tint, and every selected element behind
         # it shifts up with the stack.
         self._selected_elements = tuple(
@@ -249,27 +262,27 @@ class SceneController:
         re-asserted for whichever plane is selected; a color-only refresh leaves
         it in place already.
         """
-        key = visualize.measurement_geometry_key(plane)
+        key = measurement_geometry_key(plane)
         if index >= len(self._plane_nodes):
-            nodes = visualize.build_measurement_nodes(self._view, plane, result)
+            nodes = build_measurement_nodes(self._view, plane, result)
             self._plane_nodes.append(nodes)
             self._plane_keys.append(key)
-            self._plane_templates.append(visualize.measurement_mesh_template(nodes[0]))
+            self._plane_templates.append(measurement_mesh_template(nodes[0]))
         elif self._plane_keys[index] == key:
-            visualize.update_measurement_colors(
+            update_measurement_colors(
                 self._plane_nodes[index][0], result, self._plane_templates[index]
             )
         else:
-            visualize.remove_nodes(self._plane_nodes[index])
-            nodes = visualize.build_measurement_nodes(self._view, plane, result)
+            remove_nodes(self._plane_nodes[index])
+            nodes = build_measurement_nodes(self._view, plane, result)
             self._plane_nodes[index] = nodes
             self._plane_keys[index] = key
-            self._plane_templates[index] = visualize.measurement_mesh_template(nodes[0])
+            self._plane_templates[index] = measurement_mesh_template(nodes[0])
         if index == self._selected_plane:
             self._tint_plane(index, True)
 
     def _drop_plane_node(self, index: int) -> None:
-        visualize.remove_nodes(self._plane_nodes.pop(index))
+        remove_nodes(self._plane_nodes.pop(index))
         self._plane_keys.pop(index)
         self._plane_templates.pop(index)
         selected = self._selected_plane

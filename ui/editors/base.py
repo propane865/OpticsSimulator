@@ -2,7 +2,7 @@
 
 The element, plane and submodule editors share a selection-driven lifecycle
 (enable from selection, apply/remove/add round-trips) captured once in
-:class:`_SelectorEditor`. The editor owns the current index into
+:class:`SelectorEditor`. The editor owns the current index into
 :meth:`_item_names`; the window routes a tree click into :meth:`select` (which
 does not report back), while internal selection changes report through the
 callbacks so the window can keep dependent widgets (the analysis tab's plane
@@ -16,14 +16,14 @@ from typing import Any
 
 from PySide6 import QtWidgets
 
-from ..model import ProjectState
+from ..project.state import ProjectState
 from ..scene import SceneController
 from ..widgets import configure_button_box, configure_spin, enable_widgets, find_child, run_validated
 
-_REVERT_TIP = "Reload the current values, discarding any edits"
+REVERT_TIP = "Reload the current values, discarding any edits"
 
 
-class _SelectorEditor:
+class SelectorEditor:
     """Controller skeleton for editors driven by the project-tree selection.
 
     The editor owns the current index into :meth:`_item_names`; the window
@@ -94,7 +94,7 @@ class _SelectorEditor:
             self._remove_button.clicked.connect(self.remove_current)
         self._button_box.accepted.connect(self.apply)
         self._button_box.rejected.connect(self.populate_fields)
-        configure_button_box(self._button_box, self.APPLY_TIP, _REVERT_TIP)
+        configure_button_box(self._button_box, self.APPLY_TIP, REVERT_TIP)
 
     # -- shared controller plumbing -------------------------------------------
     def set_enabled(self, enabled: bool) -> None:

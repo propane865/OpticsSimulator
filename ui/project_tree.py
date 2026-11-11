@@ -1,6 +1,6 @@
 """Project-tree controller for the left dock.
 
-The tree mirrors :class:`~ui.model.ProjectState` as three groups -- the light
+The tree mirrors :class:`~ui.project.state.ProjectState` as three groups -- the light
 source, the lens stack (in stack order) and the measurement planes -- and turns
 a click into a ``(kind, name)`` selection that the window routes to the matching
 editor. Lenses may additionally be grouped under *submodules*: a second-level
@@ -31,7 +31,8 @@ from typing import cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from .model import ProjectState, unique_name
+from .project.elements import unique_name
+from .project.state import ProjectState
 
 __all__ = ["ELEMENT", "PLANE", "SOURCE", "SUBMODULE", "ProjectTree", "Selection"]
 

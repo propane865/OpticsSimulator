@@ -13,8 +13,8 @@ from optics.optimizer import LensOptimization, OptimizationResult
 from optics.plane_transform import plane_transform
 from optics.project import plane_from_config
 
-from ..model import ProjectState
 from ..optimize import LayoutOptimizer
+from ..project.state import ProjectState
 from ..scene import SceneController
 from ..widgets import enable_widgets, find_child
 

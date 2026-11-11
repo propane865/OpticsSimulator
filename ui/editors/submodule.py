@@ -15,12 +15,12 @@ from collections.abc import Callable
 
 from PySide6 import QtWidgets
 
-from ..model import ProjectState
+from ..project.state import ProjectState
 from ..scene import SceneController
-from .base import _SelectorEditor
+from .base import SelectorEditor
 
 
-class SubmoduleEditor(_SelectorEditor):
+class SubmoduleEditor(SelectorEditor):
     """Editor for a submodule's position."""
 
     APPLY_TITLE = "Invalid Submodule Properties"

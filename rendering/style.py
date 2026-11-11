@@ -1,13 +1,17 @@
-"""Visual constants and tiny attach/order helpers shared across the primitives.
+"""Visual constants and the small drawing helpers shared across the primitives.
 
 Colors, marker radii and mesh orders live here so every primitive module
-imports the same values; :func:`_attach`, :func:`send_to_back` and
-:func:`_as_system` are the small helpers several primitives need without one
-primitive module importing another.
+imports the same values; :func:`attach`, :func:`send_to_back`,
+:func:`as_system`, :func:`add_segment` and :func:`translucent_mesh` are the
+helpers several primitives need, which is why they live here instead of in one
+primitive module the others would have to import.
 """
 
 from collections.abc import Sequence
 from typing import Any
+
+import numpy as np
+from vispy.scene import visuals
 
 from optics.element import RefractiveElement
 from optics.system import OpticalSystem
@@ -60,9 +64,39 @@ SOURCE_MARKER_RADIUS = 1.0
 MARKER_RADIUS = 0.5
 
 
-def _attach(view: Any, visual: Any) -> Any:
+def attach(view: Any, visual: Any) -> Any:
+    """Add ``visual`` to ``view`` and hand it back (vispy's ``add`` returns None)."""
     view.add(visual)
     return visual
+
+
+def translucent_mesh(verts: np.ndarray, faces: np.ndarray, **kwargs: Any) -> Any:
+    """Vispy mesh with alpha blending and depth-aware compositing."""
+    mesh = visuals.Mesh(verts, faces, **kwargs)
+    mesh.set_gl_state(
+        blend=True,
+        depth_test=True,
+        depth_mask=True,
+        blend_func=("src_alpha", "one_minus_src_alpha"),
+    )
+    return mesh
+
+
+def make_segment(a: np.ndarray, b: np.ndarray, color: Any, width: int) -> Any:
+    """A single line segment visual, or ``None`` when an endpoint is not finite."""
+    if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
+        return None
+    segment = visuals.Line(pos=np.array([a, b]), color=color, width=width)
+    segment.update_gl_state(depth_test=False)
+    return segment
+
+
+def add_segment(view: Any, a: np.ndarray, b: np.ndarray, color: Any, width: int) -> Any:
+    """Attach one line segment to ``view`` (``None`` when it is not drawable)."""
+    segment = make_segment(a, b, color, width=width)
+    if segment is None:
+        return None
+    return attach(view, segment)
 
 
 def send_to_back(nodes: Sequence[Any], base: int = -2) -> None:
@@ -72,7 +106,7 @@ def send_to_back(nodes: Sequence[Any], base: int = -2) -> None:
             node.order = base + offset
 
 
-def _as_system(
+def as_system(
     target: "OpticalSystem | Sequence[RefractiveElement]",
 ) -> OpticalSystem:
     """Normalize a ray-tracing target to an :class:`OpticalSystem`.

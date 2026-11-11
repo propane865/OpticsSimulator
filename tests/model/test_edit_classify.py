@@ -3,7 +3,7 @@
 import copy
 
 from tests.materials import constant_material
-from ui.model import DEFAULT_ELEMENT_CONFIG, classify_element_edit
+from ui.project.elements import DEFAULT_ELEMENT_CONFIG, classify_element_edit
 
 
 def _base():

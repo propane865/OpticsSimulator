@@ -11,7 +11,9 @@ from optics.io import load_project
 from optics.primitive import Ray
 from optics.project import parse_project
 
-from . import visualize as _visualize
+from .camera import frame_view, scene_bounds
+from .canvas import build_scene, create_canvas
+from .style import DEFAULT_RAY_LENGTH
 
 
 def default_stack() -> list[RefractiveElement]:
@@ -32,15 +34,13 @@ def default_rays() -> list[Ray]:
 def visualize(
     elements: list[RefractiveElement],
     rays: list[Ray],
-    ray_length: float = _visualize.DEFAULT_RAY_LENGTH,
+    ray_length: float = DEFAULT_RAY_LENGTH,
     show: bool = True,
 ) -> Any:
-    canvas = _visualize.create_canvas()
+    canvas = create_canvas()
     view = canvas.central_widget.add_view(camera="turntable")
-    _visualize.build_scene(view, elements, rays, ray_length=ray_length)
-    _visualize.frame_view(
-        view, _visualize.scene_bounds(elements, ray_length=ray_length)
-    )
+    build_scene(view, elements, rays, ray_length=ray_length)
+    frame_view(view, scene_bounds(elements, ray_length=ray_length))
 
     if show:
         canvas.show(run=True)

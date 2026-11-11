@@ -1,6 +1,6 @@
 """Qt-free tests for duplicating an element in the project state.
 
-Exercises :meth:`ui.model.ProjectState.duplicate_element`: the copy lands
+Exercises :meth:`ui.project.state.ProjectState.duplicate_element`: the copy lands
 immediately after the original in stack order under a fresh unique name, sits
 downstream (``-Z``) by a gap scaled by its aperture, is an independent config
 deep-copy that inherits the original's submodule grouping, and invalidates the
@@ -14,7 +14,7 @@ import pytest
 
 from optics.config import refractive_element_from_config
 from tests.materials import constant_material
-from ui.model import ProjectState
+from ui.project.state import ProjectState
 
 
 def _flat_lens(front_z: float, *, radius: float = 1.0, y: float = 0.0) -> dict[str, Any]:

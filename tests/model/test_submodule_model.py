@@ -1,6 +1,6 @@
 """Tests for moving a submodule of elements as one group.
 
-Exercises :meth:`ui.model.ProjectState.move_submodule` in isolation (Qt-free):
+Exercises :meth:`ui.project.state.ProjectState.move_submodule` in isolation (Qt-free):
 one translation shared by every member (so their offsets to each other survive),
 the stack rows whose visuals the scene must rebuild, and the cached system being
 dropped only when something actually moved.
@@ -12,7 +12,7 @@ import numpy as np
 
 from optics.config import refractive_element_from_config
 from tests.materials import constant_material
-from ui.model import ProjectState
+from ui.project.state import ProjectState
 
 
 def _flat_lens(front_z: float, y: float = 0.0) -> dict[str, Any]:

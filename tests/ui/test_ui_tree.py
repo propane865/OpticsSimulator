@@ -12,8 +12,8 @@ PySide6 = pytest.importorskip("PySide6")
 from PySide6 import QtCore, QtWidgets
 
 from optics.config import material_from_config
-from rendering import visualize
-from tests.ui_helpers import (
+from rendering import style
+from tests.ui._helpers import (
     OK,
     _click,
     _click_plane,
@@ -50,11 +50,11 @@ def _element_colors(window, index):
 
 def _base_element_colors(window, index):
     nodes = window._scene._element_nodes[index]
-    return _flat([_rgba(color)[:3] for color in visualize.ELEMENT_NODE_COLORS[: len(nodes)]])
+    return _flat([_rgba(color)[:3] for color in style.ELEMENT_NODE_COLORS[: len(nodes)]])
 
 
 def _lit_element_colors(window, index):
-    return _rgba(visualize.SELECTED_COLOR)[:3] * len(window._scene._element_nodes[index])
+    return _rgba(style.SELECTED_COLOR)[:3] * len(window._scene._element_nodes[index])
 
 
 def _outline_colors(window, index):
@@ -241,9 +241,9 @@ def test_plane_selection_rims_only_that_plane(window):
 
     _tree_select(window, "plane2")
 
-    assert _outline_colors(window, 1) == pytest.approx(_rim_colors(window, 1, visualize.SELECTED_COLOR))
+    assert _outline_colors(window, 1) == pytest.approx(_rim_colors(window, 1, style.SELECTED_COLOR))
     assert _outline_colors(window, 0) == pytest.approx(
-        _rim_colors(window, 0, visualize.MEASUREMENT_OUTLINE_COLOR)
+        _rim_colors(window, 0, style.MEASUREMENT_OUTLINE_COLOR)
     )
 
 
@@ -255,7 +255,7 @@ def test_plane_edit_keeps_the_selection_rim(window):
 
     _click_plane(window, OK)
 
-    assert _outline_colors(window, 0) == pytest.approx(_rim_colors(window, 0, visualize.SELECTED_COLOR))
+    assert _outline_colors(window, 0) == pytest.approx(_rim_colors(window, 0, style.SELECTED_COLOR))
 
 
 def test_removal_moves_the_highlight_to_the_lens_now_shown(stack_window):

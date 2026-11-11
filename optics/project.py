@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from .config import _require
+from .config import require_key
 from .materials import DEFAULT_MATERIAL_NAME, material_block
 from .measurement_plane import MeasurementPlane
 from .primitive import DEFAULT_WAVELENGTH_NM
@@ -113,7 +113,7 @@ def plane_from_config(config: object) -> MeasurementPlane:
     if not isinstance(config, dict):
         raise ValueError("Measurement plane config must be an object")
     for key in ("origin", "normal", "u_range", "v_range", "resolution"):
-        _require(config, key, "measurement plane config")
+        require_key(config, key, "measurement plane config")
     return MeasurementPlane(
         origin=np.asarray(config["origin"], dtype=float),
         normal=np.asarray(config["normal"], dtype=float),
@@ -144,11 +144,11 @@ def parse_project(
     """
     if not isinstance(document, dict):
         raise ValueError("Project document must be a JSON object")
-    elements_config = _require(document, "elements", "project document")
+    elements_config = require_key(document, "elements", "project document")
     if not isinstance(elements_config, dict):
         raise ValueError("Project 'elements' must be an object")
-    source = source_from_config(_require(document, "source", "project document"))
-    planes_config = _require(document, "measurement_planes", "project document")
+    source = source_from_config(require_key(document, "source", "project document"))
+    planes_config = require_key(document, "measurement_planes", "project document")
 
     if not isinstance(planes_config, list):
         raise ValueError("measurement_planes must be a list")

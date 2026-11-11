@@ -38,9 +38,8 @@ is the only leaf, reached from `benchmarks/` and a few kernel-level tests.
 Third-party libraries are named on the boxes that import them instead of drawn
 as a band: PySide6 in the window, tree, editors, plane view, optimizer worker
 and codec; vispy in `ui/scene.py` and `rendering/`; NumPy in `optics/`,
-`rendering/` and `ui/project/`. `ui/project/` (and the `ui/model.py` facade over
-it) imports neither PySide6 nor vispy, which is what lets the document model
-unit test headless.
+`rendering/` and `ui/project/`. `ui/project/` imports neither PySide6 nor vispy,
+which is what lets the document model unit test headless.
 
 ![Python package dependencies](diagrams/python-dependencies.svg)
 
@@ -60,7 +59,7 @@ crosses a layer it does not touch.
 ![Native module layering](diagrams/native-modules.svg)
 
 **4. Desktop application blocks.** Only the Qt container's boxes touch PySide6.
-`ui/project/` (behind the `ui/model.py` facade) and the vispy `SceneController`
+`ui/project/` and the vispy `SceneController`
 are Qt-free, so the document model and scene bookkeeping unit-test headless
 (CI: `QT_QPA_PLATFORM=offscreen`). The window learns of list changes from the
 `on_items_changed` callbacks it hands the tree and editors, not from the state
@@ -252,9 +251,10 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     whole-scene composition/node lifetime
   - `colormaps.py`: shared viridis LUT and irradiance normalization for the
     detector meshes and the 2D plane view
-  - `style.py`: visual constants and the small attach/order helpers
-  - `visualize.py`: compatibility facade re-exporting the original public
-    scene-building surface
+  - `style.py`: visual constants plus the shared drawing helpers several
+    primitives need (`attach`, `translucent_mesh`, `make_segment`/`add_segment`,
+    `send_to_back`, `as_system`) - the one module the primitives import each
+    other through, so every symbol keeps a single import path
   - `demo.py`: standalone demo (bundled doublet, no UI)
 - `ui/`: PySide6 desktop application (`main.ui` is the Qt Designer layout):
   - `app.py`: composition root - `OpticsMainWindow`, project load/save, Zemax
@@ -268,8 +268,6 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     `measurements.py` (plane list, cached hits, raw-vs-reconstruct display,
     source-locked planes), `persistence.py` (project-document
     (de)serialization)
-  - `model.py`: compatibility facade re-exporting `ProjectState` and the element
-    helpers from `project/`
   - `scene.py`: `make_display` and `SceneController` - vispy view and node
     bookkeeping for elements, rays, the source marker, measurement planes,
     selection highlight (tinted lenses, rim-tinted plane), and the viewport's
@@ -277,7 +275,7 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     itself: no `QPalette` owns the GL framebuffer)
   - `editors/`: one controller per property page over widgets that stay in
     `main.ui` (looked up by object name, never re-parented) - `base.py`
-    (`_SelectorEditor`: the selection-driven lifecycle the element, plane and
+    (`SelectorEditor`: the selection-driven lifecycle the element, plane and
     submodule editors share, plus `on_items_changed` reporting), `element.py`,
     `source.py` (singleton form), `plane.py`, `submodule.py` (translate a whole
     group), `analysis.py` (plane-to-plane transform plus the Optimize Layout

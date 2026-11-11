@@ -32,7 +32,7 @@ _IMAGE_WINDOW = 15.0
 _IMAGE_DOWNSTREAM_FACTOR = 2.0
 
 
-def _stack_z_positions(schema: Mapping[str, Any]) -> list[float]:
+def stack_z_positions(schema: Mapping[str, Any]) -> list[float]:
     return [element_position(entry)[2] for entry in schema.values()]
 
 
@@ -144,7 +144,7 @@ def unit_slot_map(units: Sequence[TranslationUnit], n_elements: int) -> list[int
     return slots
 
 
-def _window_limited(
+def window_limited(
     best: np.ndarray, lo: Sequence[float], hi: Sequence[float], names: Sequence[str]
 ) -> tuple[str, ...]:
     """Parameters whose best value sits on a search-window bound.

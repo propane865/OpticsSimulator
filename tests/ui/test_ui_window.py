@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -14,7 +15,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from optics.materials import material_block, material_block_for, material_for_name
 from rendering import demo
 from rendering.style import VIEWPORT_BG_DARK, VIEWPORT_BG_LIGHT
-from tests.ui_helpers import (
+from tests.ui._helpers import (
     OK,
     _click,
     _click_plane,
@@ -408,6 +409,9 @@ def test_file_menu_has_import_action(window):
 
 
 def _patch_open_dialog(monkeypatch, path):
+    # A missing fixture file would surface as a modal "import failed" dialog,
+    # which blocks forever on the offscreen platform.
+    assert Path(path).exists(), f"missing import fixture: {path}"
     monkeypatch.setattr(
         QtWidgets.QFileDialog,
         "getOpenFileName",
@@ -421,7 +425,7 @@ def test_import_zemax_merges_into_existing(stack_window, repo_root, monkeypatch)
     elements_before = len(window.elements)
     source_before = window.source
 
-    _patch_open_dialog(monkeypatch, repo_root / "tests" / "zmx" / "biconvex.zmx")
+    _patch_open_dialog(monkeypatch, repo_root / "tests" / "importers" / "zmx" / "biconvex.zmx")
     _trigger(window, "menuFile", "actionImport_Zemax")
 
     # biconvex imports a single lens; existing lens1/lens2 force a rename.
@@ -436,7 +440,7 @@ def test_import_zemax_merges_into_existing(stack_window, repo_root, monkeypatch)
 def test_import_zemax_keeps_source_and_plane_visible(stack_window, repo_root, monkeypatch):
     window = stack_window
     _trigger_measurement_plane(window)
-    _patch_open_dialog(monkeypatch, repo_root / "tests" / "zmx" / "biconvex.zmx")
+    _patch_open_dialog(monkeypatch, repo_root / "tests" / "importers" / "zmx" / "biconvex.zmx")
 
     _trigger(window, "menuFile", "actionImport_Zemax")
 

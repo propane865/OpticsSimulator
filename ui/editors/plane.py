@@ -11,13 +11,13 @@ from PySide6 import QtWidgets
 from optics.measurement_plane import MeasurementPlane
 from optics.project import DEFAULT_MEASUREMENT_CONFIG, plane_from_config
 
-from ..model import ProjectState
+from ..project.state import ProjectState
 from ..scene import SceneController
 from ..widgets import configure_spin, enable_widgets, find_child
-from .base import _SelectorEditor
+from .base import SelectorEditor
 
 
-class PlaneEditor(_SelectorEditor):
+class PlaneEditor(SelectorEditor):
     """Editor for adding, editing and removing measurement planes."""
 
     ADD_TITLE = "Invalid Measurement Plane"

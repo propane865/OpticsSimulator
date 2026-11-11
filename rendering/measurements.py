@@ -15,9 +15,14 @@ from .colormaps import (
     normalize_irradiance,
     sample_lut,
 )
-from .rays import _add_segment
-from .style import MEASUREMENT_MESH_ORDER, MEASUREMENT_OUTLINE_COLOR, SELECTED_COLOR, _attach
-from .surfaces import _translucent_mesh
+from .style import (
+    MEASUREMENT_MESH_ORDER,
+    MEASUREMENT_OUTLINE_COLOR,
+    SELECTED_COLOR,
+    add_segment,
+    attach,
+    translucent_mesh,
+)
 
 
 def _cell_to_vertex_values(grid: np.ndarray) -> np.ndarray:
@@ -74,7 +79,7 @@ def _measurement_plane_geometry(plane: MeasurementPlane) -> "tuple[np.ndarray, n
 def make_measurement_plane_visual(plane: MeasurementPlane, result: MeasurementResult) -> Any:
     verts, faces = _measurement_plane_geometry(plane)
     colors = _measurement_vertex_colors(result)
-    return _translucent_mesh(verts, faces, vertex_colors=colors, shading="flat")
+    return translucent_mesh(verts, faces, vertex_colors=colors, shading="flat")
 
 
 def measurement_geometry_key(plane: MeasurementPlane) -> tuple:
@@ -158,10 +163,10 @@ def build_measurement_nodes(
 ) -> list[Any]:
     plane_mesh = make_measurement_plane_visual(plane, result if result is not None else plane.new_result())
     plane_mesh.order = MEASUREMENT_MESH_ORDER
-    nodes = [_attach(view, plane_mesh)]
+    nodes = [attach(view, plane_mesh)]
     outline = _measurement_outline(plane)
     for a, b in zip(outline[0::2], outline[1::2]):
-        segment = _add_segment(view, a, b, MEASUREMENT_OUTLINE_COLOR, width=2)
+        segment = add_segment(view, a, b, MEASUREMENT_OUTLINE_COLOR, width=2)
         if segment is not None:
             nodes.append(segment)
     return nodes

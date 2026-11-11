@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from . import _native
-from .measurement_plane import MeasurementPlane, _direct_hits, rays_to_arrays
+from .measurement_plane import MeasurementPlane, direct_hits, rays_to_arrays
 from .primitive import Ray
 
 if TYPE_CHECKING:
@@ -101,8 +101,8 @@ def plane_transform(
     origins, dirs, powers, wavelengths = rays_to_arrays(rays)
     n_total = int(origins.shape[0])
     if system is None:
-        ua, va, pa = _direct_hits(plane_a, origins, dirs, powers, wavelengths)
-        ub, vb, pb = _direct_hits(plane_b, origins, dirs, powers, wavelengths)
+        ua, va, pa = direct_hits(plane_a, origins, dirs, powers, wavelengths)
+        ub, vb, pb = direct_hits(plane_b, origins, dirs, powers, wavelengths)
     else:
         us, vs, pws = system.measure_planes(
             origins, dirs, powers, wavelengths, [plane_a, plane_b]

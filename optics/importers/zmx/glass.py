@@ -1,7 +1,7 @@
 """Glass semantics: name classification, GLAS records, catalog resolution.
 
-:func:`_register_glass` interprets the two ``GLAS`` record layouts into the
-prescription's ``glasses`` map; :func:`_resolve_material` turns a surface's glass
+:func:`register_glass` interprets the two ``GLAS`` record layouts into the
+prescription's ``glasses`` map; :func:`resolve_material` turns a surface's glass
 name into the ``material`` block the project carries.
 
 Under a complex dielectric model that seam carries a rule: a name, or nothing.
@@ -18,7 +18,7 @@ from typing import Any
 
 from ...constants import D_LINE_NM as _D_LINE_NM
 from ...materials import MATERIALS, material_block, material_for_name
-from .model import UnsupportedZmxError, ZmxPrescription, ZmxSurface, _float, _unquote
+from .model import UnsupportedZmxError, ZmxPrescription, ZmxSurface, to_float, unquote
 
 __all__: list[str] = []
 
@@ -39,16 +39,16 @@ _GLASS_ALIASES: dict[str, str] = {
 }
 
 
-def _is_glass(name: str) -> bool:
+def is_glass(name: str) -> bool:
     return name.strip().upper() not in _AIR_GLASS
 
 
-def _register_glass(
+def register_glass(
     fields: list[str],
     current: ZmxSurface | None,
     prescription: ZmxPrescription,
 ) -> None:
-    parts = [_unquote(token) for token in fields[1:]]
+    parts = [unquote(token) for token in fields[1:]]
     if not parts:
         return
     model = parts[0].strip()
@@ -59,17 +59,17 @@ def _register_glass(
     # (always > 1), so numeric t/p flags identify the long form cleanly.
     long_form = (
         len(parts) > 4
-        and _float(parts[3]) is not None
+        and to_float(parts[3]) is not None
         and all(
-            (flag := _float(parts[i])) is not None and 0.0 <= flag <= 1.0
+            (flag := to_float(parts[i])) is not None and 0.0 <= flag <= 1.0
             for i in (1, 2)
         )
     )
     if model.upper() == _GLASS_BLANK and not long_form:
         return
     if long_form:
-        index = _float(parts[3])
-        abbe = _float(parts[4])
+        index = to_float(parts[3])
+        abbe = to_float(parts[4])
         if model.upper() == _GLASS_BLANK or not model:
             if current is not None and current.glass == "" and index is not None:
                 current.glass = _GLASS_BLANK
@@ -83,8 +83,8 @@ def _register_glass(
         if current is not None and current.glass == "":
             current.glass = model
         return
-    index = _float(parts[1]) if len(parts) > 1 else None
-    abbe = _float(parts[2]) if len(parts) > 2 else None
+    index = to_float(parts[1]) if len(parts) > 1 else None
+    abbe = to_float(parts[2]) if len(parts) > 2 else None
     name = parts[3].strip() if len(parts) > 3 and parts[3].strip() else model
     if index is not None:
         entry = (index, abbe if abbe is not None else 0.0)
@@ -113,7 +113,7 @@ def catalog_name(name: str) -> str | None:
     return key if key in MATERIALS else None
 
 
-def _resolve_material(
+def resolve_material(
     name: str,
     glasses: dict[str, tuple[float, float]],
     warn: Callable[[str], None],

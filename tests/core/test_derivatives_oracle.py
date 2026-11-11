@@ -20,7 +20,7 @@ import pytest
 
 from optics.primitive import Surface
 
-_GOLDENS = Path(__file__).resolve().parent / "data" / "derivative_goldens.json"
+_GOLDENS = Path(__file__).resolve().parents[1] / "data" / "derivative_goldens.json"
 
 INTERIOR_TOL = 5e-7
 EDGE_TOL = 5e-4

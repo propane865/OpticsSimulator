@@ -4,7 +4,7 @@ ZMX is an *input serialization format*: this package parses the text into a
 normalized :class:`~.model.ZmxPrescription` and emits the ``elements`` map of
 the project document the rest of the application consumes
 (``optics.project.parse_project``). The lenses are meant to be merged into an
-already-open project (:meth:`ui.model.ProjectState.import_elements`); a
+already-open project (:meth:`ui.project.state.ProjectState.import_elements`); a
 ``.zmx`` is never loaded as a whole project, so no source or measurement
 planes are synthesized. Nothing downstream (``Surface``,
 ``RefractiveElement``, ``OpticalSystem``, the native tracer) knows that Zemax

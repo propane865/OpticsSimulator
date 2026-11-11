@@ -131,7 +131,7 @@ def _as_rays(origins, dirs, powers):
 
 class TestProjectStateSystem:
     def test_system_is_persistent_and_dirty_tracked(self, make_element):
-        from ui.model import ProjectState
+        from ui.project.state import ProjectState
 
         state = ProjectState()
         first = make_element("0.1*u*u+0.5", "0.1*v*v-0.5")

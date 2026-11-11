@@ -13,7 +13,7 @@ import pytest
 
 from tests.golden_cases import build_all
 
-GOLDEN_PATH = Path(__file__).resolve().parent / "data" / "goldens.json"
+GOLDEN_PATH = Path(__file__).resolve().parents[1] / "data" / "goldens.json"
 
 
 def _leaf_equal(got, exp, rtol, atol, path):

@@ -1,4 +1,4 @@
-"""Project-state components: the internal subsystems :class:`ui.model.ProjectState`
+"""Project-state components: the internal subsystems :class:`ui.project.state.ProjectState`
 composes (measurement planes; element and persistence operations live here too).
 
 These are not independent state objects: the aggregate root owns one instance
