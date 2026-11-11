@@ -1,5 +1,6 @@
 import json
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -12,7 +13,7 @@ from .primitive.vector import rotation_from_z
 # the lens editor down to the config loader. It names the key to write and the
 # constant-index spelling, because that is the one thing a pre-Lorentz reader needs.
 MATERIAL_REQUIRED_MESSAGE = (
-    'element material requires a Lorentz dielectric model as material.lorentz = '
+    "element material requires a Lorentz dielectric model as material.lorentz = "
     '{"epsilon_inf": ..., "oscillators": [{"strength": ..., "resonance_ev": ..., '
     '"damping_ev": ...}]}; a wavelength-independent index n is epsilon_inf=n**2 '
     'with "oscillators": []'
@@ -31,6 +32,42 @@ SELLMEIER_UNSUPPORTED_MESSAGE = (
 # at the origin, facing +Z. One convention, read through the accessors below.
 DEFAULT_ELEMENT_POSITION: tuple[float, float, float] = (0.0, 0.0, 0.0)
 DEFAULT_ELEMENT_ORIENTATION: tuple[float, float, float] = (0.0, 0.0, 1.0)
+
+
+@dataclass(frozen=True)
+class ElementConfigFields:
+    """The inventory of an element config: which key is which kind of thing.
+
+    Declared once, here, because this module is where a key is *read* -- adding a
+    field to a config means adding it to ``refractive_element_from_config`` and to
+    this inventory, and nothing else has to be told. Consumers derive their own
+    groupings from it (the UI's ``classify_element_edit`` in particular); a field
+    listed in neither place is the drift this class exists to prevent, since an
+    edit to it would classify as "nothing happened" and silently skip a retrace.
+
+    ``surface_geometry`` are the per-surface keys that decide the shape a mesh is
+    built from; ``surfaces`` names the two nested surface blocks; ``transform``
+    places the whole element; ``material`` is the nested dielectric block, whose
+    ``lorentz`` model is the only part of it that changes what a ray does.
+    """
+
+    surfaces: tuple[str, ...]
+    surface_geometry: tuple[str, ...]
+    transform: tuple[str, ...]
+    material: str
+
+    @property
+    def tracked(self) -> frozenset[str]:
+        """Every element-level key this module knows how to read."""
+        return frozenset((*self.surfaces, *self.transform, self.material))
+
+
+ELEMENT_CONFIG_FIELDS = ElementConfigFields(
+    surfaces=("surface1", "surface2"),
+    surface_geometry=("x", "y", "z", "u_range", "v_range", "aperture"),
+    transform=("position", "orientation"),
+    material="material",
+)
 
 
 def element_position(config: Mapping[str, Any]) -> list[float]:

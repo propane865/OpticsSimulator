@@ -95,7 +95,11 @@ key, so unchanged lenses are neither remeshed nor retraced. An editor apply
 classifies its own edit (`classify_element_edit`): a no-op stops there, a
 material-only edit retraces without touching meshes, and a transform/geometry edit
 also remeshes that element - the persistent native stack is dropped on any
-element edit and rebuilt lazily on the next refresh.
+element edit and rebuilt lazily on the next refresh. What counts as geometry,
+transform or material comes from one declaration, `ELEMENT_CONFIG_FIELDS` in
+`optics/config.py` - the module that actually interprets those keys - so the
+classifier cannot drift from the schema; a key neither place names is treated as
+a change rather than silently as "nothing happened".
 
 ![One UI refresh](diagrams/refresh-dataflow.svg)
 

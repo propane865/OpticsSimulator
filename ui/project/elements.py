@@ -19,7 +19,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
-from optics.config import element_position, refractive_element_from_config
+from optics.config import (
+    ELEMENT_CONFIG_FIELDS,
+    element_position,
+    refractive_element_from_config,
+)
 from optics.element import RefractiveElement
 from optics.project import DEFAULT_ELEMENT_MATERIAL
 from optics.source import PointSource
@@ -65,12 +69,12 @@ def unique_name(base: str, used: Iterable[str], *, prefix: str = "plane") -> str
     return f"{prefix}{index}"
 
 
-_ELEMENT_GEOMETRY_FIELDS = ("x", "y", "z", "u_range", "v_range", "aperture")
-_ELEMENT_TRANSFORM_KEYS = ("position", "orientation")
-
 # Organizational key on an element config naming its submodule (project-tree
-# grouping only); optics code ignores it and the JSON round-trip keeps it.
+# grouping only); optics code ignores it and the JSON round-trip keeps it. It is
+# the one key an edit may change without any optical consequence, which is why
+# classify_element_edit is told about it here rather than in the inventory.
 SUBMODULE_KEY = "submodule"
+_ORGANIZATIONAL_KEYS = frozenset({SUBMODULE_KEY})
 
 
 def _only_material_changed(old_material: dict, new_material: dict) -> bool:
@@ -85,9 +89,7 @@ def _only_material_changed(old_material: dict, new_material: dict) -> bool:
     return old_material.get("lorentz") != new_material.get("lorentz")
 
 
-def classify_element_edit(
-    old: dict[str, Any] | None, new: dict[str, Any] | None
-) -> str:
+def classify_element_edit(old: dict[str, Any] | None, new: dict[str, Any] | None) -> str:
     """Classify an element-config edit as ``none``, ``index``, ``transform`` or ``geometry``.
 
     The result lets the UI skip needless work: a material-only edit (the Lorentz
@@ -99,26 +101,27 @@ def classify_element_edit(
         return "none"
     old = old or {}
     new = new or {}
+    fields = ELEMENT_CONFIG_FIELDS
 
-    geometry_changed = False
-    for key in ("surface1", "surface2"):
-        old_surface = old.get(key) or {}
-        new_surface = new.get(key) or {}
-        if any(old_surface.get(f) != new_surface.get(f) for f in _ELEMENT_GEOMETRY_FIELDS):
-            geometry_changed = True
+    geometry_changed = any(
+        (old.get(name) or {}).get(field) != (new.get(name) or {}).get(field)
+        for name in fields.surfaces
+        for field in fields.surface_geometry
+    )
+    transform_changed = any(old.get(key) != new.get(key) for key in fields.transform)
 
-    transform_changed = any(old.get(k) != new.get(k) for k in _ELEMENT_TRANSFORM_KEYS)
-
-    old_material = old.get("material") or {}
-    new_material = new.get("material") or {}
+    old_material = old.get(fields.material) or {}
+    new_material = new.get(fields.material) or {}
     index_changed = old_material.get("lorentz") != new_material.get("lorentz")
 
-    other_changed = old_material != new_material and not _only_material_changed(
-        old_material, new_material
-    )
-    tracked = {"surface1", "surface2", "material", *_ELEMENT_TRANSFORM_KEYS, SUBMODULE_KEY}
+    other_changed = old_material != new_material and not _only_material_changed(old_material, new_material)
+    # A key the config carries that the inventory does not name is still a change
+    # something may act on, so it counts as a rebuild; only the grouping key is
+    # exempt, being pure project-tree state. (Submodule-only edits therefore land
+    # on the conservative catch-all below rather than on "none".)
+    named = fields.tracked | _ORGANIZATIONAL_KEYS
     for key in set(old) | set(new):
-        if key in tracked:
+        if key in named:
             continue
         if old.get(key) != new.get(key):
             other_changed = True
@@ -227,9 +230,7 @@ class ElementStack:
         """Take an already-built ``system`` that covers exactly this stack."""
         self._system = system
 
-    def load(
-        self, schema: dict[str, Any], elements: list[RefractiveElement], system: OpticalSystem
-    ) -> None:
+    def load(self, schema: dict[str, Any], elements: list[RefractiveElement], system: OpticalSystem) -> None:
         """Replace the whole stack (document load) with a pre-built ``system``."""
         self._schema = schema
         self._elements = elements
@@ -243,9 +244,7 @@ class ElementStack:
         self._elements.append(element)
         self._invalidate()
 
-    def replace(
-        self, name: str, config: dict[str, Any], element: RefractiveElement
-    ) -> int:
+    def replace(self, name: str, config: dict[str, Any], element: RefractiveElement) -> int:
         index = self.index_of(name)
         assert self._schema is not None
         self._schema[name] = config
@@ -289,9 +288,7 @@ class ElementStack:
         self._invalidate()
         return new_name, index + 1, element
 
-    def import_elements(
-        self, elements_config: dict[str, Any], *, radius: float = 0.0
-    ) -> list[str]:
+    def import_elements(self, elements_config: dict[str, Any], *, radius: float = 0.0) -> list[str]:
         """Merge imported ``elements_config`` into the current project.
 
         The stack is cascaded downstream (along ``-Z``) of the rearmost existing
@@ -319,9 +316,7 @@ class ElementStack:
 
         incoming_front = max(element_position(config)[2] for _, config in named)
         if self._elements:
-            anchor = min(
-                float(element.surface2.point(0.0, 0.0)[2]) for element in self._elements
-            )
+            anchor = min(float(element.surface2.point(0.0, 0.0)[2]) for element in self._elements)
         else:
             anchor = float(self._context.source.position[2])
         delta = anchor - max(2.0 * float(radius), 1.0) - incoming_front
@@ -340,9 +335,7 @@ class ElementStack:
         measurements = self._context.measurements
         origins, dirs, powers, wavelengths = self._context.rays_arrays()
         new_rows = measurements.split_hits(
-            *new_system.measure_planes(
-                origins, dirs, powers, wavelengths, measurements.planes
-            )
+            *new_system.measure_planes(origins, dirs, powers, wavelengths, measurements.planes)
         )
 
         if self._schema is None:
