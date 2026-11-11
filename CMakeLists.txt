@@ -19,6 +19,7 @@ add_library(optics_core OBJECT
   native/expression/parser.cpp
   native/expression/evaluate.cpp
   native/geometry/surface.cpp
+  native/intersection/surface.cpp
   native/intersection/analytic_classify.cpp
   native/intersection/analytic_pattern.cpp
   native/intersection/analytic_eval.cpp

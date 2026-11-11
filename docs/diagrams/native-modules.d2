@@ -11,13 +11,13 @@ kernels: "kernel layers: arrows are includes" {
   optimizing: "optimizing/: coarse DE -> promotion -> medium ->\nwhole-fan validate -> gated NM; also includes tracing"
   measurement: "measurement/: power accumulation, Wendland C2\nreconstruction; also includes intersection"
   tracing: "tracing/: element, trace-stack state, refraction,\nstack walk; also includes geometry"
-  intersection: "intersection/: Newton solver, closed form, inversion, rim mesh"
-  geometry: "geometry/: surface models, apertures, world normals"
+  intersection: "intersection/: Surface operations, Newton solver,\nclosed form, inversion, rim mesh"
+  geometry: "geometry/: surface models, apertures, world normals,\nkernel_layout.hpp (shared data layouts)"
 
   optimizing -> measurement: "plane hits per candidate"
   measurement -> tracing: persistent stack walk
   tracing -> intersection: surface hits per hop
-  intersection <-> geometry: the one header cycle
+  intersection -> geometry: surface and aperture models,\nkernel layouts
 }
 
 base: "leaf layers" {

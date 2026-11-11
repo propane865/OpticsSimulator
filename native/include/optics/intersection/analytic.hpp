@@ -1,98 +1,24 @@
-// Native (closed-form) surface representation: the construction-time
-// classification of a compiled model as a rotationally symmetric sag graph,
-// the sag/derivative evaluators, the specialized ray solvers and their
-// analytic normals. Every specialized surface is a graph ``(u, v, z(u, v))``
-// solved in the surface's local frame, so the surface parameters of a hit are
-// its local ``(x, y)`` and the generic ``HitUV`` contract is unchanged.
+// Native (closed-form) surface behaviour: the sag/derivative evaluators, the
+// specialized ray solvers and their analytic normals, plus the classifier that
+// decides a surface's ``IntersectionKind`` at construction. Every specialized
+// surface is a graph ``(u, v, z(u, v))`` solved in the surface's local frame, so
+// the surface parameters of a hit are its local ``(x, y)`` and the generic
+// ``HitUV`` contract is unchanged. The structures these functions pass around
+// (``IntersectionKind``, ``AnalyticSurface``, the sag results) are shared with
+// the geometry layer and live in ``optics/geometry/kernel_layout.hpp``.
 #pragma once
 
-#include <array>
-#include <cstdint>
 #include <optional>
 #include <utility>
 #include <vector>
 
-#include "optics/common/constants.hpp"
 #include "optics/common/vector.hpp"
+#include "optics/geometry/kernel_layout.hpp"
 
 namespace optics::native {
 
 class SurfaceModel;
 struct SurfaceDesc;
-
-// Intersection strategy, selected once at surface construction. ``Generic``
-// keeps the tiled seed-grid Newton solver; the other kinds are solved in
-// closed form (plane, conic) or with a guarded 1D iteration (aspheres). A
-// sphere is a conic with ``k = 0``, a plane is a conic with ``c = 0``.
-enum class IntersectionKind : std::uint8_t {
-    Generic = 0,
-    Plane = 1,
-    Conic = 2,
-    EvenAsphere = 3,
-    OddAsphere = 4,
-};
-
-// Outcome of a specialized intersection. ``NoIntersection`` is authoritative
-// (the ray provably misses the bounded sag graph), so the caller stops;
-// ``NumericalFailure`` means the specialized solver could not decide and the
-// generic solver must run.
-enum class IntersectionStatus : std::uint8_t {
-    Converged = 0,
-    NoIntersection = 1,
-    NumericalFailure = 2,
-};
-
-// Conic base + Zemax polynomial sag in the surface's local frame:
-//
-//   z(x, y) = z_vertex + conic(q) + poly,   q = x^2 + y^2,  r = sqrt(q)
-//   conic(q) = c q / (1 + sqrt(1 - (1 + k) c^2 q))
-//   EVENASPH: poly = sum_i a_i q^(2i+4)  (Zemax slot i = PARM i + 2)
-//   ODDASPHE: poly = sum_i b_i r^(i+1)   (Zemax slot i = PARM i + 1)
-//
-// ``conic_factor`` is the ``(1 + k) c^2`` literal of the source expression and
-// ``conic_c1k`` the same value divided by ``c`` (the implicit conic's quadratic
-// coefficient); ``conic_constant`` is derived from the two and kept for
-// introspection.
-struct AnalyticSurface {
-    double z_vertex = 0.0;
-    double curvature = 0.0;
-    double conic_constant = 0.0;
-    double conic_factor = 0.0;
-    double conic_c1k = 0.0;
-    std::array<double, 8> coefficients{};
-    std::uint8_t n_coefficients = 0;
-    double max_departure = 0.0;  // bound on |poly| over the membership region
-    double q_domain = kInf;      // sag sqrt domain: q <= q_domain
-    double r_axis_eps = 0.0;     // ODDASPHE axis policy threshold
-    double xy_max = 0.0;         // membership extent along x and y
-    double sag_min = 0.0;        // conservative sag window (relative to z_vertex)
-    double sag_max = 0.0;
-};
-
-// Sag and its derivative with respect to ``q`` (plane/conic/EVENASPH forms).
-struct SagQ {
-    double sag = NAN;
-    double dsag_dq = NAN;
-    bool ok = false;
-};
-
-// Sag and its derivative with respect to ``r`` (ODDASPHE form). ``dsag_dr`` is
-// evaluated from the factored series ``r * H(r)``, so it stays regular at the
-// axis even with a nonzero cone coefficient.
-struct SagR {
-    double sag = NAN;
-    double dsag_dr = NAN;
-    bool ok = false;
-};
-
-// Result of a specialized intersection; the parameters of a converged hit are
-// its local ``(x, y)``.
-struct AnalyticHit {
-    IntersectionStatus status = IntersectionStatus::NoIntersection;
-    double t = 0.0;
-    double u = 0.0;
-    double v = 0.0;
-};
 
 // Process-wide fast-path switch. Classification always runs; the switch only
 // gates the use of the specialized kernels, so tests can compare both solvers

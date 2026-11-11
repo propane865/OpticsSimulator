@@ -45,9 +45,15 @@ which is what lets the document model unit test headless.
 
 **3. Native module layering.** Includes, not declarations: each arrow means a
 `#include "optics/B/..."` from a file in `A`. `expression/` and `common/` are
-leaves; `geometry/` <-> `intersection/` is the one header cycle
-(`geometry/surface.hpp` reuses intersection's classified sag-graph and seed-grid
-layouts, while intersection builds on the surface and aperture models).
+leaves and the kernel layers run one way. `geometry/` and `intersection/` used
+to include each other - `geometry/surface.hpp` reaching up for intersection's
+classified sag-graph and seed-grid layouts while intersection built on the
+surface model - so those plain data layouts now live in
+`geometry/kernel_layout.hpp`, which both layers include; `Surface`'s operations
+are declared in `geometry/surface.hpp` (the surface type is geometry's) and
+defined in `intersection/surface.cpp` (they are intersection kernels). Nothing
+in `geometry/` includes anything from `intersection/`, and
+`tests/core/test_native_layering.py` fails if an include puts the cycle back.
 `native/tests/` links the whole library, so it is a consumer, not a layer.
 Consumer and leaf arrows are drawn once per band; `bindings/` also reaches
 `expression/` (parse failures) and `common/` (`rotation_from_z`) directly. The
@@ -115,13 +121,16 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
 - `native/`: C++17 kernels, built as `optics_core` (object library) and
   `_native` (pybind11 module, bindings in `native/bindings/`). Layered
   `common <- expression <- geometry <- intersection <- tracing <- measurement <-
-  optimizing`, with the one header cycle noted above between `geometry/` and
-  `intersection/`; headers `include/optics/<module>/`, sources per module:
+  optimizing` with no cycle (see above); headers `include/optics/<module>/`,
+  sources per module:
   - `expression/`: parses and validates the restricted surface-expression
     grammar; interprets the lowered tree
   - `geometry/`: surface models and descriptors - expression evaluation,
-    finite-difference tangents, aperture membership, world-space normals
-  - `intersection/`: ray/surface intersection - seed-grid accelerated
+    finite-difference tangents, aperture membership, world-space normals, plus
+    the shared `kernel_layout.hpp` data layouts (seed grid, tiles, sag-graph
+    classification) that both this layer and `intersection/` consume
+  - `intersection/`: ray/surface intersection - the persistent `Surface`
+    operations (`surface.cpp`), seed-grid accelerated
     damped-Newton for generic surfaces; construction-time classified closed-form
     (plane/conic) and guarded 1D (asphere) sag-graph solvers with analytic
     normals; parameter inversion, rim meshing, plane/mesh primitives

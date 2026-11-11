@@ -1,6 +1,10 @@
 // Compiled surface model and the kernel surface descriptor: expression
 // evaluation, finite-difference tangents, descriptor-domain membership,
-// aperture membership, derivative policy and world-space surface normals.
+// aperture membership, derivative policy and world-space surface normals. The
+// shared kernel data layouts come from ``kernel_layout.hpp`` rather than from
+// ``intersection/``, so this header -- and the whole geometry layer -- includes
+// nothing above it; ``Surface``'s own operations are *declared* here (the
+// surface type is geometry's) and *defined* in ``intersection/surface.cpp``.
 #pragma once
 
 #include <cstddef>
@@ -17,8 +21,7 @@
 #include "optics/expression/expression.hpp"
 #include "optics/geometry/aperture.hpp"
 #include "optics/geometry/transform.hpp"
-#include "optics/intersection/analytic.hpp"
-#include "optics/intersection/grid.hpp"
+#include "optics/geometry/kernel_layout.hpp"
 
 namespace optics::native {
 
@@ -103,6 +106,16 @@ inline void grid_nodes(const SurfaceDesc& d, int grid_n, Visit&& visit) {
         }
     }
 }
+
+// One-sided finite-difference partial of the model in direction ``(du, dv)``,
+// with the same shrink-and-retry policy as the tangents.
+Vec3 desc_partial(const SurfaceDesc& d, double u, double v, double du, double dv);
+
+// Whether the model is exactly ``(u, v, z(u, v))`` over a sampled interior
+// grid (mirror of ``Surface.is_graph_over_xy``, which asks it once at
+// construction).
+bool desc_is_graph_over_xy(const SurfaceModel& model, double u_min, double u_max, double v_min,
+                           double v_max);
 
 // Domain + circular-aperture membership.
 bool desc_accepts(const SurfaceDesc& d, double u, double v);
