@@ -71,22 +71,15 @@ def direct_hits(
     nowhere but straight, so ``wavelengths`` (nm, one per ray) only keeps the
     fan whole: the native view carries it unchanged.
     """
+    from .system import fan_buffers, plane_batch  # one marshalling convention
+
     n = origins.shape[0]
     us = np.full(n, np.nan)
     vs = np.full(n, np.nan)
     pws = np.zeros(n)
-    s_u, s_v, t_u, t_v = plane.frame_coeffs
     _native.measure_direct(
-        origins,
-        dirs,
-        powers,
-        wavelengths,
-        plane.o,
-        plane.n,
-        s_u,
-        s_v,
-        t_u,
-        t_v,
+        fan_buffers(origins, dirs, wavelengths, powers),
+        plane_batch([plane]),
         us=us,
         vs=vs,
         pws=pws,

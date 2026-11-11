@@ -50,21 +50,21 @@ double py_reconstruct(const py::array_t<double>& grid, const py::array_t<double>
         bandwidth_scale);
 }
 
-void py_measure_direct(const py::array_t<double>& origins, const py::array_t<double>& dirs,
-                       const py::array_t<double>& powers,
-                       const py::array_t<double>& wavelengths, const py::array_t<double>& o,
-                       const py::array_t<double>& nrm, double s_u, double s_v, double t_u,
-                       double t_v, double eps, const py::array_t<double>& us,
-                       const py::array_t<double>& vs, const py::array_t<double>& pws) {
-    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers, wavelengths);
-    const Vec3 ov = to_vec3(o, "plane origin");
-    const Vec3 nv = to_vec3(nrm, "plane normal");
+void py_measure_direct(const FanBuffers& fan, const PlaneBatch& planes, double eps,
+                       const py::array_t<double>& us, const py::array_t<double>& vs,
+                       const py::array_t<double>& pws) {
+    require(planes.count() == 1, "measure_direct takes a batch of exactly one plane");
+    const optics::native::RayBatchView rays = fan.rays();
+    const Vec3 ov = planes.origin(0);
+    const Vec3 nv = planes.normal(0);
+    const optics::native::PlaneFrame frame = planes.frame(0);
     double* ud = write_doubles(us, "us");
     double* vd = write_doubles(vs, "vs");
     double* pd = write_doubles(pws, "pws");
     const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
-    optics::native::measure_direct(rays, ov, nv, s_u, s_v, t_u, t_v, eps, out);
+    optics::native::measure_direct(rays, ov, nv, frame.s_u, frame.s_v, frame.t_u, frame.t_v, eps,
+                                   out);
 }
 
 std::tuple<double, double, double, bool> py_plane_hit_local(
@@ -109,56 +109,39 @@ py::array_t<bool> py_valid_hits_mask(const py::array_t<double>& us, const py::ar
 
 // Shared plane-array validation lives in ``support.hpp`` (``read_planes``).
 
-void py_measure_planes_multi(const TraceStack& stack, const py::array_t<double>& origins,
-                             const py::array_t<double>& dirs, const py::array_t<double>& powers,
-                             const py::array_t<double>& wavelengths,
-                             const py::array_t<double>& po, const py::array_t<double>& pn,
-                             const py::array_t<double>& u_min, const py::array_t<double>& u_max,
-                             const py::array_t<double>& v_min, const py::array_t<double>& v_max,
-                             const py::array_t<double>& s_u, const py::array_t<double>& s_v,
-                             const py::array_t<double>& t_u, const py::array_t<double>& t_v,
-                             double eps, const py::array_t<double>& us,
+void py_measure_planes_multi(const TraceStack& stack, const FanBuffers& fan,
+                             const PlaneBatch& planes, double eps, const py::array_t<double>& us,
                              const py::array_t<double>& vs, const py::array_t<double>& pws) {
-    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers, wavelengths);
+    const optics::native::RayBatchView rays = fan.rays();
     const std::size_t n = rays.count;
-    const PlaneArrays planes =
-        read_planes(po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v);
-    const std::size_t p = planes.p;
+    const std::size_t p = planes.count();
     double* ud = write_matrix(us, p, n, "us");
     double* vd = write_matrix(vs, p, n, "vs");
     double* pd = write_matrix(pws, p, n, "pws");
-    const optics::native::PlaneBatchView plane_view = plane_batch_view(planes);
+    const optics::native::PlaneBatchView plane_view = planes.view();
     const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
     optics::native::measure_planes_multi(stack, rays, plane_view, eps, out);
 }
 
-void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<double>& origins,
-                                  const py::array_t<double>& dirs, const py::array_t<double>& powers,
-                                  const py::array_t<double>& wavelengths,
-                                  double ray_length, const py::array_t<double>& po,
-                                  const py::array_t<double>& pn, const py::array_t<double>& u_min,
-                                  const py::array_t<double>& u_max, const py::array_t<double>& v_min,
-                                  const py::array_t<double>& v_max, const py::array_t<double>& s_u,
-                                  const py::array_t<double>& s_v, const py::array_t<double>& t_u,
-                                  const py::array_t<double>& t_v, double eps,
+void py_trace_segments_and_planes(const TraceStack& stack, const FanBuffers& fan, double ray_length,
+                                  const PlaneBatch& planes, double eps,
                                   const py::array_t<double>& starts, const py::array_t<double>& ends,
                                   const py::array_t<std::int8_t>& kinds,
                                   const py::array_t<double>& transmissions,
                                   const py::array_t<std::int64_t>& counts,
                                   const py::array_t<double>& us, const py::array_t<double>& vs,
                                   const py::array_t<double>& pws) {
-    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers, wavelengths);
+    const optics::native::RayBatchView rays = fan.rays();
     const std::size_t n = rays.count;
-    const PlaneArrays planes =
-        read_planes(po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v);
-    const std::size_t p = planes.p;
-    const SegmentBuffers buffers =
-        read_segment_buffers(starts, ends, kinds, transmissions, counts, n);
+    const std::size_t p = planes.count();
+    const SegmentBuffers buffers = read_segment_buffers(starts, ends, kinds, transmissions, counts);
+    require(buffers.n == n && buffers.counts != nullptr,
+            "segment buffers: expected the batched form, (N, cap, 3) with an (N,) counts array");
     double* ud = write_matrix(us, p, n, "us");
     double* vd = write_matrix(vs, p, n, "vs");
     double* pd = write_matrix(pws, p, n, "pws");
-    const optics::native::PlaneBatchView plane_view = plane_batch_view(planes);
+    const optics::native::PlaneBatchView plane_view = planes.view();
     const optics::native::TraceOptions options{ray_length, eps};
     const optics::native::SegmentOutputView segs{buffers.starts,
                                                  buffers.ends,
@@ -188,22 +171,14 @@ void register_measurement(py::module_& m) {
           py::arg("power"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"), py::arg("v_max"),
           py::arg("ru"), py::arg("rv"), py::arg("interval_u"), py::arg("interval_v"),
           py::arg("neighbors"), py::arg("bandwidth_scale"));
-    m.def("measure_direct", &py_measure_direct, py::arg("origins"), py::arg("dirs"),
-          py::arg("powers"), py::arg("wavelengths"), py::arg("o"), py::arg("n"), py::arg("s_u"),
-          py::arg("s_v"), py::arg("t_u"), py::arg("t_v"),
-          py::arg("eps") = optics::native::PLANE_EPS,
-          py::arg("us"), py::arg("vs"), py::arg("pws"));
-    m.def("measure_planes_multi", &py_measure_planes_multi, py::arg("stack"), py::arg("origins"),
-          py::arg("dirs"), py::arg("powers"), py::arg("wavelengths"), py::arg("po"), py::arg("pn"),
-          py::arg("u_min"),
-          py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("s_u"), py::arg("s_v"),
-          py::arg("t_u"), py::arg("t_v"), py::arg("eps") = optics::native::PLANE_EPS,
-          py::arg("us"), py::arg("vs"), py::arg("pws"));
+    m.def("measure_direct", &py_measure_direct, py::arg("fan"), py::arg("planes"),
+          py::arg("eps") = optics::native::PLANE_EPS, py::arg("us"), py::arg("vs"),
+          py::arg("pws"));
+    m.def("measure_planes_multi", &py_measure_planes_multi, py::arg("stack"), py::arg("fan"),
+          py::arg("planes"), py::arg("eps") = optics::native::PLANE_EPS, py::arg("us"),
+          py::arg("vs"), py::arg("pws"));
     m.def("trace_segments_and_planes", &py_trace_segments_and_planes, py::arg("stack"),
-          py::arg("origins"), py::arg("dirs"), py::arg("powers"), py::arg("wavelengths"),
-          py::arg("ray_length"),
-          py::arg("po"), py::arg("pn"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"),
-          py::arg("v_max"), py::arg("s_u"), py::arg("s_v"), py::arg("t_u"), py::arg("t_v"),
+          py::arg("fan"), py::arg("ray_length"), py::arg("planes"),
           py::arg("eps") = optics::native::PLANE_EPS, py::arg("starts"), py::arg("ends"),
           py::arg("kinds"), py::arg("transmissions"), py::arg("counts"), py::arg("us"),
           py::arg("vs"), py::arg("pws"));

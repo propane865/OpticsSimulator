@@ -32,32 +32,55 @@ if TYPE_CHECKING:
 _SEGMENT_KIND_NAMES = ("incident", "internal", "exit")
 
 
-def plane_columns(planes: "Sequence[MeasurementPlane]") -> "tuple[np.ndarray, ...]":
-    """Stack per-plane geometry into ``(P, 3)`` origins/normals, ``(P,)`` ranges
-    and ``(P,)`` in-plane frame coefficient arrays.
+def plane_batch(planes: "Sequence[MeasurementPlane]") -> "_native.PlaneBatch":
+    """Stack the planes into the one native argument every kernel takes.
 
-    This is the one marshalling convention every native call taking per-plane
-    columns (tracing, measurement, optimization) goes through.
+    This is the marshalling convention: a plane's origin, normal, ``u``/``v``
+    ranges and in-plane frame coefficients are stacked column-wise into a
+    :class:`_native.PlaneBatch`, which validates the ten columns once. Passing
+    them as ten positional arguments instead meant a swapped ``u_max`` and
+    ``v_min`` -- same dtype, same shape -- reached the kernel as a detector of
+    the wrong shape, with nothing along the way noticing.
     """
     if not planes:
         empty3 = np.zeros((0, 3), dtype=float)
         empty1 = np.zeros((0,), dtype=float)
-        return (
-            empty3, empty3.copy(), empty1.copy(), empty1.copy(), empty1.copy(),
-            empty1.copy(), empty1.copy(), empty1.copy(), empty1.copy(), empty1.copy(),
+        return _native.PlaneBatch(
+            empty3, empty3.copy(), *[empty1.copy() for _ in range(8)]
         )
-    po = np.ascontiguousarray([p.o for p in planes], dtype=float)
-    pn = np.ascontiguousarray([p.n for p in planes], dtype=float)
-    u_min = np.ascontiguousarray([p.u_min for p in planes], dtype=float)
-    u_max = np.ascontiguousarray([p.u_max for p in planes], dtype=float)
-    v_min = np.ascontiguousarray([p.v_min for p in planes], dtype=float)
-    v_max = np.ascontiguousarray([p.v_max for p in planes], dtype=float)
     coeffs = [p.frame_coeffs for p in planes]
-    s_u = np.ascontiguousarray([c[0] for c in coeffs], dtype=float)
-    s_v = np.ascontiguousarray([c[1] for c in coeffs], dtype=float)
-    t_u = np.ascontiguousarray([c[2] for c in coeffs], dtype=float)
-    t_v = np.ascontiguousarray([c[3] for c in coeffs], dtype=float)
-    return po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v
+    return _native.PlaneBatch(
+        np.ascontiguousarray([p.o for p in planes], dtype=float),
+        np.ascontiguousarray([p.n for p in planes], dtype=float),
+        np.ascontiguousarray([p.u_min for p in planes], dtype=float),
+        np.ascontiguousarray([p.u_max for p in planes], dtype=float),
+        np.ascontiguousarray([p.v_min for p in planes], dtype=float),
+        np.ascontiguousarray([p.v_max for p in planes], dtype=float),
+        np.ascontiguousarray([c[0] for c in coeffs], dtype=float),
+        np.ascontiguousarray([c[1] for c in coeffs], dtype=float),
+        np.ascontiguousarray([c[2] for c in coeffs], dtype=float),
+        np.ascontiguousarray([c[3] for c in coeffs], dtype=float),
+    )
+
+
+def fan_buffers(
+    origins: np.ndarray,
+    dirs: np.ndarray,
+    wavelengths: np.ndarray,
+    powers: "np.ndarray | None" = None,
+) -> "_native.FanBuffers":
+    """The ray fan as the one native argument the kernels take.
+
+    ``powers`` is ``None`` for the trace kernels, which refract each ray at its
+    own wavelength and never read a power; a measurement fan carries it and
+    cannot be handed to a kernel that would ignore it by accident.
+    """
+    return _native.FanBuffers(
+        np.ascontiguousarray(origins, dtype=float),
+        np.ascontiguousarray(dirs, dtype=float),
+        np.ascontiguousarray(wavelengths, dtype=float),
+        powers,
+    )
 
 
 class OpticalSystem:
@@ -177,9 +200,7 @@ class OpticalSystem:
         starts, ends, kinds, transmissions, counts = self._segment_buffers(origins.shape[0])
         _native.trace_segments_batch(
             self._stack,
-            origins,
-            dirs,
-            wavelengths,
+            fan_buffers(origins, dirs, wavelengths),
             float(ray_length),
             starts,
             ends,
@@ -208,11 +229,14 @@ class OpticalSystem:
         origins, dirs, powers, wavelengths = coerce_fan(
             origins, dirs, powers, wavelengths
         )
-        po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns(planes)
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.measure_planes_multi(
-            self._stack, origins, dirs, powers, wavelengths, po, pn, u_min, u_max,
-            v_min, v_max, s_u, s_v, t_u, t_v, us=us, vs=vs, pws=pws,
+            self._stack,
+            fan_buffers(origins, dirs, wavelengths, powers),
+            plane_batch(planes),
+            us=us,
+            vs=vs,
+            pws=pws,
         )
         return us, vs, pws
 
@@ -238,13 +262,20 @@ class OpticalSystem:
         origins, dirs, powers, wavelengths = coerce_fan(
             origins, dirs, powers, wavelengths
         )
-        po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns(planes)
         starts, ends, kinds, transmissions, counts = self._segment_buffers(origins.shape[0])
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.trace_segments_and_planes(
-            self._stack, origins, dirs, powers, wavelengths, float(ray_length),
-            po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v,
-            starts=starts, ends=ends, kinds=kinds, transmissions=transmissions,
-            counts=counts, us=us, vs=vs, pws=pws,
+            self._stack,
+            fan_buffers(origins, dirs, wavelengths, powers),
+            float(ray_length),
+            plane_batch(planes),
+            starts=starts,
+            ends=ends,
+            kinds=kinds,
+            transmissions=transmissions,
+            counts=counts,
+            us=us,
+            vs=vs,
+            pws=pws,
         )
         return starts, ends, kinds, counts, transmissions, us, vs, pws

@@ -24,19 +24,19 @@ using optics::native::TraceOptions;
 using optics::native::TraceStack;
 using namespace optics::bindings;
 
-void py_trace_segments_batch(const TraceStack& stack, const py::array_t<double>& origins,
-                             const py::array_t<double>& dirs,
-                             const py::array_t<double>& wavelengths, double ray_length,
+void py_trace_segments_batch(const TraceStack& stack, const FanBuffers& fan, double ray_length,
                              const py::array_t<double>& starts, const py::array_t<double>& ends,
                              const py::array_t<std::int8_t>& kinds,
                              const py::array_t<double>& transmissions,
                              const py::array_t<std::int64_t>& counts) {
-    const RayPairView fan = read_ray_pair(origins, dirs, wavelengths);
-    const std::size_t n = fan.n;
-    const SegmentBuffers seg = read_segment_buffers(starts, ends, kinds, transmissions, counts, n);
-    const double* od = fan.origins;
-    const double* dd = fan.directions;
-    const double* wl = fan.wavelengths;
+    const RayPairView rays = fan.pair();
+    const std::size_t n = rays.n;
+    const SegmentBuffers seg = read_segment_buffers(starts, ends, kinds, transmissions, counts);
+    require(seg.n == n && seg.counts != nullptr,
+            "segment buffers: expected the batched form, (N, cap, 3) with an (N,) counts array");
+    const double* od = rays.origins;
+    const double* dd = rays.directions;
+    const double* wl = rays.wavelengths;
     const TraceOptions options{ray_length, PLANE_EPS};
     const py::gil_scoped_release release;
     optics::native::run_chunks(n, [&](std::size_t lo, std::size_t hi) {
@@ -63,8 +63,10 @@ void register_tracing(py::module_& m) {
            double wavelength, double ray_length, const py::array_t<double>& starts,
            const py::array_t<double>& ends, const py::array_t<std::int8_t>& kinds,
            const py::array_t<double>& transmissions) {
-            const SingleSegmentBuffers seg =
-                read_single_segment_buffers(starts, ends, kinds, transmissions);
+            // The single-ray shape of the same buffers: no counts out-parameter,
+            // because the count comes back with the exit ray.
+            const SegmentBuffers seg =
+                read_segment_buffers(starts, ends, kinds, transmissions, {});
             const Vec3 ov = to_vec3(o, "origin");
             const Vec3 dv = to_vec3(d, "direction");
             const TraceOptions options{ray_length, PLANE_EPS};
@@ -79,9 +81,9 @@ void register_tracing(py::module_& m) {
         },
         py::arg("stack"), py::arg("o"), py::arg("d"), py::arg("wavelength"), py::arg("ray_length"),
         py::arg("starts"), py::arg("ends"), py::arg("kinds"), py::arg("transmissions"));
-    m.def("trace_segments_batch", &py_trace_segments_batch, py::arg("stack"), py::arg("origins"),
-          py::arg("dirs"), py::arg("wavelengths"), py::arg("ray_length"), py::arg("starts"),
-          py::arg("ends"), py::arg("kinds"), py::arg("transmissions"), py::arg("counts"));
+    m.def("trace_segments_batch", &py_trace_segments_batch, py::arg("stack"), py::arg("fan"),
+          py::arg("ray_length"), py::arg("starts"), py::arg("ends"), py::arg("kinds"),
+          py::arg("transmissions"), py::arg("counts"));
 }
 
 }  // namespace optics::bindings

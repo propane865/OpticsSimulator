@@ -8,6 +8,7 @@ namespace py = pybind11;
 
 namespace optics::bindings {
 
+void register_support(py::module_& m);
 void register_builders(py::module_& m);
 void register_kernels(py::module_& m);
 void register_tracing(py::module_& m);

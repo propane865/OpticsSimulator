@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include <utility>
+
 #include "optics/common/matrix.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/measurement/measurement.hpp"
@@ -254,17 +256,18 @@ inline DetectorBuffers read_detector_buffers(const py::array_t<double>& grid,
     return {static_cast<double*>(g_info.ptr), ud, vd, pd};
 }
 
-// Batched rendering segment output buffers: ``(N, cap, 3)`` starts/ends,
-// ``(N, cap)`` kinds and per-segment transmissions, and ``(N,)`` counts, all
-// validated against the ray count. ``transmissions[i, j]`` is the fraction of
-// ray ``i``'s power still travelling at the start of segment ``j`` -- what a
-// dimmed renderer fades to, and the same quantity a detector multiplies.
+// Rendering segment output buffers, both shapes, one reader: ``(N, cap, 3)``
+// starts/ends with ``(N, cap)`` kinds and transmissions and an ``(N,)`` counts
+// array for the batched form, ``(cap, 3)``/``(cap,)`` and no counts array for
+// the single-ray form (whose count comes back from the kernel instead). The two
+// forms used to be two near-copy readers that differed only by a leading ``N``.
 struct SegmentBuffers {
     double* starts;
     double* ends;
     signed char* kinds;
     double* transmissions;
-    std::int64_t* counts;
+    std::int64_t* counts;  // null for the single-ray form
+    std::size_t n;         // 1 for the single-ray form
     std::size_t cap;
 };
 
@@ -272,62 +275,102 @@ inline SegmentBuffers read_segment_buffers(const py::array_t<double>& starts,
                                            const py::array_t<double>& ends,
                                            const py::array_t<std::int8_t>& kinds,
                                            const py::array_t<double>& transmissions,
-                                           const py::array_t<std::int64_t>& counts,
-                                           std::size_t n) {
+                                           const py::array_t<std::int64_t>& counts) {
     const py::buffer_info s_info = starts.request();
     const py::buffer_info e_info = ends.request();
     const py::buffer_info k_info = kinds.request();
     const py::buffer_info t_info = transmissions.request();
-    const py::buffer_info c_info = counts.request();
-    require(s_info.ndim == 3 && static_cast<std::size_t>(s_info.shape[0]) == n &&
-                s_info.shape[2] == 3,
-            "starts: expected shape (N, cap, 3)");
-    require(e_info.ndim == 3 && e_info.size == s_info.size, "ends: expected shape (N, cap, 3)");
-    require(k_info.ndim == 2 && static_cast<std::size_t>(k_info.shape[0]) == n &&
-                static_cast<std::size_t>(k_info.shape[1]) == static_cast<std::size_t>(s_info.shape[1]),
-            "kinds: expected shape (N, cap)");
-    require(t_info.ndim == 2 && t_info.size == k_info.size, "transmissions: expected shape (N, cap)");
-    require(c_info.ndim == 1 && static_cast<std::size_t>(c_info.size) == n,
-            "counts: expected shape (N,)");
-    require(!s_info.readonly && !e_info.readonly && !k_info.readonly && !t_info.readonly &&
-                !c_info.readonly,
-            "segment buffers must be writeable");
-    return {static_cast<double*>(s_info.ptr), static_cast<double*>(e_info.ptr),
-            static_cast<signed char*>(k_info.ptr), static_cast<double*>(t_info.ptr),
-            static_cast<std::int64_t*>(c_info.ptr), static_cast<std::size_t>(s_info.shape[1])};
-}
-
-// Single-ray rendering segment output buffers: ``(cap, 3)`` starts/ends and
-// ``(cap,)`` kinds and transmissions, the one-ray counterpart of
-// ``read_segment_buffers``.
-struct SingleSegmentBuffers {
-    double* starts;
-    double* ends;
-    signed char* kinds;
-    double* transmissions;
-    std::size_t cap;
-};
-
-inline SingleSegmentBuffers read_single_segment_buffers(const py::array_t<double>& starts,
-                                                        const py::array_t<double>& ends,
-                                                        const py::array_t<std::int8_t>& kinds,
-                                                        const py::array_t<double>& transmissions) {
-    const py::buffer_info s_info = starts.request();
-    const py::buffer_info e_info = ends.request();
-    const py::buffer_info k_info = kinds.request();
-    const py::buffer_info t_info = transmissions.request();
-    require(s_info.ndim == 2 && s_info.shape[1] == 3, "starts: expected shape (cap, 3)");
-    require(e_info.ndim == 2 && e_info.shape[1] == 3 && e_info.size == s_info.size,
-            "ends: expected shape (cap, 3)");
-    require(k_info.ndim == 1 && static_cast<std::size_t>(k_info.size) ==
-                                    static_cast<std::size_t>(s_info.shape[0]),
-            "kinds: expected shape (cap,)");
-    require(t_info.ndim == 1 && t_info.size == k_info.size, "transmissions: expected shape (cap,)");
+    const bool batched = s_info.ndim == 3;
+    require(batched || s_info.ndim == 2, "starts: expected shape (N, cap, 3) or (cap, 3)");
+    require(s_info.shape[s_info.ndim - 1] == 3, "starts: last axis must be the xyz triple");
+    const std::size_t n = batched ? static_cast<std::size_t>(s_info.shape[0]) : 1;
+    const std::size_t cap = static_cast<std::size_t>(s_info.shape[s_info.ndim - 2]);
+    require(e_info.ndim == s_info.ndim && e_info.size == s_info.size,
+            "ends: expected the same shape as starts");
+    // Per-segment arrays carry one entry per slot: a (cap,) row for the single
+    // ray, an (N, cap) block for the batch.
+    require(k_info.ndim == s_info.ndim - 1, "kinds: expected one entry per segment slot");
+    require(static_cast<std::size_t>(k_info.size) == n * cap, "kinds: expected (cap,) or (N, cap)");
+    require(t_info.ndim == k_info.ndim && t_info.size == k_info.size,
+            "transmissions: expected the same shape as kinds");
+    std::int64_t* counts_ptr = nullptr;
+    if (batched) {
+        const py::buffer_info c_info = counts.request();
+        require(c_info.ndim == 1 && static_cast<std::size_t>(c_info.size) == n,
+                "counts: expected shape (N,)");
+        require(!c_info.readonly, "counts: array must be writeable");
+        counts_ptr = static_cast<std::int64_t*>(c_info.ptr);
+    }
     require(!s_info.readonly && !e_info.readonly && !k_info.readonly && !t_info.readonly,
             "segment buffers must be writeable");
     return {static_cast<double*>(s_info.ptr), static_cast<double*>(e_info.ptr),
-            static_cast<signed char*>(k_info.ptr), static_cast<double*>(t_info.ptr),
-            static_cast<std::size_t>(s_info.shape[0])};
+            static_cast<signed char*>(k_info.ptr), static_cast<double*>(t_info.ptr), counts_ptr, n,
+            cap};
 }
+
+// A validated ray fan: the four parallel arrays one fan is, read once and held
+// by reference so every kernel takes one argument instead of four same-shaped
+// ``float64`` arrays that can be handed over in the wrong order with nothing to
+// notice. ``powers`` may be ``None`` for the tracer, which refracts each ray at
+// its own wavelength and never reads a power; asking such a fan for its powers
+// is an error rather than a silent zero.
+class FanBuffers {
+  public:
+    FanBuffers(py::array_t<double> origins, py::array_t<double> directions,
+               py::array_t<double> wavelengths, py::object powers = py::none());
+
+    std::size_t count() const { return n_; }
+
+    // The fan with its per-ray powers (every measurement, and the optimizer's
+    // objective).
+    optics::native::RayBatchView rays() const {
+        // A default-constructed py::array is ``None``, not null, so the absence
+        // of powers is tracked explicitly: handing a trace-only fan to a
+        // measurement would otherwise read a null power array.
+        require(has_powers_, "this fan carries no ray powers");
+        return {origins_.data(), dirs_.data(), pw_.data, wl_.data, n_};
+    }
+
+    // The same fan without powers, for the trace kernels.
+    RayPairView pair() const { return {origins_.data(), dirs_.data(), wl_.data, n_}; }
+
+  private:
+    py::array_t<double> origins_, dirs_, powers_, wavelengths_;
+    ConstDoubles pw_{nullptr, 0}, wl_{nullptr, 0};
+    bool has_powers_ = false;
+    std::size_t n_ = 0;
+};
+
+// A validated batch of measurement planes: the stacked ``(P, 3)`` origins and
+// normals, ``(P,)`` ranges and ``(P,)`` in-plane frame coefficients, read once
+// into one object. Adjacent ``u_max``/``v_min``/``v_max`` columns used to be
+// neighbouring positional arguments of identical dtype and shape, so a swap was
+// silent and showed up only as a detector of the wrong shape.
+class PlaneBatch {
+  public:
+    PlaneBatch(py::array_t<double> po, py::array_t<double> pn, py::array_t<double> u_min,
+               py::array_t<double> u_max, py::array_t<double> v_min, py::array_t<double> v_max,
+               py::array_t<double> s_u, py::array_t<double> s_v, py::array_t<double> t_u,
+               py::array_t<double> t_v);
+
+    std::size_t count() const { return planes_.p; }
+    optics::native::PlaneBatchView view() const { return plane_batch_view(planes_); }
+
+    // One plane of the batch, for the kernels that address a single plane (the
+    // direct measurement, the optimizer's source and destination planes).
+    optics::native::Vec3 origin(std::size_t index) const { return optics::native::as_vec3(planes_.po + 3 * index); }
+    optics::native::Vec3 normal(std::size_t index) const { return optics::native::as_vec3(planes_.pn + 3 * index); }
+    optics::native::PlaneFrame frame(std::size_t index) const {
+        return {planes_.s_u[index], planes_.s_v[index], planes_.t_u[index], planes_.t_v[index]};
+    }
+    double u_min(std::size_t index) const { return planes_.u_min[index]; }
+    double u_max(std::size_t index) const { return planes_.u_max[index]; }
+    double v_min(std::size_t index) const { return planes_.v_min[index]; }
+    double v_max(std::size_t index) const { return planes_.v_max[index]; }
+
+  private:
+    py::array_t<double> po_, pn_, u_min_, u_max_, v_min_, v_max_, s_u_, s_v_, t_u_, t_v_;
+    PlaneArrays planes_{};
+};
 
 }  // namespace optics::bindings

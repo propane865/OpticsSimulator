@@ -16,15 +16,22 @@ d2 diagrams/native-modules.d2 diagrams/native-modules.svg
 
 **1. Layers and the Python/native boundary.** The domain layer sends contiguous
 NumPy buffers and opaque native handles across pybind11 and receives arrays
-back: per-ray work never enters the interpreter. The trace and measure kernels
-are handed the `(origins, dirs, powers, wavelengths)` buffers -- a ray's
-wavelength (nm) crosses with them, because each element's complex index is
-evaluated natively from its Lorentz dielectric model at the wavelength of the ray
-being traced, and what comes back carries the power the ray still has. The native test binary links `optics_core` directly (ctest); the
-Python `tests/` and `benchmarks/` reach the same kernels through `_native`
-where they test kernel behavior rather than the Python API. The picture draws
-that boundary once - one arrow between the bands, labelled with what crosses
-it - because the same buffers and handles travel in both directions.
+back: per-ray work never enters the interpreter. What crosses is two validated
+value objects rather than a run of loose arrays -- `FanBuffers` (the
+`(origins, dirs, powers, wavelengths)` fan, whose per-ray wavelength in nm
+travels with it because each element's complex index is evaluated natively from
+its Lorentz dielectric model at the wavelength of the ray being traced) and
+`PlaneBatch` (the per-plane origins, normals, ranges and frame coefficients),
+both built by `optics.system.fan_buffers`/`plane_batch` and checked field by
+field once at construction. Kernels take one of each: as ten positional plane
+columns and four fan arrays, a swapped `u_max`/`v_min` was legal, silent, and
+showed up only as a detector of the wrong shape. What comes back carries the
+power the ray still has. The native test binary links `optics_core` directly
+(ctest); the Python `tests/` and `benchmarks/` reach the same kernels through
+`_native` where they test kernel behavior rather than the Python API. The
+picture draws that boundary once - one arrow between the bands, labelled with
+what crosses it - because the same buffers and handles travel in both
+directions.
 
 ![Layers and the Python/native boundary](diagrams/system-overview.svg)
 

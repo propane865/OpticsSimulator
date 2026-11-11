@@ -27,12 +27,7 @@ class OptimizeProblem {
   public:
     OptimizeProblem(const optics::native::TraceStack& stack, std::vector<std::int64_t> free_indices,
                     py::array_t<double> x_init, py::array_t<double> lo, py::array_t<double> hi,
-                    py::array_t<double> gaps, py::array_t<double> origins, py::array_t<double> dirs,
-                    py::array_t<double> powers, py::array_t<double> wavelengths,
-                    py::array_t<double> po, py::array_t<double> pn,
-                    py::array_t<double> u_min, py::array_t<double> u_max, py::array_t<double> v_min,
-                    py::array_t<double> v_max, py::array_t<double> s_u, py::array_t<double> s_v,
-                    py::array_t<double> t_u, py::array_t<double> t_v,
+                    py::array_t<double> gaps, FanBuffers fan, PlaneBatch planes,
                     py::array_t<std::int32_t> groups, std::int64_t dest_plane,
                     py::array_t<std::int64_t> slot_of_element = py::array_t<std::int64_t>(),
                     py::array_t<double> tail_span = py::array_t<double>());
@@ -43,13 +38,13 @@ class OptimizeProblem {
 
   private:
     const optics::native::TraceStack& stack_;
-    // Owned references keep every borrowed pointer valid for the run.
-    py::array_t<double> x_init_, lo_, hi_, gaps_, origins_, dirs_, powers_, wavelengths_;
-    py::array_t<double> po_, pn_, u_min_, u_max_, v_min_, v_max_, s_u_, s_v_, t_u_, t_v_;
+    // Owned references keep every borrowed pointer valid for the run: the fan
+    // and the plane batch each hold their own arrays.
+    py::array_t<double> x_init_, lo_, hi_, gaps_;
     py::array_t<std::int32_t> groups_;
     ConstDoubles x0_, lower_, upper_, gapv_;
-    optics::native::RayBatchView rays_{};
-    PlaneArrays planes_{};
+    FanBuffers fan_;
+    PlaneBatch planes_;
     const std::int32_t* group_ids_ = nullptr;
     std::size_t n_groups_ = 0;
     std::size_t dest_plane_ = 1;

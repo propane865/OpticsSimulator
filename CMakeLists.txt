@@ -104,6 +104,7 @@ endif()
 
 pybind11_add_module(_native
   native/bindings/module.cpp
+  native/bindings/support.cpp
   native/bindings/builders.cpp
   native/bindings/kernels.cpp
   native/bindings/tracing.cpp

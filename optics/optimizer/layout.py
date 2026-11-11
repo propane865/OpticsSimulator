@@ -16,7 +16,7 @@ import numpy as np
 from .. import _native
 from ..config import element_position
 from ..measurement_plane import MeasurementPlane
-from ..system import OpticalSystem, plane_columns
+from ..system import OpticalSystem, fan_buffers, plane_batch
 
 # Default z search window around each free element / plane position (mm).
 _DEFAULT_WINDOW = 12.0
@@ -298,7 +298,6 @@ def build_native_problem(
     free_indices = [unit.indices[0] for unit in units]
     slot_of_element = unit_slot_map(units, len(system.native_stack))
     tail_span = [unit.tail_span for unit in units]
-    po, pn, u_min, u_max, v_min, v_max, s_u, s_v, t_u, t_v = plane_columns([source_plane, image_plane])
     return _native.OptimizeProblem(
         system.native_stack,
         free_indices,
@@ -306,20 +305,10 @@ def build_native_problem(
         np.asarray(lo, dtype=float),
         np.asarray(hi, dtype=float),
         gaps,
-        origins,
-        dirs,
-        powers,
-        wavelengths,
-        po,
-        pn,
-        u_min,
-        u_max,
-        v_min,
-        v_max,
-        s_u,
-        s_v,
-        t_u,
-        t_v,
+        fan_buffers(origins, dirs, wavelengths, powers),
+        # The two planes the objective is defined between, in one batch: index 0
+        # the source, index 1 the destination.
+        plane_batch([source_plane, image_plane]),
         groups,
         dest_plane=1,
         slot_of_element=np.asarray(slot_of_element, dtype=np.int64),

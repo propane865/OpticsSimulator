@@ -199,6 +199,7 @@ PYBIND11_MODULE(_native, m) {
         },
         py::arg("n_elements"));
 
+    optics::bindings::register_support(m);
     optics::bindings::register_builders(m);
     optics::bindings::register_kernels(m);
     optics::bindings::register_tracing(m);

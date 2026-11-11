@@ -27,24 +27,13 @@ using optics::native::OptimizerSpec;
 OptimizeProblem::OptimizeProblem(const optics::native::TraceStack& stack,
                                  std::vector<std::int64_t> free_indices, py::array_t<double> x_init,
                                  py::array_t<double> lo, py::array_t<double> hi,
-                                 py::array_t<double> gaps, py::array_t<double> origins,
-                                 py::array_t<double> dirs, py::array_t<double> powers,
-                                 py::array_t<double> wavelengths,
-                                 py::array_t<double> po, py::array_t<double> pn,
-                                 py::array_t<double> u_min, py::array_t<double> u_max,
-                                 py::array_t<double> v_min, py::array_t<double> v_max,
-                                 py::array_t<double> s_u, py::array_t<double> s_v,
-                                 py::array_t<double> t_u, py::array_t<double> t_v,
-                                  py::array_t<std::int32_t> groups, std::int64_t dest_plane,
-                                  py::array_t<std::int64_t> slot_of_element,
-                                  py::array_t<double> tail_span)
+                                 py::array_t<double> gaps, FanBuffers fan, PlaneBatch planes,
+                                 py::array_t<std::int32_t> groups, std::int64_t dest_plane,
+                                 py::array_t<std::int64_t> slot_of_element,
+                                 py::array_t<double> tail_span)
     : stack_(stack), x_init_(std::move(x_init)), lo_(std::move(lo)), hi_(std::move(hi)),
-      gaps_(std::move(gaps)), origins_(std::move(origins)), dirs_(std::move(dirs)),
-      powers_(std::move(powers)), wavelengths_(std::move(wavelengths)), po_(std::move(po)),
-      pn_(std::move(pn)),
-      u_min_(std::move(u_min)), u_max_(std::move(u_max)), v_min_(std::move(v_min)),
-      v_max_(std::move(v_max)), s_u_(std::move(s_u)), s_v_(std::move(s_v)),
-      t_u_(std::move(t_u)), t_v_(std::move(t_v)), groups_(std::move(groups)) {
+      gaps_(std::move(gaps)), fan_(std::move(fan)), planes_(std::move(planes)),
+      groups_(std::move(groups)) {
     x0_ = read_doubles(x_init_, 1, "x_init");
     lower_ = read_doubles(lo_, 1, "lo");
     upper_ = read_doubles(hi_, 1, "hi");
@@ -102,20 +91,18 @@ OptimizeProblem::OptimizeProblem(const optics::native::TraceStack& stack,
         }
         tail_span_.assign(spans.data, spans.data + spans.size);
     }
-    rays_ = read_ray_batch(origins_, dirs_, powers_, wavelengths_);
-    require(rays_.count >= 4, "ray fan must contain at least 4 rays");
-    planes_ = read_planes(po_, pn_, u_min_, u_max_, v_min_, v_max_, s_u_, s_v_, t_u_, t_v_);
-    require(planes_.p == 2, "optimize_layout needs exactly two measurement planes");
+    require(fan_.count() >= 4, "ray fan must contain at least 4 rays");
+    require(planes_.count() == 2, "optimize_layout needs exactly two measurement planes");
     require(dest_plane == 0 || dest_plane == 1, "dest_plane: expected 0 or 1");
     dest_plane_ = static_cast<std::size_t>(dest_plane);
     const py::buffer_info group_info = groups_.request();
     require(group_info.ndim == 1 &&
-                static_cast<std::size_t>(group_info.size) == rays_.count,
+                static_cast<std::size_t>(group_info.size) == fan_.count(),
             "groups: expected one object-point id per ray");
     require(is_contiguous(group_info), "groups: array must be contiguous");
     group_ids_ = static_cast<const std::int32_t*>(group_info.ptr);
     n_groups_ = 0;
-    for (std::size_t i = 0; i < rays_.count; ++i) {
+    for (std::size_t i = 0; i < fan_.count(); ++i) {
         require(group_ids_[i] >= 0, "groups: object-point ids must be non-negative");
         n_groups_ = std::max(n_groups_, static_cast<std::size_t>(group_ids_[i]) + 1);
     }
@@ -132,10 +119,8 @@ void OptimizeProblem::fill_spec(optics::native::OptimizerSpec& spec) const {
     spec.hi.assign(upper_.data, upper_.data + upper_.size);
     spec.gaps.assign(gapv_.data, gapv_.data + gapv_.size);
     spec.dest_plane = dest_plane_;
-    spec.rays = rays_;
-    spec.planes = {planes_.po,   planes_.pn,   planes_.u_min, planes_.u_max, planes_.v_min,
-                   planes_.v_max, planes_.s_u,  planes_.s_v,   planes_.t_u,   planes_.t_v,
-                   planes_.p};
+    spec.rays = fan_.rays();
+    spec.planes = planes_.view();
     spec.groups = group_ids_;
     spec.n_groups = n_groups_;
 }

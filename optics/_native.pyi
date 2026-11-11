@@ -143,11 +143,56 @@ def trace_stack_segments(
     the traced internal paths): 1.0 when no element absorbs, 0.0 when the ray was
     stopped inside one.
     """
+class FanBuffers:
+    """A validated ray fan: ``(N, 3)`` origins and directions, ``(N,)`` powers
+    and wavelengths in nm, checked once at construction.
+
+    Every kernel that walks a fan takes one of these instead of the four arrays,
+    which share a dtype and a shape and so can be handed over in the wrong order
+    with nothing noticing. ``powers`` is ``None`` for the trace kernels, which
+    refract at each ray's wavelength and never read a power; asking such a fan
+    for its powers is an error. Built by :func:`optics.system.fan_buffers`.
+    """
+
+    @property
+    def count(self) -> int: ...
+    def __init__(
+        self,
+        origins: np.ndarray,
+        directions: np.ndarray,
+        wavelengths: np.ndarray,
+        powers: np.ndarray | None = ...,
+    ) -> None: ...
+
+class PlaneBatch:
+    """A validated batch of measurement planes: ``(P, 3)`` origins and normals,
+    ``(P,)`` u/v ranges and ``(P,)`` in-plane frame coefficients.
+
+    The one argument every kernel taking per-plane geometry goes through, built
+    by :func:`optics.system.plane_batch`; validating here is what keeps a
+    transposed ``u_max``/``v_min`` pair from reaching a kernel as a detector of
+    the wrong shape.
+    """
+
+    @property
+    def count(self) -> int: ...
+    def __init__(
+        self,
+        po: np.ndarray,
+        pn: np.ndarray,
+        u_min: np.ndarray,
+        u_max: np.ndarray,
+        v_min: np.ndarray,
+        v_max: np.ndarray,
+        s_u: np.ndarray,
+        s_v: np.ndarray,
+        t_u: np.ndarray,
+        t_v: np.ndarray,
+    ) -> None: ...
+
 def trace_segments_batch(
     stack: TraceStack,
-    origins: np.ndarray,
-    dirs: np.ndarray,
-    wavelengths: np.ndarray,
+    fan: FanBuffers,
     ray_length: float,
     starts: np.ndarray,
     ends: np.ndarray,
@@ -207,16 +252,8 @@ def valid_hits_mask(
     v_max: float,
 ) -> np.ndarray: ...
 def measure_direct(
-    origins: np.ndarray,
-    dirs: np.ndarray,
-    powers: np.ndarray,
-    wavelengths: np.ndarray,
-    o: np.ndarray,
-    n: np.ndarray,
-    s_u: float,
-    s_v: float,
-    t_u: float,
-    t_v: float,
+    fan: FanBuffers,
+    planes: PlaneBatch,
     eps: float = ...,
     *,
     us: np.ndarray,
@@ -225,20 +262,8 @@ def measure_direct(
 ) -> None: ...
 def measure_planes_multi(
     stack: TraceStack,
-    origins: np.ndarray,
-    dirs: np.ndarray,
-    powers: np.ndarray,
-    wavelengths: np.ndarray,
-    po: np.ndarray,
-    pn: np.ndarray,
-    u_min: np.ndarray,
-    u_max: np.ndarray,
-    v_min: np.ndarray,
-    v_max: np.ndarray,
-    s_u: np.ndarray,
-    s_v: np.ndarray,
-    t_u: np.ndarray,
-    t_v: np.ndarray,
+    fan: FanBuffers,
+    planes: PlaneBatch,
     eps: float = ...,
     *,
     us: np.ndarray,
@@ -261,20 +286,8 @@ class OptimizeProblem:
         lo: np.ndarray,
         hi: np.ndarray,
         gaps: np.ndarray,
-        origins: np.ndarray,
-        dirs: np.ndarray,
-        powers: np.ndarray,
-        wavelengths: np.ndarray,
-        po: np.ndarray,
-        pn: np.ndarray,
-        u_min: np.ndarray,
-        u_max: np.ndarray,
-        v_min: np.ndarray,
-        v_max: np.ndarray,
-        s_u: np.ndarray,
-        s_v: np.ndarray,
-        t_u: np.ndarray,
-        t_v: np.ndarray,
+        fan: FanBuffers,
+        planes: PlaneBatch,
         groups: np.ndarray,
         dest_plane: int,
         slot_of_element: np.ndarray | None = ...,
@@ -331,21 +344,9 @@ def optimize_layout(
 ) -> dict[str, Any]: ...
 def trace_segments_and_planes(
     stack: TraceStack,
-    origins: np.ndarray,
-    dirs: np.ndarray,
-    powers: np.ndarray,
-    wavelengths: np.ndarray,
+    fan: FanBuffers,
     ray_length: float,
-    po: np.ndarray,
-    pn: np.ndarray,
-    u_min: np.ndarray,
-    u_max: np.ndarray,
-    v_min: np.ndarray,
-    v_max: np.ndarray,
-    s_u: np.ndarray,
-    s_v: np.ndarray,
-    t_u: np.ndarray,
-    t_v: np.ndarray,
+    planes: PlaneBatch,
     eps: float = ...,
     *,
     starts: np.ndarray,
