@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtWidgets
 
 from optics.config import refractive_element_from_config
 from optics.optimizer import LensOptimization, OptimizationResult
@@ -16,6 +16,8 @@ from ..optimize import LayoutOptimizer
 from ..scene import sync_scene
 from ..widgets import enable_widgets, find_child
 from .base import EditorContext
+from .lock_table import LockTableModel
+from .optimization_log import OptimizationLog, status_line
 
 
 class AnalysisEditor:
@@ -86,21 +88,20 @@ class AnalysisEditor:
         self._mag_target_spin = find_child(window, QtWidgets.QDoubleSpinBox, "analysisMagnificationTargetSpin")
         self._mag_target_spin.setEnabled(self._optimize_mag_check.isChecked())
         self._optimize_mag_check.toggled.connect(self._mag_target_spin.setEnabled)
-        self._lock_table = find_child(window, QtWidgets.QTableWidget, "analysisLockedElementsTable")
         self._progress = find_child(window, QtWidgets.QProgressBar, "analysisOptimizeProgress")
-        self._results_browser = find_child(window, QtWidgets.QTextBrowser, "analysisOptimizeLogBrowser")
         self._labels = {key: find_child(window, QtWidgets.QLabel, name) for key, name in self._LABEL_NAMES}
-        # Both columns share the viewport width evenly and the last one is not
-        # given the leftover slack, so no empty strip is left beside the table.
-        # The row-number header is hidden for the same reason (QUiLoader ignores
-        # the .ui header attribute, so the visibility is owned here).
-        self._lock_table.verticalHeader().setVisible(False)
-        lock_header = self._lock_table.horizontalHeader()
-        lock_header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
-        lock_header.setStretchLastSection(False)
+        # The lock table's rows and locks, and the run's prose, are their own
+        # objects: this class is the wiring between them and the optimizer.
+        self._locks = LockTableModel(
+            find_child(window, QtWidgets.QTableWidget, "analysisLockedElementsTable"),
+            context.state.stack,
+            on_change=self._update_run_enabled,
+        )
+        self._log = OptimizationLog(
+            find_child(window, QtWidgets.QTextBrowser, "analysisOptimizeLogBrowser")
+        )
 
         self._optimizing = False
-        self._locked: set[str] = set()
         self._last_free: list[str] = []
         self._optimizer = LayoutOptimizer()
         self._optimizer.finished.connect(self._on_optimized)
@@ -111,8 +112,6 @@ class AnalysisEditor:
         self._optimize_button.clicked.connect(self._on_optimize)
         self._source_combo.currentIndexChanged.connect(self._update_run_enabled)
         self._image_combo.currentIndexChanged.connect(self._update_run_enabled)
-        self._lock_table.itemChanged.connect(self._on_lock_changed)
-        self._lock_table.itemChanged.connect(self._update_run_enabled)
         self.populate()
 
     def populate(self) -> None:
@@ -144,88 +143,14 @@ class AnalysisEditor:
             if image_sel not in names or image_sel == source_sel:
                 image_sel = next((name for name in names if name != source_sel), names[1])
             self._image_combo.setCurrentText(image_sel)
-        self._populate_lock_table()
+        self._locks.populate()
         self._clear_results()
         self._update_run_enabled()
 
     # -- element lock table ----------------------------------------------------
-    def _lock_rows(self) -> list[tuple[str, tuple[str, ...]]]:
-        """Lock-table rows: ``(row name, member element names)``, stack order.
-
-        Elements inside a submodule collapse into one row named after the
-        submodule (locking it holds every member); ungrouped elements get their
-        own row whose member list is just the element.
-        """
-        rows: list[tuple[str, tuple[str, ...]]] = []
-        emitted: set[str] = set()
-        for name in (self._state.schema or {}):
-            group = self._state.stack.element_submodule(name)
-            if group:
-                if group in emitted:
-                    continue
-                emitted.add(group)
-                rows.append((group, tuple(self._state.stack.submodule_member_names(group))))
-            else:
-                rows.append((name, (name,)))
-        return rows
-
-    def _populate_lock_table(self) -> None:
-        """Refill the lock table from the element stack, keeping locks by name.
-
-        One row per translation unit in stack order (submodules appear once,
-        by their name -- never by their member elements), the row name in
-        column 0 and a checkable "Locked?" cell in column 1. The
-        ``self._locked`` set is the one source of truth (the table only mirrors
-        it and feeds it through :meth:`_on_lock_changed`), so adding or
-        removing a lens never relocks the remaining ones; names that left the
-        rows are dropped.
-        """
-        rows = self._lock_rows()
-        self._locked &= {key for key, _ in rows}
-        self._lock_table.blockSignals(True)
-        self._lock_table.setRowCount(len(rows))
-        for row, (key, members) in enumerate(rows):
-            label = QtWidgets.QTableWidgetItem(key)
-            label.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable)
-            self._lock_table.setItem(row, 0, label)
-            lock = QtWidgets.QTableWidgetItem("")
-            lock.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-            if len(members) > 1:
-                lock.setToolTip(
-                    "Hold this submodule and all its elements at their z "
-                    "while the layout is optimized"
-                )
-            else:
-                lock.setToolTip("Hold this element's z fixed while the layout is optimized")
-            lock.setCheckState(QtCore.Qt.CheckState.Checked if key in self._locked else QtCore.Qt.CheckState.Unchecked)
-            self._lock_table.setItem(row, 1, lock)
-        self._lock_table.blockSignals(False)
-
-    def _on_lock_changed(self, item: QtWidgets.QTableWidgetItem) -> None:
-        """Mirror a lock-table checkbox into the lock set (the table's source)."""
-        if item.column() != 1:
-            return
-        name_item = self._lock_table.item(item.row(), 0)
-        if name_item is None:
-            return
-        if item.checkState() == QtCore.Qt.CheckState.Checked:
-            self._locked.add(name_item.text())
-        else:
-            self._locked.discard(name_item.text())
-
     def _free_request(self) -> tuple[list[str], list[tuple[str, list[str]]]]:
-        """Unlocked units for the optimizer: standalone elements and rigid
-        submodule groups, each in stack order."""
-        free: list[str] = []
-        groups: list[tuple[str, list[str]]] = []
-        for key, members in self._lock_rows():
-            if key in self._locked:
-                continue
-            if len(members) == 1 and members[0] == key:
-                free.append(key)
-            else:
-                groups.append((key, list(members)))
-        return free, groups
+        """Unlocked units for the optimizer, in stack order."""
+        return self._locks.free_request()
 
     def run(self) -> None:
         """Compute and display the source -> image plane transform."""
@@ -344,21 +269,13 @@ class AnalysisEditor:
         free = request["free"]
         groups = request["groups"]
         image_bounds = request["image_bounds"]
-        # Fresh log for this run: clear any previous run, then a header so the
-        # streaming generation lines below have context.
         self._last_free = request["unit_labels"]
-        units_log = list(free) + [
-            f"{label} ({len(members)} {'lens' if len(members) == 1 else 'lenses'})"
-            for label, members in groups
-        ]
-        self._results_browser.clear()
-        self._results_browser.append("Layout optimization started")
-        self._results_browser.append(f"Free units: {', '.join(units_log)}")
-        self._results_browser.append(f"Image plane: {'locked' if image_bounds else 'free'}")
-        target = request["target_magnification"]
-        if target is not None:
-            self._results_browser.append(f"Target magnification: {target:.4g}")
-        self._results_browser.append("")
+        self._log.start_run(
+            free=free,
+            groups=groups,
+            image_locked=bool(image_bounds),
+            target_magnification=request["target_magnification"],
+        )
         self._set_optimizing(True)
         self._set_status("Optimizing layout (this can take a minute)...")
         self._optimizer.start(
@@ -379,7 +296,7 @@ class AnalysisEditor:
         self._allow_suboptimal_check.setEnabled(not running)
         self._optimize_mag_check.setEnabled(not running)
         self._mag_target_spin.setEnabled(not running and self._optimize_mag_check.isChecked())
-        self._lock_table.setEnabled(not running)
+        self._locks.widget.setEnabled(not running)
         self._progress.setVisible(running)
         if running:
             self._run_button.setEnabled(False)
@@ -387,22 +304,9 @@ class AnalysisEditor:
         else:
             self._update_run_enabled()
 
-    # -- optimization log (the analysis results text browser) --------------------
-    def _append_log(self, text: str) -> None:
-        """Append one line to the optimization log and keep it scrolled to the end."""
-        self._results_browser.append(text)
-        bar = self._results_browser.verticalScrollBar()
-        bar.setValue(bar.maximum())
-
     def _on_optimize_progress(self, generation: int, cost: float, blur: float, evals: int) -> None:
-        """Append one solver tick; delivered on the UI thread via the signal.
-
-        A negative generation marks the post-DE refinement phases (medium
-        re-rank, full validation, Nelder-Mead polish), which keep the search's
-        running best while no longer advancing generations.
-        """
-        phase = "refinement" if generation < 0 else f"generation {generation + 1:>4d}"
-        self._append_log(f"{phase}   best spot {blur:.4g} mm   cost {cost:.4g}   {evals} evals")
+        """Append one solver tick; delivered on the UI thread via the signal."""
+        self._log.tick(generation, cost, blur, evals)
 
     def _on_optimized(self, result: OptimizationResult) -> None:
         """Commit the winning layout through the normal replace paths."""
@@ -423,45 +327,11 @@ class AnalysisEditor:
             self._state.measurements.replace(image, plane_from_config(result.image_plane_config))
         self._refresh()
         self.run()
-        fit = result.transform
-        if result.status == "ok":
-            self._set_status(
-                f"Optimized in {result.evaluations} evaluations: best focus "
-                f"spot={result.spot_radius_mm:.3g} mm, M={fit.scale:.4g}"
-            )
-        else:
-            bound_note = (
-                f" -- pinned to {', '.join(result.window_limited)}; the focus likely lies outside the searched range"
-                if result.window_limited
-                else ""
-            )
-            self._set_status(
-                f"Optimized (suboptimal: no focused layout, status {result.status}) "
-                f"in {result.evaluations} evaluations: spot={result.spot_radius_mm:.3g} mm, "
-                f"worst field={result.worst_field_mm:.3g} mm, M={fit.scale:.4g}"
-                f"{bound_note}"
-            )
-        self._append_log("")
-        if result.status == "ok":
-            self._append_log(f"Optimized in {result.evaluations} evaluations:")
-        else:
-            self._append_log(
-                f"Finished without a focused layout (status {result.status}) in {result.evaluations} evaluations:"
-            )
-        self._append_log(f"  best RMS spot radius = {result.spot_radius_mm:.4g} mm")
-        self._append_log(f"  unclipped spot radius = {result.blur_all_mm:.4g} mm")
-        self._append_log(f"  worst-field spot radius = {result.worst_field_mm:.4g} mm")
-        self._append_log(f"  magnification = {fit.scale:.4g}")
-        for name, z in zip(self._last_free, result.best_z, strict=False):
-            self._append_log(f"  {name} z = {z:.4g} mm")
-        if result.best_z:
-            self._append_log(f"  image plane z = {result.best_z[-1]:.4g} mm")
-        if result.window_limited:
-            self._append_log("  pinned to search bound: " + ", ".join(result.window_limited))
+        self._set_status(status_line(result))
+        self._log.result(result, self._last_free)
 
     def _on_optimize_failed(self, message: str) -> None:
         self._optimizer.finish()
         self._set_optimizing(False)
-        self._append_log("")
-        self._append_log(f"Optimization failed: {message}")
+        self._log.failure(message)
         self._set_status(f"Optimization failed: {message}")

@@ -11,6 +11,7 @@ import json
 import threading
 from collections.abc import Sequence
 from dataclasses import replace
+from functools import partial
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, cast
@@ -43,9 +44,11 @@ from .editors import (
 from .plane_view import PlaneView
 from .project.elements import DEFAULT_ELEMENT_CONFIG
 from .project.state import ProjectState
-from .project_tree import ELEMENT, PLANE, SOURCE, SUBMODULE, ProjectTree, Selection
+from .project_files import ProjectFiles
+from .project_tree import ELEMENT, PLANE, SUBMODULE, ProjectTree, Selection
 from .scene import RAY_LENGTH, SceneController, make_display
-from .widgets import find_child, run_validated
+from .selection import SelectionRouter, SelectionTargets, editor_pages
+from .widgets import find_child
 
 __all__ = [
     "OpticsMainWindow",
@@ -61,16 +64,6 @@ _TAB_TOOLTIPS = (
     "Edit the project object selected in the Project tree",
     "Compare two plane images and optimize the layout for focus",
 )
-
-# Which editor-stack page shows a project object selected in the tree. Keyed by
-# the stack page's object name (resolved in ``_load_ui``) so a Designer reorder
-# cannot silently send a selection to the wrong form.
-_EDITOR_PAGE_BY_KIND = {
-    ELEMENT: "editorPageElement",
-    SOURCE: "editorPageSource",
-    PLANE: "editorPagePlane",
-    SUBMODULE: "editorPageSubmodule",
-}
 
 # The two docks main.ui declares, with the area each belongs in. QUiLoader hands
 # them over as children of the loaded window; they only become real docks of
@@ -94,7 +87,6 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._ui: QtWidgets.QMainWindow
         self._state = ProjectState(rays=rays)
         self._scene = SceneController(canvas)
-        self._selection_kind: str | None = None
         self._load_ui()
         self._embed_canvas(canvas)
         self._apply_viewport_theme()
@@ -103,22 +95,22 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         # per page, so the variants are derived rather than re-listed. Both
         # selectors report into _on_project_changed, which runs only after
         # construction, so the tree the callback refreshes can be built last.
-        trace = EditorContext(self, self._state, self._scene, self._set_status, self._refresh_trace)
+        trace = EditorContext(self, self._state, self._scene, self.set_status, self._refresh_trace)
         self._element_editor = ElementEditor(
             trace,
             on_items_changed=self._on_project_changed,
-            on_selection_changed=lambda: self._on_editor_selection(ELEMENT),
+            on_selection_changed=partial(self._on_editor_selection, ELEMENT),
         )
         self._source_editor = SourceEditor(replace(trace, refresh=self._refresh_after_source))
         self._submodule_editor = SubmoduleEditor(
             trace,
             on_items_changed=self._on_project_changed,
-            on_selection_changed=lambda: self._on_editor_selection(SUBMODULE),
+            on_selection_changed=partial(self._on_editor_selection, SUBMODULE),
         )
         self._plane_editor = PlaneEditor(
             replace(trace, refresh=self._update_plane_view),
             on_items_changed=self._on_project_changed,
-            on_selection_changed=lambda: self._on_editor_selection(PLANE),
+            on_selection_changed=partial(self._on_editor_selection, PLANE),
         )
         self._analysis_editor = AnalysisEditor(trace)
         self._project_tree = ProjectTree(
@@ -131,6 +123,21 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             on_submodule_removed=self._on_submodule_removed,
             on_element_duplicate=self._element_editor.duplicate,
         )
+        # The selection the three widgets share, and the file dialogs, are each
+        # their own object: the window wires them and stays out of between.
+        self._router = SelectionRouter(
+            SelectionTargets(
+                state=self._state,
+                scene=self._scene,
+                tree=self._project_tree,
+                elements=self._element_editor,
+                planes=self._plane_editor,
+                submodules=self._submodule_editor,
+                editor_stack=self._editor_stack,
+                editor_pages=self._editor_pages,
+            )
+        )
+        self._files = ProjectFiles(self, self)
         self._connect_actions()
         self._scene.refresh_source(self._state.source)
 
@@ -158,10 +165,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             if stack is None:
                 continue
             self._editor_stack = stack
-            for kind, page in _EDITOR_PAGE_BY_KIND.items():
-                page_widget = stack.findChild(QtWidgets.QWidget, page)
-                if page_widget is not None:
-                    self._editor_pages[kind] = page_widget
+            self._editor_pages.update(editor_pages(stack)[0])
 
     def _embed_canvas(self, canvas: Any) -> None:
         container = find_child(self, QtWidgets.QWidget, "openGLWidget", UI_PATH.name)
@@ -197,14 +201,18 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._apply_viewport_theme()
 
     def _connect_actions(self) -> None:
-        find_child(self._ui, QtGui.QAction, "actionOpen", UI_PATH.name).triggered.connect(self._on_open)
+        find_child(self._ui, QtGui.QAction, "actionOpen", UI_PATH.name).triggered.connect(
+            self._files.open
+        )
         find_child(self._ui, QtGui.QAction, "actionImport_Zemax", UI_PATH.name).triggered.connect(
-            self._on_import_zemax
+            self._files.import_zemax
         )
         find_child(self._ui, QtGui.QAction, "actionOptical_Element", UI_PATH.name).triggered.connect(
             self._element_editor.add
         )
-        find_child(self._ui, QtGui.QAction, "actionSave_As", UI_PATH.name).triggered.connect(self._on_save_as)
+        find_child(self._ui, QtGui.QAction, "actionSave_As", UI_PATH.name).triggered.connect(
+            self._files.save_as
+        )
         find_child(self._ui, QtGui.QAction, "actionMeasurement_Plane", UI_PATH.name).triggered.connect(
             self._plane_editor.add
         )
@@ -215,71 +223,22 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
 
     # -- project selection (tree <-> editors <-> scene) -----------------------
+    # Which object is selected is the router's business; these are the entry
+    # points the tree, the editors and the refresh paths call it through.
     def _on_tree_select(self, selection: Selection) -> None:
         """Show the clicked project object in its editor page, lit in 3D."""
-        kind, name = selection
-        self._selection_kind = kind
-        self._show_editor(kind)
-        if kind == ELEMENT:
-            self._element_editor.select(name)
-        elif kind == PLANE:
-            self._plane_editor.select(name)
-        elif kind == SUBMODULE:
-            self._submodule_editor.select(name)
-        self._apply_scene_selection()
+        self._router.on_tree_select(selection)
 
     def _on_editor_selection(self, kind: str, *_: object) -> None:
         """Follow a selection the editors made on their own (load, add, remove
         fallback): move the tree highlight and editor page to that object."""
-        self._selection_kind = kind
-        selection = self._selection()
-        self._project_tree.set_current(selection)
-        if selection is not None:
-            self._show_editor(kind)
-        self._apply_scene_selection()
+        self._router.on_editor_selection(kind)
 
     def _selection(self) -> Selection | None:
-        """The project object the editors are currently showing, if any."""
-        kind = self._selection_kind
-        if kind == ELEMENT:
-            name = self._element_editor.selected_name()
-            return None if name is None else (ELEMENT, name)
-        if kind == PLANE:
-            names = self._state.plane_names
-            index = self._plane_editor.selected_index()
-            return (PLANE, names[index]) if 0 <= index < len(names) else None
-        if kind == SUBMODULE:
-            name = self._submodule_editor.selected_name()
-            return None if name is None else (SUBMODULE, name)
-        return None if kind is None else (SOURCE, "")
+        return self._router.current()
 
     def _apply_scene_selection(self) -> None:
-        """Light the selected object: elements tint, planes rim, source neither."""
-        selection = self._selection()
-        kind = None if selection is None else selection[0]
-        name = "" if selection is None else selection[1]
-        self._scene.select_elements(self._selected_element_indices(kind, name))
-        planes = self._state.plane_names
-        self._scene.select_plane(planes.index(name) if kind == PLANE and name in planes else None)
-
-    def _selected_element_indices(self, kind: str | None, name: str) -> tuple[int, ...]:
-        """The stack rows to tint: one lens, or every member of a submodule."""
-        names = list(self._state.schema or {})
-        if kind == ELEMENT:
-            return (names.index(name),) if name in names else ()
-        if kind == SUBMODULE:
-            return tuple(
-                names.index(member)
-                for member in self._state.stack.submodule_member_names(name)
-                if member in names
-            )
-        return ()
-
-    def _show_editor(self, kind: str) -> None:
-        """Switch the editor stack to the form for a kind of project object."""
-        page = self._editor_pages.get(kind)
-        if self._editor_stack is not None and page is not None:
-            self._editor_stack.setCurrentWidget(page)
+        self._router.apply()
 
     # -- submodule grouping (project tree) -------------------------------------
     # Grouping is organizational only: it never invalidates the cached system,
@@ -298,12 +257,12 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             # new members or none at all.
             self._submodule_editor.populate_fields()
         self._on_project_changed()
-        self._set_status(
+        self.set_status(
             f"Moved {name} to {submodule}" if submodule else f"Removed {name} from its submodule"
         )
 
     def _on_submodule_created(self, name: str) -> None:
-        self._set_status(f"Created {name}")
+        self.set_status(f"Created {name}")
 
     def _on_submodule_renamed(self, old: str, new: str) -> None:
         following = self._project_tree.current_selection() == (SUBMODULE, old)
@@ -311,7 +270,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         if following:
             self._submodule_editor.select(new)  # follow the group it was showing
         self._on_project_changed()
-        self._set_status(f"Renamed submodule {old} to {new}")
+        self.set_status(f"Renamed submodule {old} to {new}")
 
     def _on_submodule_removed(self, name: str) -> None:
         following = self._project_tree.current_selection() == (SUBMODULE, name)
@@ -319,7 +278,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         if following:
             self._submodule_editor.select("")  # the group is gone: empty the form
         self._on_project_changed()
-        self._set_status(f"Removed submodule {name}")
+        self.set_status(f"Removed submodule {name}")
 
     # -- orchestration shared by the editors --------------------------------
     def _on_project_changed(self) -> None:
@@ -376,7 +335,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._scene.sync_planes(self._state.planes, results)
         self._update_plane_view()
 
-    def _set_status(self, message: str) -> None:
+    def set_status(self, message: str) -> None:
+        """One line of status for whatever just happened (the editors' too)."""
         self.statusBar().showMessage(message)
 
     def _update_plane_view(self) -> None:
@@ -412,6 +372,11 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         return list(self._state.plane_results)
 
     # -- project load / save -------------------------------------------------
+    @property
+    def has_project(self) -> bool:
+        """Whether there is a loaded stack to save (Save As refuses otherwise)."""
+        return self._state.schema is not None
+
     def load_stack(self, path: str | Path) -> "list[RefractiveElement]":
         path = Path(path)
         document = load_project(path)
@@ -432,7 +397,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._element_editor.refresh()
         self._update_plane_view()
 
-        self._set_status(f"Loaded {len(elements)} element(s) from {path.name}")
+        self.set_status(f"Loaded {len(elements)} element(s) from {path.name}")
         return elements
 
     def import_elements(self, path: str | Path) -> "list[str]":
@@ -453,7 +418,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self.frame_to_scene()
         self._update_plane_view()
 
-        self._set_status(f"Imported {len(added)} element(s) from {path.name}")
+        self.set_status(f"Imported {len(added)} element(s) from {path.name}")
         return added
 
     def save_stack(self, path: str | Path) -> Path:
@@ -461,79 +426,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         path = Path(path)
         with open(path, "w") as f:
             json.dump(document, f, indent=4)
-        self._set_status(f"Saved {len(document['elements'])} element(s) to {path.name}")
+        self.set_status(f"Saved {len(document['elements'])} element(s) to {path.name}")
         return path
-
-    # -- menu / dialog handlers ---------------------------------------------
-    # Open/Save work on JSON project documents; Zemax ``.zmx`` is import-only
-    # (see ``_IMPORT_FILTER`` / ``_on_import_zemax``).
-    _OPEN_FILTER = "JSON files (*.json);;All files (*)"
-    _SAVE_FILTER = "JSON files (*.json);;All files (*)"
-    _IMPORT_FILTER = "Zemax files (*.zmx);;All files (*)"
-
-    def _pick_json_path(self, mode: str) -> Path | None:
-        """Ask for a project path via the open/save dialog; ``None`` if cancelled."""
-        if mode == "open":
-            title, dialog, file_filter = (
-                "Open Optical Stack",
-                QtWidgets.QFileDialog.getOpenFileName,
-                self._OPEN_FILTER,
-            )
-        else:
-            title, dialog, file_filter = (
-                "Save Optical Stack",
-                QtWidgets.QFileDialog.getSaveFileName,
-                self._SAVE_FILTER,
-            )
-        path, _ = dialog(self, title, str(Path.home()), file_filter)
-        return Path(path) if path else None
-
-    def _on_open(self) -> None:
-        path = self._pick_json_path("open")
-        if path is None:
-            return
-        run_validated(
-            self,
-            lambda: self.load_stack(path),
-            title="Open Failed",
-            message="Could not load optical stack",
-            critical=True,
-        )
-
-    def _on_import_zemax(self) -> None:
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Import Zemax Prescription", str(Path.home()), self._IMPORT_FILTER
-        )
-        if not path:
-            return
-        run_validated(
-            self,
-            lambda: self.import_elements(Path(path)),
-            title="Import Failed",
-            message="Could not import Zemax elements",
-            critical=True,
-        )
-
-    def _on_save_as(self) -> None:
-        if self._state.schema is None:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Nothing to Save",
-                "No optical stack is loaded.",
-            )
-            return
-        save_path = self._pick_json_path("save")
-        if save_path is None:
-            return
-        if not save_path.suffix:
-            save_path = save_path.with_suffix(".json")
-        run_validated(
-            self,
-            lambda: self.save_stack(save_path),
-            title="Save Failed",
-            message="Could not save optical stack",
-            critical=True,
-        )
 
 
 def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:

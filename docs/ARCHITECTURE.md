@@ -276,9 +276,23 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     other through, so every symbol keeps a single import path
   - `demo.py`: standalone demo (bundled doublet, no UI)
 - `ui/`: PySide6 desktop application (`main.ui` is the Qt Designer layout):
-  - `app.py`: composition root - `OpticsMainWindow`, project load/save, Zemax
-    import merge, menu dialogs, `main()` entry point (`make_display` is defined
-    in `scene.py` and re-exported here); runs the unified refresh
+  - `app.py`: composition root - `OpticsMainWindow` wires the state, scene,
+    tree and editors and runs the unified refresh; the two jobs it used to hold
+    beside the wiring are objects of their own (`selection.py`,
+    `project_files.py`), so what is left is construction and delegation.
+    `main()` is the entry point (`make_display` is defined in `scene.py` and
+    re-exported here)
+  - `selection.py`: `SelectionRouter` - the one project object that counts as
+    selected, and both directions of the agreement that keeps the tree
+    highlight, the editor page and the scene's tint pointing at it (a tree click
+    moves the editors; an editor's own change of row after a load, add or remove
+    moves the tree). Owns the kind -> editor-page mapping, resolved from the
+    loaded `.ui` by object name
+  - `project_files.py`: `ProjectFiles` - Open, Save As and Zemax import: the
+    file dialogs, their filters and titles, the cancel-is-not-a-failure rule and
+    the one validated wrapper that reports a failed operation. It decides which
+    path and which operation; the window's `load_stack`/`import_elements`/
+    `save_stack` do the document work
   - `project/`: the Qt-free document model - `state.py` (`ProjectState`, the
     aggregate root: it owns the source and its cached ray arrays and composes
     the two subsystems, exposing them as `stack`/`measurements` rather than
