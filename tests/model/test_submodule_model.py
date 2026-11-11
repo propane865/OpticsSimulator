@@ -46,23 +46,23 @@ def _state_with_group() -> ProjectState:
     configs["lens2"]["submodule"] = "barrel"
     state = ProjectState()
     for name, config in configs.items():
-        state.add_element(name, config, refractive_element_from_config(config))
+        state.stack.add(name, config, refractive_element_from_config(config))
     return state
 
 
 def test_submodule_position_anchors_on_first_member():
     state = _state_with_group()
 
-    assert state.submodule_member_names("barrel") == ["lens1", "lens2"]
-    assert state.submodule_position("barrel") == [0.0, 1.0, 0.0]
-    assert state.submodule_position("barrelless") is None  # nothing to place
-    assert state.submodule_member_names("") == []
+    assert state.stack.submodule_member_names("barrel") == ["lens1", "lens2"]
+    assert state.stack.submodule_position("barrel") == [0.0, 1.0, 0.0]
+    assert state.stack.submodule_position("barrelless") is None  # nothing to place
+    assert state.stack.submodule_member_names("") == []
 
 
 def test_move_submodule_translates_every_member_together():
     state = _state_with_group()
 
-    moved = state.move_submodule("barrel", [1.0, 2.0, -3.0])
+    moved = state.stack.move_submodule("barrel", [1.0, 2.0, -3.0])
 
     assert [index for index, _ in moved] == [0, 1]  # the group's stack rows
     np.testing.assert_allclose(
@@ -84,7 +84,7 @@ def test_move_submodule_translates_every_member_together():
 def test_move_submodule_leaves_ungrouped_members_alone():
     state = _state_with_group()
 
-    state.move_submodule("barrel", [1.0, 2.0, -3.0])
+    state.stack.move_submodule("barrel", [1.0, 2.0, -3.0])
 
     assert state.schema is not None
     np.testing.assert_allclose(
@@ -99,7 +99,7 @@ def test_move_submodule_invalidates_the_cached_system():
     state = _state_with_group()
     system = state.system
 
-    state.move_submodule("barrel", [0.0, 0.0, -1.0])
+    state.stack.move_submodule("barrel", [0.0, 0.0, -1.0])
 
     assert state.system is not system  # a move is a transform change to retrace
 
@@ -108,7 +108,7 @@ def test_move_submodule_without_members_moves_nothing():
     state = _state_with_group()
     system = state.system
 
-    moved = state.move_submodule("barrelless", [1.0, 1.0, 1.0])
+    moved = state.stack.move_submodule("barrelless", [1.0, 1.0, 1.0])
 
     assert moved == []
     assert state.system is system  # nothing moved, so the stack stays valid

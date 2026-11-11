@@ -42,26 +42,31 @@ def apply_document(state: ProjectState, document: object) -> list[RefractiveElem
         used.add(name)
         new_planes.append(plane)
         new_names.append(name)
-    new_rows = state._measurements.split_hits(
+    new_rows = state.measurements.split_hits(
         *new_system.measure_planes(
             ray_arrays[0], ray_arrays[1], ray_arrays[2], ray_arrays[3], new_planes
         )
     )
 
-    state._schema = elements_config
-    state._elements = elements
-    state._system = new_system
-    state._source = source
-    state._rays = rays
-    state._rays_arrays = None
-    state._measurements.load_planes(new_planes, new_names, new_rows)
+    state.replace_project(
+        schema=elements_config,
+        elements=elements,
+        system=new_system,
+        source=source,
+        rays=rays,
+        planes=new_planes,
+        plane_names=new_names,
+        rows=new_rows,
+    )
     return elements
 
 
 def project_from_state(state: ProjectState) -> dict[str, Any]:
     """The project document for ``state``'s current project."""
-    if state._schema is None:
+    schema = state.schema
+    if schema is None:
         raise RuntimeError("No optical stack loaded to save")
+    measurements = state.measurements
     return build_project_document(
-        state._schema, state._source, state._measurements.names, state._measurements.planes
+        schema, state.source, measurements.names, measurements.planes
     )

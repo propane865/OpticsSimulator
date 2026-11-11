@@ -478,7 +478,7 @@ def test_submodule_move_round_trips_through_the_document(stack_window, tmp_path)
         pytest.approx(0.0),
         pytest.approx(-3.0),
     ]
-    assert window._state.element_submodule("lens2") == "submodule1"
+    assert window._state.stack.element_submodule("lens2") == "submodule1"
 
 
 def test_source_editor_enabled_without_stack(window):

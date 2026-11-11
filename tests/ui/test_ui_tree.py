@@ -415,12 +415,12 @@ def test_rename_and_remove_submodule(stack_window):
 
     window._on_submodule_renamed("submodule1", "barrel")
 
-    assert window._state.element_submodule("lens2") == "barrel"
+    assert window._state.stack.element_submodule("lens2") == "barrel"
     assert _tree_submodule_members(_tree(window), "barrel") == ["lens2"]
 
     window._on_submodule_removed("barrel")
 
-    assert window._state.element_submodule("lens2") is None
+    assert window._state.stack.element_submodule("lens2") is None
     assert _tree_names(_tree(window), ProjectTree.ELEMENTS_LABEL) == ["lens1", "lens2"]
 
 
@@ -436,7 +436,7 @@ def test_submodule_grouping_round_trips_through_the_document(stack_window, tmp_p
     window._project_tree.move_element("lens2", None)  # wipe the live grouping
     window.load_stack(path)
 
-    assert window._state.element_submodule("lens2") == "submodule1"
+    assert window._state.stack.element_submodule("lens2") == "submodule1"
     assert _tree_submodule_members(_tree(window), "submodule1") == ["lens2"]
 
 

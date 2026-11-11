@@ -270,7 +270,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         if kind == SUBMODULE:
             return tuple(
                 names.index(member)
-                for member in self._state.submodule_member_names(name)
+                for member in self._state.stack.submodule_member_names(name)
                 if member in names
             )
         return ()
@@ -292,7 +292,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         return current is not None and current[0] == SUBMODULE
 
     def _on_element_moved(self, name: str, submodule: str | None) -> None:
-        self._state.set_element_submodule(name, submodule)
+        self._state.stack.set_element_submodule(name, submodule)
         if self._showing_submodule():
             # Membership changed, so the group on screen may have a new anchor,
             # new members or none at all.
@@ -307,7 +307,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def _on_submodule_renamed(self, old: str, new: str) -> None:
         following = self._project_tree.current_selection() == (SUBMODULE, old)
-        self._state.rename_submodule(old, new)
+        self._state.stack.rename_submodule(old, new)
         if following:
             self._submodule_editor.select(new)  # follow the group it was showing
         self._on_project_changed()
@@ -315,7 +315,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def _on_submodule_removed(self, name: str) -> None:
         following = self._project_tree.current_selection() == (SUBMODULE, name)
-        self._state.remove_submodule(name)
+        self._state.stack.remove_submodule(name)
         if following:
             self._submodule_editor.select("")  # the group is gone: empty the form
         self._on_project_changed()
@@ -353,10 +353,10 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             starts, ends, _kinds, counts, dims, us, vs, pws = system.trace_segments_and_planes(
                 origins, dirs, powers, wavelengths, RAY_LENGTH, planes
             )
-            results = state.set_plane_hits(us, vs, pws)
+            results = state.measurements.set_hits(us, vs, pws)
             self._scene.retrace_from_segments(starts, ends, counts, dims)
         else:
-            state.measure_all()
+            state.measurements.measure_all()
             results = state.plane_results
             self._scene.retrace(system, rays)
         self._scene.rebuild_planes(planes, results)
@@ -372,7 +372,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def _on_display_mode_changed(self, index: int) -> None:
         """Re-derive every plane image in the selected display mode (no re-trace)."""
-        results = self._state.set_plane_display_mode(index == 1)
+        results = self._state.measurements.set_display_mode(index == 1)
         self._scene.rebuild_planes(self._state.planes, results)
         self._update_plane_view()
 
@@ -444,7 +444,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         """
         path = Path(path)
         elements_config, geometry = load_zmx_elements(path)
-        added = self._state.import_elements(elements_config, radius=geometry.radius)
+        added = self._state.stack.import_elements(elements_config, radius=geometry.radius)
 
         self._scene.full_rebuild(self._state.elements, self._state.rays)
         self._scene.refresh_source(self._state.source)

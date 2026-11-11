@@ -86,7 +86,7 @@ class PlaneEditor(SelectorEditor):
             res_spin.setValue(int(value))
         for size_spin, value in zip(self._size_spins, plane.in_plane_size):
             size_spin.setValue(float(value))
-        self._show_lock_state(self._state.is_plane_locked(index))
+        self._show_lock_state(self._state.measurements.is_locked(index))
         self._refresh()
 
     # -- source lock -----------------------------------------------------------
@@ -107,7 +107,7 @@ class PlaneEditor(SelectorEditor):
         index = self.selected_index()
         if index < 0 or index >= len(self._state.planes):
             return
-        pinned = self._state.set_plane_locked(index, checked)
+        pinned = self._state.measurements.set_locked(index, checked)
         if pinned is not None:
             self._scene.replace_plane_nodes(index, pinned, self._state.plane_results[index])
             for spin, value in zip(self._pos_spins, pinned.o):
@@ -141,7 +141,7 @@ class PlaneEditor(SelectorEditor):
 
     def _commit_current(self, built: tuple[int, MeasurementPlane]) -> None:
         index, updated = built
-        self._state.replace_plane(index, updated)
+        self._state.measurements.replace(index, updated)
         self._scene.replace_plane_nodes(index, updated, self._state.plane_results[index])
         self._refresh()
         self._set_status(f"Updated properties for {self._state.plane_names[index]}")
@@ -152,7 +152,7 @@ class PlaneEditor(SelectorEditor):
             return None
         name = self._state.plane_names[index]
         self._scene.remove_plane_nodes(index)
-        self._state.remove_plane(index)
+        self._state.measurements.remove(index)
         return name
 
     def _build_new(self) -> MeasurementPlane:
@@ -161,7 +161,7 @@ class PlaneEditor(SelectorEditor):
         return plane_from_config(config)
 
     def _register_new(self, built: MeasurementPlane) -> str:
-        name = self._state.new_plane_name()
-        result = self._state.add_plane(name, built)
+        name = self._state.measurements.new_name()
+        result = self._state.measurements.add(name, built)
         self._scene.add_plane_nodes(built, result)
         return name

@@ -1,10 +1,20 @@
-"""The aggregate root: canonical project state plus delegating operations.
+"""The aggregate root: the project's source, ray fan and the two subsystems.
 
-One owner for the element stack, source, rays and (via
-:class:`~.measurements.MeasurementState`) the planes; the element operations
-live in :mod:`.elements` and the document conversion in :mod:`.persistence`,
-both of which mutate *this* object, so there is no duplicated state to keep
-in sync.
+One owner for the source and its ray fan, composing
+:class:`~.elements.ElementStack` (the element list, its config schema and the
+cached native system) and
+:class:`~.measurements.MeasurementState` (the plane list, cached hits, derived
+images and the source-lock policy). Each subsystem gets only the small
+:class:`~.measurements.TraceContext` / :class:`~.elements.StackContext` view of
+the root it needs, so neither reaches into privates; the document conversion in
+:mod:`.persistence` swaps the whole project through
+:meth:`ProjectState.replace_project`.
+
+What is left here is therefore state the root genuinely owns plus the reads the
+UI wants without naming a subsystem (:attr:`elements`, :attr:`schema`,
+:attr:`system`, :attr:`planes`). Operations are on the subsystem a caller
+reaches through :attr:`stack` or :attr:`measurements` -- there is no
+pass-through surface to keep in step.
 """
 
 from __future__ import annotations
@@ -21,50 +31,51 @@ from optics.project import DEFAULT_SOURCE_CONFIG
 from optics.source import PointSource
 from optics.system import OpticalSystem
 
-from . import elements as element_ops
 from . import persistence
-from .elements import unique_name
+from .elements import ElementStack
 from .measurements import MeasurementState
 
 
 class ProjectState:
-    """Mutable project state plus the operations the UI performs on it."""
+    """Mutable project state: the source/ray fan plus the stack and plane subsystems."""
 
     def __init__(
         self,
         source: PointSource | None = None,
         rays: Iterable[Ray] | None = None,
     ) -> None:
-        self._schema: dict[str, Any] | None = None
-        self._elements: list[RefractiveElement] = []
-        self._source: PointSource = source if source is not None else PointSource(**DEFAULT_SOURCE_CONFIG)
+        self._source: PointSource = (
+            source if source is not None else PointSource(**DEFAULT_SOURCE_CONFIG)
+        )
         self._rays: list[Ray] = list(rays) if rays is not None else list(self._source.emit_rays())
         self._rays_arrays: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None
+        self._stack = ElementStack(self)
         self._measurements = MeasurementState(self)
-        self._system: OpticalSystem | None = None
 
-    # -- read-only accessors -------------------------------------------------
+    # -- subsystems ----------------------------------------------------------
+    @property
+    def stack(self) -> ElementStack:
+        """The element stack: schema, elements, naming, grouping, duplication."""
+        return self._stack
+
+    @property
+    def measurements(self) -> MeasurementState:
+        """The measurement planes: cached hits, derived images, source lock."""
+        return self._measurements
+
+    # -- reads ---------------------------------------------------------------
     @property
     def schema(self) -> dict[str, Any] | None:
-        return self._schema
+        return self._stack.schema
 
     @property
     def elements(self) -> list[RefractiveElement]:
-        return self._elements
+        return self._stack.elements
 
     @property
     def system(self) -> OpticalSystem:
-        """Persistent native system over the current element stack.
-
-        Built lazily and dropped whenever the elements change, so the trace
-        and measurement passes reuse one native ``TraceStack`` and
-        configuration errors surface at (re)build, not per trace.
-        """
-        system = self._system
-        if system is None:
-            system = OpticalSystem(self._elements)
-            self._system = system
-        return system
+        """Persistent native system over the current element stack."""
+        return self._stack.system
 
     @property
     def source(self) -> PointSource:
@@ -73,6 +84,19 @@ class ProjectState:
     @property
     def rays(self) -> list[Ray]:
         return self._rays
+
+    @property
+    def planes(self) -> list[MeasurementPlane]:
+        return self._measurements.planes
+
+    @property
+    def plane_names(self) -> list[str]:
+        return self._measurements.names
+
+    @property
+    def plane_results(self) -> list[MeasurementResult]:
+        """Accumulated detector image per plane (parallel to :attr:`planes`)."""
+        return self._measurements.results
 
     def rays_arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """The ray fan as contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers/wavelengths.
@@ -90,74 +114,6 @@ class ProjectState:
             self._rays_arrays = arrays
         return arrays
 
-    def measure_plane(self, plane: MeasurementPlane) -> MeasurementResult:
-        """A fresh detector image for ``plane`` over the cached ray arrays."""
-        return self._measurements.measure_plane(plane)
-
-    @property
-    def planes(self) -> list[MeasurementPlane]:
-        return self._measurements.planes
-
-    @property
-    def plane_names(self) -> list[str]:
-        return self._measurements.names
-
-    @property
-    def plane_results(self) -> list[MeasurementResult]:
-        """Accumulated detector image per plane (parallel to :attr:`planes`)."""
-        return self._measurements.results
-
-    # -- naming --------------------------------------------------------------
-    def new_element_name(self) -> str:
-        return element_ops.new_element_name(self)
-
-    def new_plane_name(self) -> str:
-        return unique_name("", self._measurements.names, prefix="plane")
-
-    # -- element operations --------------------------------------------------
-    def add_element(self, name: str, config: dict[str, Any], element: RefractiveElement) -> None:
-        element_ops.add_element(self, name, config, element)
-
-    def replace_element(self, name: str, config: dict[str, Any], element: RefractiveElement) -> int:
-        return element_ops.replace_element(self, name, config, element)
-
-    def remove_element(self, name: str) -> None:
-        element_ops.remove_element(self, name)
-
-    def duplicate_element(self, name: str) -> tuple[str, int, RefractiveElement]:
-        return element_ops.duplicate_element(self, name)
-
-    def import_elements(self, elements_config: dict[str, Any], *, radius: float = 0.0) -> list[str]:
-        return element_ops.import_elements(self, elements_config, radius=radius)
-
-    # -- submodule (tree grouping) operations ---------------------------------
-    def submodule_names(self) -> list[str]:
-        return element_ops.submodule_names(self)
-
-    def new_submodule_name(self) -> str:
-        return element_ops.new_submodule_name(self)
-
-    def element_submodule(self, name: str) -> str | None:
-        return element_ops.element_submodule(self, name)
-
-    def submodule_member_names(self, name: str) -> list[str]:
-        return element_ops.submodule_member_names(self, name)
-
-    def submodule_position(self, name: str) -> list[float] | None:
-        return element_ops.submodule_position(self, name)
-
-    def move_submodule(self, name: str, delta: Sequence[float]) -> list[tuple[int, RefractiveElement]]:
-        return element_ops.move_submodule(self, name, delta)
-
-    def set_element_submodule(self, name: str, submodule: str | None) -> None:
-        element_ops.set_element_submodule(self, name, submodule)
-
-    def rename_submodule(self, old: str, new: str) -> None:
-        element_ops.rename_submodule(self, old, new)
-
-    def remove_submodule(self, name: str) -> None:
-        element_ops.remove_submodule(self, name)
-
     # -- source / rays -------------------------------------------------------
     def set_source(self, source: PointSource, rays: list[Ray]) -> None:
         self._source = source
@@ -165,37 +121,30 @@ class ProjectState:
         self._rays_arrays = None
         self._measurements.relock_to_source()
 
-    # -- measurement plane operations ---------------------------------------
-    # The plane lists, cached hits, images and source-lock policy live in
-    # :class:`ui.project.measurements.MeasurementState`; these are the
-    # aggregate root's compatibility surface for it.
-    def add_plane(self, name: str, plane: MeasurementPlane) -> MeasurementResult:
-        return self._measurements.add(name, plane)
+    # -- whole-project replacement -------------------------------------------
+    def replace_project(
+        self,
+        *,
+        schema: dict[str, Any],
+        elements: list[RefractiveElement],
+        system: OpticalSystem,
+        source: PointSource,
+        rays: list[Ray],
+        planes: list[MeasurementPlane],
+        plane_names: list[str],
+        rows: Sequence[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    ) -> None:
+        """Swap in a parsed project as one step, with its planes already measured.
 
-    def replace_plane(self, index: int, plane: MeasurementPlane) -> None:
-        self._measurements.replace(index, plane)
-
-    def remove_plane(self, index: int) -> None:
-        self._measurements.remove(index)
-
-    def is_plane_locked(self, index: int) -> bool:
-        """Whether plane ``index`` is pinned just downstream of the source."""
-        return self._measurements.is_locked(index)
-
-    def set_plane_locked(self, index: int, locked: bool) -> MeasurementPlane | None:
-        """Pin/unlock plane ``index`` to the source; return the pinned plane."""
-        return self._measurements.set_locked(index, locked)
-
-    def set_plane_hits(self, us: np.ndarray, vs: np.ndarray, pws: np.ndarray) -> list[MeasurementResult]:
-        """Cache one trace's ``(P, N)`` plane hits and derive the images."""
-        return self._measurements.set_hits(us, vs, pws)
-
-    def set_plane_display_mode(self, reconstruct: bool) -> list[MeasurementResult]:
-        """Switch images between raw histogram and adaptive reconstruction."""
-        return self._measurements.set_display_mode(reconstruct)
-
-    def measure_all(self) -> None:
-        self._measurements.measure_all()
+        Everything is built before this is called (see
+        :func:`.persistence.apply_document`), so a file that fails to parse or a
+        stack that fails to build leaves the current project untouched.
+        """
+        self._stack.load(schema, elements, system)
+        self._source = source
+        self._rays = list(rays)
+        self._rays_arrays = None
+        self._measurements.load_planes(list(planes), list(plane_names), list(rows))
 
     # -- document (de)serialization -----------------------------------------
     def load_document(self, document: object) -> list[RefractiveElement]:

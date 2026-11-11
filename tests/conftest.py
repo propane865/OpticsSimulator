@@ -190,17 +190,3 @@ def doublet_window(make_window, doublet_path):
     window = make_window()
     window.load_stack(doublet_path)
     return window
-
-
-@pytest.fixture
-def captured_warnings(monkeypatch):
-    """Records (and suppresses) QMessageBox.warning calls for a test."""
-    from PySide6 import QtWidgets
-
-    calls = []
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox,
-        "warning",
-        staticmethod(lambda *args, **kwargs: calls.append(args)),
-    )
-    return calls

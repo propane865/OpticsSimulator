@@ -136,7 +136,7 @@ class ProjectTree:
         self._elements_item = group
         subs: dict[str, QtWidgets.QTreeWidgetItem] = {}
         for name in self._state.schema or {}:
-            submodule = self._state.element_submodule(name)
+            submodule = self._state.stack.element_submodule(name)
             if submodule is None:
                 group.addChild(self._item(ELEMENT, name, name))
                 continue
@@ -313,7 +313,7 @@ class ProjectTree:
                 return (True, key[1])
             if key[0] != ELEMENT:
                 return (False, None)
-            return (True, self._state.element_submodule(key[1]))
+            return (True, self._state.stack.element_submodule(key[1]))
         if item is not None and item is self._elements_item:
             return (True, None)
         return (False, None)
@@ -407,7 +407,7 @@ class ProjectTree:
             self._on_element_duplicate(name)
 
     def _create_submodule(self) -> None:
-        used = set(self._state.submodule_names()) | self._pending_submodules
+        used = set(self._state.stack.submodule_names()) | self._pending_submodules
         name = unique_name("", used, prefix="submodule")
         self._pending_submodules.add(name)
         self.populate()

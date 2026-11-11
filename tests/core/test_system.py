@@ -135,12 +135,12 @@ class TestProjectStateSystem:
 
         state = ProjectState()
         first = make_element("0.1*u*u+0.5", "0.1*v*v-0.5")
-        state.add_element("lens", {"surface1": {}, "surface2": {}}, first)
+        state.stack.add("lens", {"surface1": {}, "surface2": {}}, first)
         system = state.system
         assert system is state.system  # reused while elements are untouched
         assert len(system) == 1
         second = make_element("0.2*u*u+0.5", "0.2*v*v-0.5")
-        state.replace_element("lens", {"surface1": {}, "surface2": {}}, second)
+        state.stack.replace("lens", {"surface1": {}, "surface2": {}}, second)
         assert state.system is not system
         assert state.system.elements == (second,)
 

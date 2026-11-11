@@ -21,6 +21,8 @@ from optics.measurement_plane import (
 from optics.source import PointSource
 from optics.system import OpticalSystem
 
+from .elements import unique_name
+
 PlaneRow = tuple[np.ndarray, np.ndarray, np.ndarray]
 
 # World-Z offset (mm) where a plane locked to the source is pinned, just
@@ -53,6 +55,11 @@ class MeasurementState:
         self.hit_rows: list[PlaneRow] = []
         self.locked: list[bool] = []
         self.reconstruct: bool = False
+
+    # -- naming ----------------------------------------------------------------
+    def new_name(self) -> str:
+        """A free plane name (``plane1``, ``plane2``, ...)."""
+        return unique_name("", self.names, prefix="plane")
 
     # -- measurement core ------------------------------------------------------
     @staticmethod

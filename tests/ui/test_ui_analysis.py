@@ -506,7 +506,7 @@ def test_analysis_lock_table_locked_while_optimizing(window, qt_app, monkeypatch
 def _group_submodule(window, name, *members):
     """Assign members to a submodule and re-sync the analysis tab."""
     for member in members:
-        window._state.set_element_submodule(member, name)
+        window._state.stack.set_element_submodule(member, name)
     window._analysis_editor.populate()
 
 

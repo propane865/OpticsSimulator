@@ -41,12 +41,12 @@ class SubmoduleEditor(SelectorEditor):
         self.set_enabled(False)
 
     def _item_names(self) -> list[str]:
-        return self._state.submodule_names()
+        return self._state.stack.submodule_names()
 
     def populate_fields(self, *_: object) -> None:
         """Show the anchor's position; ``None`` when there is nothing to move."""
         name = self.selected_name()
-        anchor = None if name is None else self._state.submodule_position(name)
+        anchor = None if name is None else self._state.stack.submodule_position(name)
         if anchor is None:
             # A session-only empty submodule has no anchor: nothing to move.
             self.set_enabled(False)
@@ -57,7 +57,7 @@ class SubmoduleEditor(SelectorEditor):
 
     def _build_current(self) -> tuple[str, list[float]] | None:
         name = self.selected_name()
-        anchor = None if name is None else self._state.submodule_position(name)
+        anchor = None if name is None else self._state.stack.submodule_position(name)
         if name is None or anchor is None:
             return None
         delta = [
@@ -70,7 +70,7 @@ class SubmoduleEditor(SelectorEditor):
         if not any(delta):
             self._set_status(f"No changes to {name}")
             return
-        moved = self._state.move_submodule(name, delta)
+        moved = self._state.stack.move_submodule(name, delta)
         for index, element in moved:
             self._scene.replace_element_nodes(index, element)
         self._refresh()

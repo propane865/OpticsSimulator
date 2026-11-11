@@ -48,14 +48,14 @@ def _state() -> ProjectState:
     configs["lens2"]["submodule"] = "barrel"
     state = ProjectState()
     for name, config in configs.items():
-        state.add_element(name, config, refractive_element_from_config(config))
+        state.stack.add(name, config, refractive_element_from_config(config))
     return state
 
 
 def test_duplicate_inserts_right_after_the_original_under_a_fresh_name():
     state = _state()
 
-    name, index, _element = state.duplicate_element("lens1")
+    name, index, _element = state.stack.duplicate("lens1")
 
     assert state.schema is not None
     assert index == 1  # immediately after the source at row 0
@@ -66,7 +66,7 @@ def test_duplicate_inserts_right_after_the_original_under_a_fresh_name():
 def test_duplicate_offset_downstream_by_its_aperture_gap():
     state = _state()
 
-    _name, index, element = state.duplicate_element("lens1")
+    _name, index, element = state.stack.duplicate("lens1")
 
     # radius 1 -> gap max(2*1, 1) = 2, applied along -Z from the original (z=0).
     np.testing.assert_allclose(element.transform.translation, [0.0, 1.0, -2.0], atol=1e-9)
@@ -76,7 +76,7 @@ def test_duplicate_offset_downstream_by_its_aperture_gap():
 def test_duplicate_is_an_independent_copy():
     state = _state()
 
-    name, index, _element = state.duplicate_element("lens1")
+    name, index, _element = state.stack.duplicate("lens1")
     assert state.schema is not None
     state.schema[name]["material"] = constant_material(1.9)  # edit only the copy
 
@@ -87,17 +87,17 @@ def test_duplicate_is_an_independent_copy():
 def test_duplicate_inherits_the_submodule_group():
     state = _state()
 
-    name, _index, _element = state.duplicate_element("lens1")
+    name, _index, _element = state.stack.duplicate("lens1")
 
-    assert state.element_submodule(name) == "barrel"
-    assert state.submodule_member_names("barrel") == ["lens1", name, "lens2"]
+    assert state.stack.element_submodule(name) == "barrel"
+    assert state.stack.submodule_member_names("barrel") == ["lens1", name, "lens2"]
 
 
 def test_duplicate_invalidates_the_cached_system():
     state = _state()
     system = state.system
 
-    state.duplicate_element("lens1")
+    state.stack.duplicate("lens1")
 
     assert state.system is not system
 
@@ -106,4 +106,4 @@ def test_duplicate_unknown_element_raises():
     state = _state()
 
     with pytest.raises(KeyError):
-        state.duplicate_element("ghost")
+        state.stack.duplicate("ghost")

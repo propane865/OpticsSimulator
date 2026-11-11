@@ -376,7 +376,7 @@ class ElementEditor(SelectorEditor):
     def _commit_current(self, built: tuple[str, dict[str, Any], Any]) -> None:
         name, config, element = built
         kind = classify_element_edit((self._state.schema or {}).get(name), config)
-        index = self._state.replace_element(name, config, element)
+        index = self._state.stack.replace(name, config, element)
         if kind == "none":
             self._set_status(f"No changes to {name}")
             return
@@ -393,20 +393,20 @@ class ElementEditor(SelectorEditor):
         if name not in schema:
             return None
         self._scene.remove_element_nodes(list(schema.keys()).index(name))
-        self._state.remove_element(name)
+        self._state.stack.remove(name)
         return name
 
     def _after_removal(self) -> None:
         self._refresh()
 
     def _build_new(self) -> tuple[str, dict[str, Any], Any]:
-        name = self._state.new_element_name()
+        name = self._state.stack.new_name()
         config = copy.deepcopy(DEFAULT_ELEMENT_CONFIG)
         return name, config, refractive_element_from_config(config)
 
     def _register_new(self, built: tuple[str, dict[str, Any], Any]) -> str:
         name, config, element = built
-        self._state.add_element(name, config, element)
+        self._state.stack.add(name, config, element)
         self._scene.add_element_nodes(element)
         self._refresh()
         return name
@@ -421,7 +421,7 @@ class ElementEditor(SelectorEditor):
         """
         built = run_validated(
             self._window,
-            lambda: self._state.duplicate_element(name),
+            lambda: self._state.stack.duplicate(name),
             title=self.DUPLICATE_TITLE,
             message=self.DUPLICATE_MESSAGE,
         )

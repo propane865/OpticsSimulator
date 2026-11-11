@@ -158,12 +158,12 @@ class AnalysisEditor:
         rows: list[tuple[str, tuple[str, ...]]] = []
         emitted: set[str] = set()
         for name in (self._state.schema or {}):
-            group = self._state.element_submodule(name)
+            group = self._state.stack.element_submodule(name)
             if group:
                 if group in emitted:
                     continue
                 emitted.add(group)
-                rows.append((group, tuple(self._state.submodule_member_names(group))))
+                rows.append((group, tuple(self._state.stack.submodule_member_names(group))))
             else:
                 rows.append((name, (name,)))
         return rows
@@ -416,11 +416,11 @@ class AnalysisEditor:
                 continue
             index = names.index(name)
             element = refractive_element_from_config(config)
-            self._state.replace_element(name, config, element)
+            self._state.stack.replace(name, config, element)
             self._scene.replace_element_nodes(index, element)
         image = self._image_combo.currentIndex()
         if not self._lock_image_check.isChecked() and image < len(self._state.planes):
-            self._state.replace_plane(image, plane_from_config(result.image_plane_config))
+            self._state.measurements.replace(image, plane_from_config(result.image_plane_config))
         self._refresh()
         self.run()
         fit = result.transform
