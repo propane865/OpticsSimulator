@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +20,8 @@ from optics.source import (
 )
 
 from .. import imagecodec
-from ..project.state import ProjectState
-from ..scene import SceneController
 from ..widgets import configure_button_box, configure_spin, find_child, run_validated
-from .base import REVERT_TIP
+from .base import REVERT_TIP, EditorContext
 
 SOURCE_TYPE_BY_LABEL = {
     "Single Point": SINGLE_POINT,
@@ -36,19 +33,13 @@ LABEL_BY_SOURCE_TYPE = {value: key for key, value in SOURCE_TYPE_BY_LABEL.items(
 class SourceEditor:
     """Editor for the light source; enabled from startup (never needs a stack)."""
 
-    def __init__(
-        self,
-        window: QtWidgets.QMainWindow,
-        state: ProjectState,
-        scene: SceneController,
-        set_status: Callable[[str], None],
-        refresh_trace: Callable[[], None],
-    ) -> None:
+    def __init__(self, context: EditorContext) -> None:
+        window = context.window
         self._window = window
-        self._state = state
-        self._scene = scene
-        self._set_status = set_status
-        self._refresh_trace = refresh_trace
+        self._state = context.state
+        self._scene = context.scene
+        self._set_status = context.set_status
+        self._refresh = context.refresh
 
         self._type_combo = find_child(window, QtWidgets.QComboBox, "sourceTypeCombo")
         self._power_spin = find_child(window, QtWidgets.QDoubleSpinBox, "sourcePowerSpin")
@@ -179,5 +170,5 @@ class SourceEditor:
         source, rays = result
         self._state.set_source(source, list(rays))
         self._scene.refresh_source(source)
-        self._refresh_trace()
+        self._refresh()
         self._set_status(f"Updated light source ({len(rays)} rays)")

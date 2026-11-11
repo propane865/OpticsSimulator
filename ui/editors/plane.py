@@ -11,10 +11,8 @@ from PySide6 import QtWidgets
 from optics.measurement_plane import MeasurementPlane
 from optics.project import DEFAULT_MEASUREMENT_CONFIG, plane_from_config
 
-from ..project.state import ProjectState
-from ..scene import SceneController
 from ..widgets import configure_spin, enable_widgets, find_child
-from .base import SelectorEditor
+from .base import EditorContext, SelectorEditor
 
 
 class PlaneEditor(SelectorEditor):
@@ -28,27 +26,20 @@ class PlaneEditor(SelectorEditor):
 
     def __init__(
         self,
-        window: QtWidgets.QMainWindow,
-        state: ProjectState,
-        scene: SceneController,
-        set_status: Callable[[str], None],
-        update_view: Callable[[], None],
+        context: EditorContext,
         on_items_changed: Callable[[], None] | None = None,
         on_selection_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
-            window,
-            state,
-            scene,
-            set_status,
-            "removePlaneButton",
-            "planeButtonBox",
-            "planePos",
-            "planeNormal",
+            context,
+            button_box_name="planeButtonBox",
+            pos_prefix="planePos",
+            remove_name="removePlaneButton",
+            normal_prefix="planeNormal",
             on_items_changed=on_items_changed,
             on_selection_changed=on_selection_changed,
         )
-        self._update_view = update_view
+        window = context.window
 
         self._resolution_spins: tuple[QtWidgets.QSpinBox, ...] = (
             find_child(window, QtWidgets.QSpinBox, "planeResUSpin"),
@@ -77,14 +68,14 @@ class PlaneEditor(SelectorEditor):
         return list(self._state.plane_names)
 
     def _on_no_selection(self) -> None:
-        self._update_view()
+        self._refresh()
 
     def populate_fields(self, *_: object) -> None:
         index = self.selected_index()
         planes = self._state.planes
         if index < 0 or index >= len(planes):
             self._show_lock_state(False)
-            self._update_view()
+            self._refresh()
             return
         plane = planes[index]
         for spin, value in zip(self._pos_spins, plane.o):
@@ -96,7 +87,7 @@ class PlaneEditor(SelectorEditor):
         for size_spin, value in zip(self._size_spins, plane.in_plane_size):
             size_spin.setValue(float(value))
         self._show_lock_state(self._state.is_plane_locked(index))
-        self._update_view()
+        self._refresh()
 
     # -- source lock -----------------------------------------------------------
     def _show_lock_state(self, locked: bool) -> None:
@@ -121,7 +112,7 @@ class PlaneEditor(SelectorEditor):
             self._scene.replace_plane_nodes(index, pinned, self._state.plane_results[index])
             for spin, value in zip(self._pos_spins, pinned.o):
                 spin.setValue(float(value))
-            self._update_view()
+            self._refresh()
         enable_widgets(self._pos_spins, not checked)
         if checked:
             self._set_status(f"Locked {self._state.plane_names[index]} to source")
@@ -152,7 +143,7 @@ class PlaneEditor(SelectorEditor):
         index, updated = built
         self._state.replace_plane(index, updated)
         self._scene.replace_plane_nodes(index, updated, self._state.plane_results[index])
-        self._update_view()
+        self._refresh()
         self._set_status(f"Updated properties for {self._state.plane_names[index]}")
 
     def _remove_selected(self) -> str | None:

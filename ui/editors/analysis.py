@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Callable
 from typing import Any
 
 from PySide6 import QtCore, QtWidgets
@@ -14,9 +13,8 @@ from optics.plane_transform import plane_transform
 from optics.project import plane_from_config
 
 from ..optimize import LayoutOptimizer
-from ..project.state import ProjectState
-from ..scene import SceneController
 from ..widgets import enable_widgets, find_child
+from .base import EditorContext
 
 
 class AnalysisEditor:
@@ -70,18 +68,12 @@ class AnalysisEditor:
         ("rays", "analysisRaysLabel"),
     )
 
-    def __init__(
-        self,
-        window: QtWidgets.QMainWindow,
-        state: ProjectState,
-        scene: SceneController,
-        set_status: Callable[[str], None],
-        refresh_trace: Callable[[], None],
-    ) -> None:
-        self._state = state
-        self._scene = scene
-        self._set_status = set_status
-        self._refresh_trace = refresh_trace
+    def __init__(self, context: EditorContext) -> None:
+        window = context.window
+        self._state = context.state
+        self._scene = context.scene
+        self._set_status = context.set_status
+        self._refresh = context.refresh
         self._source_combo = find_child(window, QtWidgets.QComboBox, "analysisSourcePlaneCombo")
         self._image_combo = find_child(window, QtWidgets.QComboBox, "analysisImagePlaneCombo")
         self._run_button = find_child(window, QtWidgets.QPushButton, "analysisRunButton")
@@ -429,7 +421,7 @@ class AnalysisEditor:
         image = self._image_combo.currentIndex()
         if not self._lock_image_check.isChecked() and image < len(self._state.planes):
             self._state.replace_plane(image, plane_from_config(result.image_plane_config))
-        self._refresh_trace()
+        self._refresh()
         self.run()
         fit = result.transform
         if result.status == "ok":

@@ -12,6 +12,7 @@ combos and element lock table) and the tree highlight in sync.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from PySide6 import QtWidgets
@@ -21,6 +22,28 @@ from ..scene import SceneController
 from ..widgets import configure_button_box, configure_spin, enable_widgets, find_child, run_validated
 
 REVERT_TIP = "Reload the current values, discarding any edits"
+
+
+@dataclass(frozen=True)
+class EditorContext:
+    """The wiring every editor shares, handed over as one value.
+
+    ``window`` is the Qt container whose widgets the editor drives (looked up
+    by object name, never re-parented), ``state``/``scene`` the model and the
+    vispy bookkeeping an applied edit updates, ``set_status`` the status line
+    and ``refresh`` the redraw to run once a commit landed.
+
+    One instance per editor: only ``refresh`` differs between pages (the plane
+    page repaints the 2D view, the source page rebuilds the fan), so the
+    variants come from :func:`dataclasses.replace` rather than from re-listing
+    five arguments at every construction site.
+    """
+
+    window: QtWidgets.QMainWindow
+    state: ProjectState
+    scene: SceneController
+    set_status: Callable[[str], None]
+    refresh: Callable[[], None]
 
 
 class SelectorEditor:
@@ -35,7 +58,8 @@ class SelectorEditor:
     whenever the shown selection changed on its own (refresh, add, remove
     fallback).
 
-    Subclasses provide the widget object names, the item names and field
+    Subclasses provide the widget object names (keyword-only, so a page's
+    ``None`` sentinels say what they mean), the item names and field
     population, and implement ``_build_current`` / ``_commit_current`` /
     ``_remove_selected`` / ``_build_new`` / ``_register_new`` used by the
     shared apply/remove/add templates. A form without a remove button or without
@@ -52,21 +76,22 @@ class SelectorEditor:
 
     def __init__(
         self,
-        window: QtWidgets.QMainWindow,
-        state: ProjectState,
-        scene: SceneController,
-        set_status: Callable[[str], None],
-        remove_name: str | None,
+        context: EditorContext,
+        *,
         button_box_name: str,
         pos_prefix: str,
-        normal_prefix: str | None,
+        remove_name: str | None = None,
+        normal_prefix: str | None = None,
         on_items_changed: Callable[[], None] | None = None,
         on_selection_changed: Callable[[], None] | None = None,
     ) -> None:
+        window = context.window
+        self._context = context
         self._window = window
-        self._state = state
-        self._scene = scene
-        self._set_status = set_status
+        self._state = context.state
+        self._scene = context.scene
+        self._set_status = context.set_status
+        self._refresh = context.refresh
         self._on_items_changed = on_items_changed
         self._on_selection_changed = on_selection_changed
         self._index = -1

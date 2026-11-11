@@ -13,11 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6 import QtWidgets
-
-from ..project.state import ProjectState
-from ..scene import SceneController
-from .base import SelectorEditor
+from .base import EditorContext, SelectorEditor
 
 
 class SubmoduleEditor(SelectorEditor):
@@ -29,27 +25,19 @@ class SubmoduleEditor(SelectorEditor):
 
     def __init__(
         self,
-        window: QtWidgets.QMainWindow,
-        state: ProjectState,
-        scene: SceneController,
-        set_status: Callable[[str], None],
-        refresh_trace: Callable[[], None],
+        context: EditorContext,
         on_items_changed: Callable[[], None] | None = None,
         on_selection_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
-            window,
-            state,
-            scene,
-            set_status,
-            None,  # a submodule is removed from the tree's context menu
-            "submoduleButtonBox",
-            "submodulePos",
-            None,  # the group keeps its members' orientation: only it moves
+            context,
+            button_box_name="submoduleButtonBox",
+            pos_prefix="submodulePos",
+            # No remove button (a submodule is removed from the tree's context
+            # menu) and no orientation (the group keeps its members' angles).
             on_items_changed=on_items_changed,
             on_selection_changed=on_selection_changed,
         )
-        self._refresh_trace = refresh_trace
         self.set_enabled(False)
 
     def _item_names(self) -> list[str]:
@@ -85,5 +73,5 @@ class SubmoduleEditor(SelectorEditor):
         moved = self._state.move_submodule(name, delta)
         for index, element in moved:
             self._scene.replace_element_nodes(index, element)
-        self._refresh_trace()
+        self._refresh()
         self._set_status(f"Moved {len(moved)} element(s) in {name}")

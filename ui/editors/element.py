@@ -28,7 +28,6 @@ from optics.primitive import DEFAULT_WAVELENGTH_NM, Material
 from ..material_preview import MaterialPreviewPanel
 from ..project.elements import DEFAULT_ELEMENT_CONFIG, classify_element_edit
 from ..project.state import ProjectState
-from ..scene import SceneController
 from ..widgets import (
     CUSTOM_MATERIAL_LABEL,
     configure_material_combo,
@@ -38,7 +37,7 @@ from ..widgets import (
     run_validated,
     select_material_name,
 )
-from .base import SelectorEditor
+from .base import EditorContext, SelectorEditor
 
 _DEFAULT_APERTURE_RADIUS = float(DEFAULT_ELEMENT_CONFIG["surface1"]["aperture"]["radius"])
 
@@ -127,27 +126,20 @@ class ElementEditor(SelectorEditor):
 
     def __init__(
         self,
-        window: QtWidgets.QMainWindow,
-        state: ProjectState,
-        scene: SceneController,
-        set_status: Callable[[str], None],
-        refresh_trace: Callable[[], None],
+        context: EditorContext,
         on_items_changed: Callable[[], None] | None = None,
         on_selection_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
-            window,
-            state,
-            scene,
-            set_status,
-            "removeElementButton",
-            "lensButtonBox",
-            "elementPos",
-            "elementNormal",
+            context,
+            button_box_name="lensButtonBox",
+            pos_prefix="elementPos",
+            remove_name="removeElementButton",
+            normal_prefix="elementNormal",
             on_items_changed=on_items_changed,
             on_selection_changed=on_selection_changed,
         )
-        self._refresh_trace = refresh_trace
+        window = context.window
 
         self._material_selection = find_child(window, QtWidgets.QComboBox, "materialSelection")
         self._load_material_button = find_child(window, QtWidgets.QPushButton, "loadMaterialButton")
@@ -390,7 +382,7 @@ class ElementEditor(SelectorEditor):
             return
         if kind in ("geometry", "transform"):
             self._scene.replace_element_nodes(index, element)
-        self._refresh_trace()
+        self._refresh()
         self._set_status(f"Updated properties for {name}")
 
     def _remove_selected(self) -> str | None:
@@ -405,7 +397,7 @@ class ElementEditor(SelectorEditor):
         return name
 
     def _after_removal(self) -> None:
-        self._refresh_trace()
+        self._refresh()
 
     def _build_new(self) -> tuple[str, dict[str, Any], Any]:
         name = self._state.new_element_name()
@@ -416,7 +408,7 @@ class ElementEditor(SelectorEditor):
         name, config, element = built
         self._state.add_element(name, config, element)
         self._scene.add_element_nodes(element)
-        self._refresh_trace()
+        self._refresh()
         return name
 
     def duplicate(self, name: str) -> None:
@@ -437,7 +429,7 @@ class ElementEditor(SelectorEditor):
             return
         new_name, index, element = built
         self._scene.insert_element_nodes(index, element)
-        self._refresh_trace()
+        self._refresh()
         self.refresh()
         self.select(new_name)
         self._notify()

@@ -10,6 +10,7 @@ scene.
 import json
 import threading
 from collections.abc import Sequence
+from dataclasses import replace
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, cast
@@ -31,7 +32,14 @@ from optics.project import (
 from optics.source import PointSource
 
 from . import imagecodec, theme
-from .editors import AnalysisEditor, ElementEditor, PlaneEditor, SourceEditor, SubmoduleEditor
+from .editors import (
+    AnalysisEditor,
+    EditorContext,
+    ElementEditor,
+    PlaneEditor,
+    SourceEditor,
+    SubmoduleEditor,
+)
 from .plane_view import PlaneView
 from .project.elements import DEFAULT_ELEMENT_CONFIG
 from .project.state import ProjectState
@@ -91,41 +99,28 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._embed_canvas(canvas)
         self._apply_viewport_theme()
         self._plane_view = PlaneView(find_child(self, QtWidgets.QWidget, "planeView", UI_PATH.name))
-        # Both selectors report into _on_project_changed, which runs only after
+        # One clump of wiring, handed to every editor; only ``refresh`` differs
+        # per page, so the variants are derived rather than re-listed. Both
+        # selectors report into _on_project_changed, which runs only after
         # construction, so the tree the callback refreshes can be built last.
+        trace = EditorContext(self, self._state, self._scene, self._set_status, self._refresh_trace)
         self._element_editor = ElementEditor(
-            self,
-            self._state,
-            self._scene,
-            self._set_status,
-            self._refresh_trace,
+            trace,
             on_items_changed=self._on_project_changed,
             on_selection_changed=lambda: self._on_editor_selection(ELEMENT),
         )
-        self._source_editor = SourceEditor(
-            self, self._state, self._scene, self._set_status, self._refresh_after_source
-        )
+        self._source_editor = SourceEditor(replace(trace, refresh=self._refresh_after_source))
         self._submodule_editor = SubmoduleEditor(
-            self,
-            self._state,
-            self._scene,
-            self._set_status,
-            self._refresh_trace,
+            trace,
             on_items_changed=self._on_project_changed,
             on_selection_changed=lambda: self._on_editor_selection(SUBMODULE),
         )
         self._plane_editor = PlaneEditor(
-            self,
-            self._state,
-            self._scene,
-            self._set_status,
-            self._update_plane_view,
+            replace(trace, refresh=self._update_plane_view),
             on_items_changed=self._on_project_changed,
             on_selection_changed=lambda: self._on_editor_selection(PLANE),
         )
-        self._analysis_editor = AnalysisEditor(
-            self, self._state, self._scene, self._set_status, self._refresh_trace
-        )
+        self._analysis_editor = AnalysisEditor(trace)
         self._project_tree = ProjectTree(
             find_child(self, QtWidgets.QTreeWidget, "projectTree", UI_PATH.name),
             self._state,
