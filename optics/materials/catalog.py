@@ -12,11 +12,11 @@ the :file:`optics.importers.zmx` importer resolves glass names through it.
 
     Every oscillator set below is a fit to a published optical table: SCHOTT's
     refractive-index and internal-transmittance tables for the eight crowned and
-    flint glasses, and Corning's HPFS 7980 index table for ``F_SILICA``. The tables
-    as printed are in :file:`raw_optical_data_csvs`; the two rows each fit read are
-    in :file:`tools/data`; the blocks exactly as the fitter emitted them are in
-    :file:`tools/data/fitted_blocks.json`; and :file:`tools/data/README.md` holds the
-    provenance, the per-glass fit reports and what each row still cannot claim.
+    flint glasses, and Corning's HPFS 7980 index table for ``F_SILICA``. The two rows
+    each fit read -- the transcription of those tables, column by column and row by row
+    -- are committed in :file:`tools/data`; the blocks exactly as the fitter emitted
+    them are in :file:`tools/data/fitted_blocks.json`; and :file:`tools/data/README.md`
+    holds the provenance, the per-glass fit reports and what each row still cannot claim.
     :file:`tools/fit_catalog.py` refits all nine, and a test diffs this table against
     what it writes, so nine rows of literals cannot be mis-transcribed in peace.
 

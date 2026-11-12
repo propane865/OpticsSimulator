@@ -9,22 +9,28 @@ The tolerances here are the measured accuracy of the models, not a wish:
 * **Index**: the shipped blocks stay within 1e-4 of every printed row, which is the plan's
   bar and is met with 3e-5 to spare. `n_d` and `V_d` are held far tighter in
   `tests/core/test_material_catalog.py`.
-* **25 mm internal transmittance**: a registry of the worst deviation each glass actually
-  shows today, with 30 % headroom. A flat absolute tolerance would be a fiction: the fitted
-  absorption is right to a factor of 1.2 in N-BK7 and 3.1 in N-LASF9 across 520-580 nm, and
-  at these levels a factor of 2 in `alpha` is a 0.005 shift in `tau_25`. The 3-decimal
-  quoting of the vendor's own transmittance columns is only +/- 0.0005, so what limits the
-  agreement is the model, and the registry says so per glass instead of averaging it away.
+* **Visible absorption, as a ratio**: the block's `alpha` against the value its printed
+  `tau_i_10mm` implies, held within a factor of four over 520-580 nm. A flat absolute tolerance
+  would be a fiction there -- the fitted absorption is 1.2x (N-BK7) to 3.4x (N-SK16) of the
+  print, on rows whose own 3-decimal quoting carries a 25 % band.
 * **Bounded spans**: `F_SILICA`'s transmittance arrived as digitized charts, most of which is
   a ceiling rather than a magnitude -- "no absorption this chart can see". Two registries
   keep that honest: the row must stay under the ceiling over the 420-700 nm it was capped to,
   and its documented overshoot of the ceilings outside that window cannot silently grow. The
   measured magnitudes it *was* fitted to get a registry of their own, because the infrared wing
-  is the reason the charts were imported at all.
-* Rows below 420 nm are left out of the transmittance comparison on purpose: there the
-  ultraviolet edge -- which the classical wing under-predicts, by up to 1.6 orders of
-  magnitude at 350 nm -- is what disagrees, and mixing that into a visible-band assertion
-  would only invite someone to "fix" it by loosening the visible tolerance.
+  is the reason the charts were digitized at all.
+* Both edges of the visible band are left out of the absorption comparison on purpose: below
+  about 420 nm and above about 700 nm it is the ultraviolet and infrared wings -- which the
+  classical wing under-predicts, by up to 1.6 orders of magnitude at 350 nm -- that disagree,
+  and mixing that into a visible-band assertion would only invite someone to "fix" it by
+  loosening the visible tolerance.
+
+What is checked here is what this repository holds. The strongest cross-check the catalog once had
+-- the vendor's *second* printed path length, the 25 mm column SCHOTT quotes for the same melt, of
+which the fitted 10 mm absorption is an independent prediction -- is not among these files: that
+column was never part of the transcribed tables in `tools/data/`. Its measured agreement now lives
+as recorded numbers in `tools/data/README.md` rather than as an assertion, and the gap is written
+down here rather than left to be rediscovered by whoever wants it back.
 
 Set ``OPTICS_FIT_VERIFY=1`` to also re-run the campaign and prove the catalog is what the
 fitter still produces from these tables. That takes minutes, so it is skipped by default.
@@ -45,28 +51,7 @@ from optics.materials.catalog import _FITTED_LORENTZ_BLOCKS
 
 REPO = Path(__file__).resolve().parents[2]
 DATA = REPO / "tools" / "data"
-RAW = REPO / "raw_optical_data_csvs"
 BLOCKS_JSON = DATA / "fitted_blocks.json"
-
-# Wavelengths below this are excluded from the transmittance comparison, for the reason in
-# the module docstring.
-VISIBLE_FLOOR_NM = 420.0
-VISIBLE_CEILING_NM = 700.0
-
-# Worst |predicted tau_i_25mm - printed tau_i_25mm| over 420-700 nm, measured from the
-# shipped blocks. Headroom is applied in the test: a glass that gets worse trips it, and a
-# glass that gets better should have its number lowered here rather than the headroom spent.
-MEASURED_TAU25_WORST = {
-    "N-BK7": 0.0039,
-    "N-BAK4": 0.0086,
-    "N-SK16": 0.0107,
-    "N-LAK22": 0.0133,
-    "N-F2": 0.0148,
-    "N-LASF9": 0.0591,
-    "N-SF5": 0.0183,
-    "N-SF11": 0.0283,
-}
-TAU25_HEADROOM = 1.3
 
 # The glasses whose absorption reached us as digitized charts, so their tables carry bounded
 # spans (`<NAME>-ti-ceilings.csv`) alongside the magnitudes.
@@ -103,27 +88,17 @@ HPFS_GUARANTEES = {
 }
 
 GLASSES = [name for name in material_names() if name != "AIR"]
-NAMES_WITH_TRANSMITTANCE = tuple(MEASURED_TAU25_WORST)
+
+# The glasses whose absorption reached this repository as printed `tau_i_10mm` rows, so the
+# visible-band ratio can be asserted for them. `F_SILICA` is absent because its transmittance
+# arrived as charts: it is held to its ceilings and its magnitudes instead, above.
+NAMES_WITH_TRANSMITTANCE = ("N-BK7", "N-BAK4", "N-SK16", "N-LAK22", "N-F2", "N-LASF9", "N-SF5", "N-SF11")
 
 
 def _table_rows(name: str, suffix: str) -> np.ndarray:
     """A canonical table from `tools/data/`, comment lines skipped by `names=True`."""
     path = DATA / f"{name}-{suffix}.csv"
     return np.atleast_1d(np.genfromtxt(path, delimiter=",", names=True, encoding="utf-8-sig"))
-
-
-def _vendor_transmittance(name: str, column: str) -> tuple[np.ndarray, np.ndarray]:
-    """The vendor's printed internal transmittance, exactly as quoted -- floors and all.
-
-    Read from `raw_optical_data_csvs/` rather than the canonical table on purpose: the
-    canonical file drops the rows the model cannot see, and the check would be worth little
-    if it could not see them either.
-    """
-    path = RAW / name / "internal_transmittance.csv"
-    rows = np.atleast_1d(np.genfromtxt(path, delimiter=",", names=True, encoding="utf-8-sig"))
-    wavelengths, values = rows["wavelength_nm"], rows[column]
-    usable = np.isfinite(wavelengths) & np.isfinite(values) & (values > 0.0) & (values <= 1.0)
-    return wavelengths[usable], values[usable]
 
 
 def _ceiling_spans(name: str) -> list[tuple[float, float, float]]:
@@ -167,7 +142,7 @@ def test_the_catalog_blocks_are_the_fitted_ones():
 def test_the_shipped_block_reproduces_every_index_row(name):
     """`max |delta n| < 1e-4` against the glass's own printed refractive-index table.
 
-    Evaluated at the table's wavelengths on the table's convention: the importer converted
+    Evaluated at the table's wavelengths on the table's convention: the transcription converted
     both columns to vacuum, and the rows are printed in the vendor's air-index sense, so this
     compares the model's real index against a printed air index and rests on the ~1e-5 that
     leaves -- which is what the measured worst case, 3.1e-5, confirms.
@@ -196,24 +171,6 @@ def test_the_shipped_block_returns_its_tables_own_abbe_pair(name):
 
     assert material.index_at(D_LINE_NM) == pytest.approx(table_nd, abs=2e-5)
     assert material.abbe_number() == pytest.approx(table_vd, abs=0.1)
-
-
-@pytest.mark.parametrize("name", NAMES_WITH_TRANSMITTANCE)
-def test_the_predicted_25mm_transmittance_holds_where_the_fit_claims_it(name):
-    """25 mm was never measured; it is what the fitted 10 mm absorption implies, and the
-    vendor printed it anyway -- so it can be checked, within what the model is worth.
-    """
-    wavelengths, printed = _vendor_transmittance(name, "tau_i_25mm")
-    band = (wavelengths >= VISIBLE_FLOOR_NM) & (wavelengths <= VISIBLE_CEILING_NM)
-
-    _n, k = _model_n_and_k(name, wavelengths[band])
-    predicted = np.exp(-_alpha_per_mm(k, wavelengths[band]) * 25.0)
-
-    worst = float(np.max(np.abs(predicted - printed[band])))
-    assert worst <= MEASURED_TAU25_WORST[name] * TAU25_HEADROOM, (
-        f"{name}: worst |tau_25 model - printed| is {worst:.4f} over 420-700 nm, "
-        f"recorded at {MEASURED_TAU25_WORST[name]:.4f}"
-    )
 
 
 @pytest.mark.parametrize("name", NAMES_WITH_TRANSMITTANCE)

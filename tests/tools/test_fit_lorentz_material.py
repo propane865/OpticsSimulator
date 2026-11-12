@@ -724,7 +724,7 @@ def test_the_command_line_refuses_a_guarantee_on_a_measured_table(capsys):
 
 
 def _ceilings_csv(tmp_path, rows) -> Path:
-    """A ceilings file in exactly the shape the importer writes."""
+    """A ceilings file in exactly the shape the committed `<NAME>-ti-ceilings.csv` tables have."""
     path = tmp_path / "X-ti-ceilings.csv"
     body = "".join(f"{lo!r},{hi!r},{alpha!r}\n" for lo, hi, alpha in rows)
     path.write_text(f"wavelength_lo_nm,wavelength_hi_nm,alpha_max_per_mm\n{body}", encoding="utf-8")
@@ -732,7 +732,7 @@ def _ceilings_csv(tmp_path, rows) -> Path:
 
 
 def test_a_ceiling_span_is_read_back_as_the_bound_it_states(tmp_path):
-    """The importer writes ceilings and this reads them; the seam has to hold by name."""
+    """The ceilings tables are written in this shape and this reads them; the seam holds by name."""
     path = _ceilings_csv(tmp_path, [(400.0, 500.0, 1.0e-4), (500.0, 500.0, 2.0e-4)])
 
     ceilings = fitter.read_ceilings(path)

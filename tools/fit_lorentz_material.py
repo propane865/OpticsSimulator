@@ -44,8 +44,10 @@ a starting point -- a fit that needed one would not work on data that has none.
 
 The tables it reads
 -------------------
-:data:`DATA_DIR` holds one pair of rows per glass, written from the vendor tables by
-:mod:`tools.import_raw_optical_data` -- never by hand, and ``--check`` there proves it.
+:data:`DATA_DIR` holds one pair of rows per glass: a transcription of the published vendor
+tables, committed there and documented in :file:`tools/data/README.md`. Not hand-edited -- an
+edit to a fit's input is an edit to the catalog's claims, and
+:file:`tests/core/test_material_vs_tables.py` is what notices.
 A glass published without a transmittance row (a sheet that quotes guarantee limits rather
 than a curve) is fitted with ``--dispersion-only``, and its damping is then set by those
 guarantees with ``--guarantee`` -- which bounds its absorption and is reported as bounding
@@ -65,7 +67,6 @@ directory.
 
 Usage::
 
-    python tools/import_raw_optical_data.py            # vendor CSVs -> DATA_DIR
     python tools/fit_lorentz_material.py --name N-BK7 --oscillators 3
     python tools/fit_lorentz_material.py --name N-BK7 --out fitted.json
     python tools/fit_lorentz_material.py --name F_SILICA --oscillators 3 \\
@@ -1743,13 +1744,13 @@ HPFS_7980_GUARANTEES: tuple[tuple[float, float], ...] = (
 )
 """Corning's printed HPFS 7980 transmittance guarantees, as ``(wavelength_nm, Ti_percent)``.
 
-From ``raw_optical_data_csvs/HPFS-7980/transmittance_guarantees.csv``. These are the only
-absorption numbers HPFS publishes without a spectrophotometer in hand, and they are
-guarantees: each says a grade of that material is *at least* that transparent on that path,
-which caps ``alpha`` and says nothing about its true value. ``anchor_to_guarantees`` puts a
-dispersion-only model on the cap of the tightest one, which is the most absorbing the
-vendor's own words allow -- conservative for a power trace, and stated as a bound wherever
-it is read.
+From the grade-guarantee sentences of Corning's HPFS 7980 T-Sheet, as recorded in
+:file:`tools/data/README.md`. These are the only absorption numbers HPFS publishes without a
+spectrophotometer in hand, and they are guarantees: each says a grade of that material is *at
+least* that transparent on that path, which caps ``alpha`` and says nothing about its true
+value. ``anchor_to_guarantees`` puts a dispersion-only model on the cap of the tightest one,
+which is the most absorbing the vendor's own words allow -- conservative for a power trace, and
+stated as a bound wherever it is read.
 """
 
 
@@ -1942,9 +1943,10 @@ class AbsorptionCeiling:
     """A wavelength span over which a published chart never went below one printed level.
 
     ``alpha_per_mm`` is what that level implies, and it is a *ceiling*: the material is no more
-    absorbing than it, and could be far more transparent. The importer writes the spans a chart
-    left behind where it had no magnitude (``<NAME>-ti-ceilings.csv``) and this is the shape
-    both ends use, because a ceiling is a statement about absorption rather than about a CSV.
+    absorbing than it, and could be far more transparent. The transcription of a digitized chart
+    keeps the spans it left behind where it had no magnitude (``<NAME>-ti-ceilings.csv``) and this
+    is the shape both ends use, because a ceiling is a statement about absorption rather than
+    about a CSV.
 
     A ceiling is the mirror image of a guarantee (see
     :func:`absorption_bound_from_guarantee`) and the same kind of non-row as a floored
@@ -2395,7 +2397,8 @@ def main(argv: list[str] | None = None) -> int:
         metavar="CSV",
         help=(
             "a wavelength_lo_nm,wavelength_hi_nm,alpha_max_per_mm table of bounded spans"
-            " (written by the importer for a digitized chart) to cap the fitted damping to"
+            " (committed for a glass whose absorption arrived as a chart) to cap the fitted"
+            " damping to"
         ),
     )
     parser.add_argument(

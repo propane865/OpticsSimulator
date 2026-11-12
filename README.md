@@ -211,14 +211,14 @@ Names the app offers -- `AIR`, `N-BK7`, `F_SILICA`, `N-SF11`, `N-SF5`, `N-F2`,
 `N-BAK4`, `N-SK16`, `N-LAK22`, `N-LASF9` -- live in `optics/materials/catalog.py`
 (the `N-BK7` block above is one of them) and are inlined into an element when
 picked, so a project file stays readable without the catalog. Each is a fit to a
-published vendor table: the refractive-index and internal-transmittance rows are
-committed under `raw_optical_data_csvs/`, transcribed by
-`tools/import_raw_optical_data.py`, and fitted by `tools/fit_catalog.py`, which is
+published vendor table: the refractive-index and internal-transmittance rows each fit
+read are the committed transcription in `tools/data/`, and `tools/fit_catalog.py` is
 what wrote the numbers above. Every glass therefore returns its own table's `n_d`
-to within 9e-6 and its `V_d` to within 0.07, and predicts the vendor's *separate*
-25 mm transmittance column -- one the fit never saw -- to within 0.014 across the
-four crowns, 0.03 across the dense flints, and 0.06 at the worst row of the worst
-glass (N-LASF9).
+to within 9e-6 and its `V_d` to within 0.07. The further check -- that the fit predicts
+the vendor's *separate* 25 mm transmittance column, one the fit never saw, to within
+0.014 across the four crowns, 0.03 across the dense flints and 0.06 at the worst row of
+the worst glass (N-LASF9) -- is recorded in `tools/data/README.md` rather than asserted
+by the suite, because that second column is not among the committed tables.
 
 The limits are written up per glass in `tools/data/README.md`, and they are real:
 these parameters are not a transmittance percentage for a real part, not an

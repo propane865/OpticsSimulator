@@ -25,31 +25,36 @@ the top of a chart to mean something were kept as magnitudes; the flat stretches
 glass has a ceilings file, and none should: a ceiling is what a chart leaves behind when it has no
 number to give.
 
-## Regenerating them
+## Refitting them
 
 ```
-python tools/import_raw_optical_data.py            # raw vendor CSVs -> these tables
-python tools/import_raw_optical_data.py --check    # fail if a table was hand-edited
 python tools/fit_catalog.py                        # fit all nine -> fitted_blocks.json
 python tools/fit_catalog.py --check                # the catalog still equals this artifact
 ```
 
-Never hand-edit a table here. The originals are committed under
-[`raw_optical_data_csvs/`](../../raw_optical_data_csvs), so every number in this directory is
-either reproducible from them or an edit — and an edit to a fit's input is an edit to the
-catalog's claims. The importer is the only thing that writes these files: it selects columns
-by name (SCHOTT leads with a `line_label`, Corning trails a `dn/dT`, so position means
-something different in each file), drops the rows a vendor left blank and the rows printed
-`0.000`, and writes ascending order.
+Never hand-edit a table here. There is no generator to fall back on: these CSVs **are** the record
+of what was fitted, and an edit to a fit's input is an edit to the catalog's claims. What is checked
+is that the catalog still follows the tables — `tools/fit_catalog.py --check` and
+`test_the_catalog_blocks_are_the_fitted_ones` in
+[`tests/core/test_material_vs_tables.py`](../../tests/core/test_material_vs_tables.py) — not that a
+table still follows the vendor's page, so changing a row is changing a provenance claim and has to
+be written up here alongside the source it now cites.
+
+How the transcription was done, so that a re-transcription from the same vendor page reproduces
+these files cell for cell: columns chosen **by name** (SCHOTT leads with a `line_label`, Corning
+trails a `dn/dT`, so position means something different in each file); rows the vendor left blank
+dropped, and so are rows printed `0.000` — "nothing measurable through this path", which is a floor
+and not a magnitude; and wavelengths written ascending, so reading a table against the printed page
+is not an exercise in inverted order.
 
 ## Provenance
 
-Transcribed 2026-11-12 from two user-provided PDFs into `raw_optical_data_csvs/`; the PDFs
-themselves are not committed, and no licence statement came with them, so treat these as
-vendor-published catalogue data and re-check before redistribution. Blank PDF cells stayed
-blank; no Sellmeier evaluation, interpolation, `alpha`/`k` conversion or fitting was applied
-during transcription. Conversions below are applied by the importer and the fitter, and are
-listed exactly once each.
+Transcribed 2026-11-12 from two user-provided vendor PDFs into the tables in this directory. The
+PDFs and the intermediate working files of the transcription are not committed, and no licence
+statement came with them, so treat these as vendor-published catalogue data and re-check before
+redistribution. Blank PDF cells stayed blank; no Sellmeier evaluation, interpolation, `alpha`/`k`
+conversion or fitting was applied during transcription. The conversions below are applied by the
+transcription and the fitter, and are listed exactly once each.
 
 ```
 N-BK7:    source SCHOTT glass catalogue page 13,  table types dispersion + internal transmittance,
@@ -84,9 +89,11 @@ than ~3e-5 no matter how well the model fits.
 
 **`tau_i_25mm` is not a fit row.** SCHOTT prints two path lengths for the same melt. Only the
 10 mm column — the path [`tools/fit_lorentz_material.py`](../fit_lorentz_material.py) assumes
-— is fitted. The 25 mm column stays in the raw table and is used *afterwards* as an
-independent check ([Cross-checks](#what-was-checked-after-the-fit)); a column the fit already
-saw could not be one.
+— is fitted. The 25 mm column is not transcribed into this directory at all: a column the fit
+already saw could not also be its check, and the column was left out rather than carried as data
+nothing fits from. The agreement it produced is *recorded* under
+[Cross-checks](#what-was-checked-after-the-fit) as the measurement it was, not asserted by the
+suite — see that section for what is and is not re-run.
 
 ## What each fit produced
 
@@ -147,6 +154,12 @@ that was never fitted. Over 420–700 nm it agrees with the printed column to:
 | N-SF5 | 0.018 | 0.052 |
 | N-SF11 | 0.028 | 0.126 |
 
+*Recorded, not asserted.* The 25 mm column lives on the vendor's page and is not transcribed into
+this directory, so no test re-runs this comparison: the table is the measurement as it was taken
+against the shipped block. A re-fit changes it only by re-taking it, and a glass that gets worse has
+to be argued into this file rather than quietly deleted from it. The strongest cross-check the
+catalog had, and the one this repository can no longer run — stated here so the gap is visible.
+
 Those are absolute errors on a quantity the vendor prints to three decimals, so ±0.0005 is
 the print's own resolution: crowns agree to a few points in the third decimal, dense flints
 to the second, and adding the 405 nm row makes it visibly worse — because at 405 nm the
@@ -169,7 +182,7 @@ guarantees. A chart is ink on an axis, and ink has a size: reading the two curve
 levels across 179.7–4353.0 nm on the broad chart (one pixel = 0.14793 % of a centimetre, i.e.
 1.48e-4 mm⁻¹ of absorption) and 67 600 across 185.2–400.0 nm on the ultraviolet one (0.00148 %
 per pixel, 1.48e-6 mm⁻¹). So a row is only a measurement if it sits far enough below the top of
-its own chart for its depth to mean something, and the importer's rule is ten pixels: 140 rows
+its own chart for its depth to mean something, and the digitizing rule was ten pixels: 140 rows
 from 185.2–240.3 nm and 273 rows from 1355.7–4320.3 nm are magnitudes, 31 spans stay near the top
 and are written as ceilings, and 18 rows sit on the axis floor at 2.7 µm and 4.33 µm, which is
 "opaque" and is dropped for the same reason a printed `0.000` is.
@@ -179,7 +192,7 @@ leaves its top two pixels, so its sharpest statement there is a bound of α ≤ 
 the fine chart *measures* 5.68e-4 at 185.2 nm — 1.92× more. That is not two measurements to
 average. A chart whose pixel is two thousandths of a percent cannot see 0.0057 % absorption and has
 no standing to bound it, so the fine chart owns 400 nm and below, the coarse chart owns above it,
-and the disagreement is printed by the importer rather than reconciled.
+and the disagreement is recorded here rather than reconciled.
 
 The guarantees are still only bounds, and now they are bounds with room to spare:
 
