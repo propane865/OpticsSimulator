@@ -205,9 +205,14 @@ native test binary under ASan/UBSan on Linux, and runs `pytest` only after
     for the inline `lorentz` block a config carries, `catalog_name_for` to name a
     block back again) and `preview.py` (`sample_material_curve`, the `n`/`k` samples
     the editor plots). Materials are inlined per element, so nothing outside this
-    package depends on a catalog name surviving; parameters are **provisional**
-    placeholders pinned to published `(n_d, V_d)`, documented as such in the module
-    and in `tools/data/PLACEHOLDER.md`.
+    package depends on a catalog name surviving. The blocks are **fitted, not tuned**:
+    committed vendor tables (`raw_optical_data_csvs/`) are transcribed by
+    `tools/import_raw_optical_data.py` and fitted by `tools/fit_catalog.py`, which
+    emits `tools/data/fitted_blocks.json`; `tests/core/test_material_vs_tables.py`
+    holds the catalog to those tables row by row. Each glass returns its own table's
+    `n_d` to 9e-6; visible absorption is 1.2-3.4x what the printed `tau_i` implies,
+    and the ultraviolet and infrared edges are claimed nowhere -- per-glass limits
+    are in `tools/data/README.md`.
   - Power propagation: `RayHop` carries the transmission with which a ray entered its
     element plus that element's absorption coefficient, and `fill_hops` integrates
     Beer-Lambert along the internal polyline (`exp(-alpha * length)`, `alpha = 4*pi*k

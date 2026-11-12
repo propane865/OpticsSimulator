@@ -141,7 +141,7 @@ def test_an_import_never_extends_the_catalog(stack_window, tmp_path, monkeypatch
     assert editor["material"].count() == rows
     assert [editor["material"].itemText(row) for row in range(rows)].count("MyDarkCrown") == 0
     # A dark glass is exactly where k stops being noise: orders of magnitude above
-    # the clear placeholder catalog glass at the same colour.
+    # the clear catalog glass (fitted N-BK7) at the same colour.
     dark_k = lens_extinction(editor)
     clear_k = material_for_name("N-BK7").extinction_at(lens_wavelength_nm(editor))
     assert dark_k > 10.0 * clear_k

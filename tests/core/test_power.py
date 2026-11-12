@@ -26,9 +26,10 @@ from optics.primitive import LorentzModel, Ray
 from optics.system import OpticalSystem
 from tests.materials import dark_material as _dark_material_block
 
-# A dark crown (see :func:`tests.materials.dark_material`): the same three-oscillator
-# shape as the catalog N-BK7 placeholder with enough infrared damping to matter over
-# a millimetre of glass. Test-only -- nothing in the catalog absorbs this much.
+# A dark crown (see :func:`tests.materials.dark_material`): the fitted catalog N-BK7
+# shape -- two oscillators, an infrared band and an ultraviolet one -- with enough
+# infrared damping to matter over a millimetre of glass. Test-only: the shipped N-BK7
+# absorbs 2.7e-4 per mm at 550 nm and this absorbs 0.30.
 DARK = _dark_material_block()
 
 _CLEAR_INDEX = 1.5

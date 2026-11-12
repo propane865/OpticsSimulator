@@ -175,10 +175,10 @@ An element's material is a complex Lorentz dielectric model and nothing else:
 ```json
 "material": {
   "lorentz": {
-    "epsilon_inf": 1.68085047,
+    "epsilon_inf": 1.43989783,
     "oscillators": [
-      { "strength": 0.58818591, "resonance_ev": 9.11918305, "damping_ev": 9.995155e-06 },
-      { "strength": 0.60894586, "resonance_ev": 0.10926037, "damping_ev": 2.998139e-04 }
+      { "strength": 1.07067802, "resonance_ev": 0.118634502, "damping_ev": 4.09628677e-06 },
+      { "strength": 0.83161904, "resonance_ev": 10.872643, "damping_ev": 1.73479158e-06 }
     ]
   }
 }
@@ -209,11 +209,23 @@ an optically inert element.
 
 Names the app offers -- `AIR`, `N-BK7`, `F_SILICA`, `N-SF11`, `N-SF5`, `N-F2`,
 `N-BAK4`, `N-SK16`, `N-LAK22`, `N-LASF9` -- live in `optics/materials/catalog.py`
-and are inlined into an element when picked, so a project file stays readable
-without the catalog. **Those parameters are provisional placeholders** tuned to
-published `(n_d, V_d)` pairs; only `N-BK7` comes from a fit to tabulated data, and
-even its tables are synthetic (see `tools/data/PLACEHOLDER.md`). Nothing here is
-quoted as a transmittance percentage for a real part. A material the catalog does
+(the `N-BK7` block above is one of them) and are inlined into an element when
+picked, so a project file stays readable without the catalog. Each is a fit to a
+published vendor table: the refractive-index and internal-transmittance rows are
+committed under `raw_optical_data_csvs/`, transcribed by
+`tools/import_raw_optical_data.py`, and fitted by `tools/fit_catalog.py`, which is
+what wrote the numbers above. Every glass therefore returns its own table's `n_d`
+to within 9e-6 and its `V_d` to within 0.07, and predicts the vendor's *separate*
+25 mm transmittance column -- one the fit never saw -- to within 0.014 across the
+four crowns, 0.03 across the dense flints, and 0.06 at the worst row of the worst
+glass (N-LASF9).
+
+The limits are written up per glass in `tools/data/README.md`, and they are real:
+these parameters are not a transmittance percentage for a real part, not an
+ultraviolet cutoff (the classical wing runs up to 274x too transparent below
+~380 nm), not infrared behaviour past ~1.5 um, and not any absorption claim at
+all for `F_SILICA`, whose damping is anchored to Corning's grade guarantees
+because HPFS 7980 publishes no transmittance table. A material the catalog does
 not carry is imported through the lens editor's **Load Custom Material...** as the
 same `lorentz` block, inline in that one element, after which the editor labels it
 `Custom`.

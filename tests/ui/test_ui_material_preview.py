@@ -332,10 +332,17 @@ def test_the_chart_paints_its_panel_behind_the_curves(stack_window):
 
 
 def test_a_curve_breaks_where_the_material_has_no_answer(qt_app):  # noqa: ARG001
-    """A wavelength the model refuses is a gap in the trace, not a point invented for it."""
+    """A wavelength the model refuses is a gap in the trace, not a point invented for it.
+
+    The refused sample is in the middle of the run rather than second, which is the case the
+    preview actually produces (a resonance inside the plotted band) and the only one Qt will
+    show: a ``moveTo`` that immediately follows another ``moveTo`` with nothing drawn between
+    them replaces it instead of starting a second subpath, so a gap in the first two samples
+    would leave one element here and prove nothing about the gap.
+    """
     path = _MaterialChart._path(
-        np.array([400.0, 500.0, 600.0, 700.0]),
-        np.array([1.5, np.nan, 1.6, 1.7]),
+        np.array([400.0, 450.0, 500.0, 550.0, 600.0]),
+        np.array([1.5, 1.55, np.nan, 1.6, 1.7]),
         lambda value: value,
         lambda value: value,
     )

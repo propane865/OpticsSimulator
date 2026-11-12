@@ -44,18 +44,21 @@ def flint_material() -> MaterialConfig:
     return _catalog("N-SF11")
 
 
-# Damping that makes the infrared band bite: 100x the catalog placeholder's, which
-# is what turns a millimetre of glass from clear into a measurable power loss.
+# Damping that makes the infrared band bite. The fitted N-BK7 infrared oscillator sits at
+# 4.1e-6 eV -- a width the vendor's transmittance table can bound but not resolve -- so this
+# is some four thousand times it, which is what turns a millimetre of glass from clear into a
+# measurable power loss.
 DARK_DAMPING_EV = 0.03
 
 
 def dark_material() -> MaterialConfig:
     """A test-only dark crown: the N-BK7 shape with its infrared band damped hard.
 
-    Nothing shipped in the catalog absorbs this much visible light (alpha of order
-    0.1 per mm), so a power or dimming fixture that needs a ray to lose energy has
-    to ask for it here rather than pretend a real glass does it. Derived from the
-    catalog block, so it follows a re-fit instead of pinning stale numbers.
+    Nothing shipped in the catalog absorbs this much visible light (alpha here is
+    0.30 mm^-1 at 550 nm against 2.7e-4 mm^-1 for the real N-BK7), so a power or dimming
+    fixture that needs a ray to lose energy has to ask for it here rather than pretend a
+    real glass does it. Derived from the catalog block, so it follows a re-fit instead of
+    pinning stale numbers.
 
     The band that gets damped is the one with the lowest resonance energy, found that
     way rather than by position: which oscillator a re-fit happens to list last says

@@ -189,7 +189,11 @@ def test_doublet_pairing_and_materials() -> None:
     assert lens2["position"][2] == pytest.approx(-34.0)
     assert _material_index(lens1) == pytest.approx(1.5168, abs=2e-5)
     # N-F2 has no GLAS entry in the fixture: it must come from the built-in table.
-    assert _material_index(lens2) == pytest.approx(1.64997)
+    # 1.62005 is the shipped N-F2 table's own `nd` row, not the 1.64997 printed in the
+    # Schott catalogue under that name; the catalog is fitted to the table, because the
+    # table is what a ray trace through this glass actually reads. See
+    # tests/core/test_material_catalog.py for the same discrepancy and its reasoning.
+    assert _material_index(lens2) == pytest.approx(1.62005, abs=2e-5)
     assert lens2["surface2"]["z"].startswith("-2.0 + ")
 
 
@@ -203,7 +207,7 @@ def test_cemented_doublet_shares_the_interface() -> None:
     assert np.allclose(shared_rear, shared_front, atol=1e-12)
     assert shared_rear[2] == pytest.approx(-24.0)
     assert first.transform.translation[2] == pytest.approx(-20.0)
-    assert second.material.index_at(D_LINE_NM) == pytest.approx(1.64997)
+    assert second.material.index_at(D_LINE_NM) == pytest.approx(1.62005, abs=2e-5)
 
 
 # -- glass name resolution -----------------------------------------------------

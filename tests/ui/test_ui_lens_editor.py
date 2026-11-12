@@ -227,8 +227,10 @@ def test_new_element_default_geometry(window):
     editor = _editor(window)
     # The table shows the same glass the element was built with -- read at the
     # window's own 405 nm source, where a violet ray sees BK7 denser than its
-    # catalog n_d.
-    assert lens_index(editor) == pytest.approx(1.5307, abs=1e-4)
+    # catalog n_d. 1.53020 is what the fitted N-BK7 block gives there, against the
+    # 1.53024 SCHOTT prints at its 404.7 nm line (the model is a real index, the row
+    # is printed in air: see tools/data/README.md).
+    assert lens_index(editor) == pytest.approx(1.53020, abs=1e-4)
     assert editor["radius"].value() == pytest.approx(7.5)
     assert editor["s1"].text() == "-2.5"
     assert editor["s2"].text() == "2.5"

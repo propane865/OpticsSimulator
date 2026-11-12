@@ -1,37 +1,50 @@
-"""The fitter against the tables it was written for: a ground-truth round trip.
+"""The fitter against a table whose right answer is known: a ground-truth round trip.
 
-The shipped glass tables are synthetic (``tools/data/PLACEHOLDER.md`` records the
-model behind them), which is what makes this file possible *now*: the pipeline can be
-proved end to end -- published rows in, dielectric parameters out -- instead of
-waiting for measured data. When real tables replace the CSVs, the assertions that
-matter here are the data-domain ones (the fit reproduces the tables); the
-truth-parameter assertions come along for the ride only because the truth is known.
+The shipped glass tables in ``tools/data`` are measured vendor data now, which is what the
+catalog is fitted from -- and measured data cannot say what the model behind it was. So the
+round trip in this file writes its own tables, from the truth recorded in
+:data:`fit_lorentz_material.ROUND_TRIP_TRUTH`, into a temporary directory: a fitting
+pipeline is only proved by a question whose answer is known, and this is the only place in
+the repository that has one. ``tests/core/test_material_vs_tables.py`` is where the
+measured rows are held to the shipped catalog instead.
 
-What is deliberately *not* asserted: that every term of the hidden model comes back.
-The truth has two deep-ultraviolet resonances, at 8.2 eV and 10.2 eV; a dispersion
-table that stops at 300 nm cannot separate them, and an honest fitter returns one
-band near 9.1 eV that reproduces the same visible dispersion. A test that demanded
-term-for-term recovery would either fail or push the fitter into over-fitting noise.
+What is deliberately *not* asserted: that every term of the hidden model comes back. The
+truth has two deep-ultraviolet resonances, at 8.2 eV and 10.2 eV; a dispersion table that
+stops at 300 nm cannot separate them, and an honest fitter returns one band near 9.1 eV that
+reproduces the same visible dispersion. A test that demanded term-for-term recovery would
+either fail or push the fitter into over-fitting noise.
 """
 
 import json
 import math
-from pathlib import Path
 
+import fit_catalog
 import fit_lorentz_material as fitter
 import numpy as np
 import pytest
 
 from optics.config import material_from_config
 from optics.constants import C_LINE_NM, D_LINE_NM, F_LINE_NM
-from optics.primitive import LorentzModel, LorentzOscillator, Material
+from optics.primitive import Material
 
-TRUTH = fitter.PLACEHOLDER_TRUTH["N-BK7"]
+TRUTH = fitter.ROUND_TRIP_TRUTH["N-BK7"]
 
 
 def truth_model() -> Material:
-    """The hidden model the placeholder tables were generated from, as a library material."""
+    """The hidden model the round-trip tables were generated from, as a library material."""
     return material_from_config({"lorentz": TRUTH})
+
+
+def _parameters(fit: fitter.MaterialFit) -> np.ndarray:
+    """A fit as the fitter's flat ``[S, E, Gamma, ...]`` vector."""
+    return np.array([value for term in fit.oscillators for value in term], dtype=float)
+
+
+def _absorption_at(fit: fitter.MaterialFit, wavelength_nm: float) -> float:
+    """A fit's absorption coefficient at one wavelength, in mm^-1."""
+    wavelengths = np.array([wavelength_nm])
+    _n, k = fitter.complex_index(wavelengths, fit.epsilon_inf, _parameters(fit))
+    return float(fitter.alpha_from_k(k, wavelengths)[0])
 
 
 def parameters_of(material: Material) -> np.ndarray:
@@ -47,9 +60,15 @@ def parameters_of(material: Material) -> np.ndarray:
 
 
 @pytest.fixture(scope="module")
-def data() -> fitter.TabulatedData:
-    """The shipped placeholder tables, as the fitter reads them."""
-    return fitter.load_tables("N-BK7")
+def data(tmp_path_factory) -> fitter.TabulatedData:
+    """The synthetic round-trip rows, generated rather than shipped.
+
+    Written into a temporary directory on purpose: ``tools/data`` holds measured tables, and
+    a test that read them would be scoring the fitter against a glass nobody wrote down.
+    """
+    directory = tmp_path_factory.mktemp("round-trip")
+    dispersion, transmittance = fitter.write_round_trip_tables("N-BK7", directory=directory)
+    return fitter.load_tables("N-BK7", dispersion, transmittance)
 
 
 @pytest.fixture(scope="module")
@@ -67,17 +86,45 @@ def pruned(data: fitter.TabulatedData) -> fitter.MaterialFit:
 # --- the tables themselves ------------------------------------------------------
 
 
-def test_the_shipped_tables_are_the_recorded_placeholder(tmp_path):
-    """A CSV that no longer regenerates has been hand-edited, and that is a bug.
+def test_the_round_trip_tables_regenerate_identically(tmp_path):
+    """Ground truth that cannot be regenerated is a number nobody can check.
 
-    The tables are the fitter's input and the test's ground truth at the same time, so
-    a silent edit would quietly move the target the fitter is scored against.
+    The tables are the fitter's input and this file's expected answer at the same time, so
+    they are derived data: two runs must produce the same bytes. Their being *synthetic* is
+    also what keeps them out of ``tools/data``, where the measured rows live -- see
+    :func:`test_the_measured_tables_are_not_the_synthetic_ones`.
     """
-    written = fitter.write_placeholder_tables("N-BK7", directory=tmp_path)
+    first = fitter.write_round_trip_tables("N-BK7", directory=tmp_path / "a")
+    second = fitter.write_round_trip_tables("N-BK7", directory=tmp_path / "b")
 
-    for path in written:
-        shipped = fitter.DATA_DIR / path.name
-        assert path.read_text(encoding="utf-8") == shipped.read_text(encoding="utf-8"), path.name
+    for left, right in zip(first, second):
+        assert left.read_text(encoding="utf-8") == right.read_text(encoding="utf-8"), left.name
+
+
+def test_the_measured_tables_are_not_the_synthetic_ones(tmp_path):
+    """The shipped rows are vendor data; a synthetic file back in ``tools/data`` is a bug.
+
+    The round-trip tables used to *be* the shipped tables, and the catalog was a fit to
+    them. If that happened again the catalog would silently regress to a fit against a model
+    somebody invented -- the exact thing this change removed -- and it would take a
+    deliberate act to notice, because everything would still run.
+    """
+    synthetic, _ = fitter.write_round_trip_tables("N-BK7", directory=tmp_path)
+    shipped = (fitter.DATA_DIR / "N-BK7-n.csv").read_text(encoding="utf-8").splitlines()
+
+    assert shipped[0] == "wavelength_nm,n"
+    # The generator lays a regular 10 nm ladder; the vendor table is a list of spectral
+    # lines, so at least one shipped wavelength is not a multiple of 10 nm.
+    assert not all(float(line.split(",")[0]) % 10.0 == 0.0 for line in shipped[1:])
+    assert synthetic.read_text(encoding="utf-8") != "\n".join(shipped) + "\n"
+
+
+def test_synthetic_tables_cannot_be_written_over_the_measured_ones(capsys):
+    """Forgetting an ``--out-dir`` must not be able to destroy a measured table."""
+    status = fitter.main(["--make-round-trip", "N-BK7", "--out-dir", str(fitter.DATA_DIR)])
+
+    assert status == 2
+    assert "refusing" in capsys.readouterr().err
 
 
 def test_the_placeholder_truth_is_a_glass_shaped_material():
@@ -270,7 +317,7 @@ def test_the_seed_needs_no_previous_parameterisation(data, monkeypatch):
     unavailable, the seed still lands on the band. (And there is no other source to
     seed from -- an earlier Sellmeier table was deleted with the rest of that model.)
     """
-    monkeypatch.setitem(fitter.PLACEHOLDER_TRUTH, "N-BK7", {"epsilon_inf": 1.0, "oscillators": []})
+    monkeypatch.setitem(fitter.ROUND_TRIP_TRUTH, "N-BK7", {"epsilon_inf": 1.0, "oscillators": []})
 
     _epsilon_inf, seeds = fitter.seed_model(data, 3)
 
@@ -455,43 +502,252 @@ def test_the_command_line_reports_a_table_it_cannot_read(tmp_path, capsys):
     assert "could not read the tables" in capsys.readouterr().err
 
 
-def test_the_placeholder_can_be_regenerated_from_the_recorded_truth(tmp_path, capsys):
-    """The tables are derived data: one command, and the repository's own copy reappears."""
-    status = fitter.main(["--make-placeholder", "N-BK7", "--out", str(tmp_path / "unused")])
+def test_the_round_trip_tables_can_be_regenerated_from_the_recorded_truth(tmp_path, capsys):
+    """The synthetic tables are derived data: one command, and they reappear."""
+    status = fitter.main(["--make-round-trip", "N-BK7", "--out-dir", str(tmp_path)])
 
-    written = fitter.write_placeholder_tables("N-BK7", directory=tmp_path)
+    written = fitter.write_round_trip_tables("N-BK7", directory=tmp_path / "again")
     captured = capsys.readouterr().out
 
     assert status == 0
     assert "synthetic" in captured
     for path in written:
-        assert (fitter.DATA_DIR / path.name).read_text(encoding="utf-8") == path.read_text(
-            encoding="utf-8"
+        assert (tmp_path / path.name).read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
+
+
+def test_a_dispersion_only_material_says_so_instead_of_inventing_absorption(tmp_path):
+    """A material published without a transmittance row has no absorption to report.
+
+    HPFS 7980 is that case: an index table and three guarantee statements. The empty row
+    has to be carried all the way through -- the ``k`` block, the RMS report, the warnings --
+    because the alternative is a zero that reads as "measured, and transparent".
+    """
+    dispersion, _ = fitter.write_round_trip_tables("N-BK7", directory=tmp_path)
+    only_n = fitter.load_tables("N-BK7", dispersion, fitter.NO_ABSORPTION)
+
+    assert not only_n.has_absorption
+    assert only_n.alpha_per_mm.size == 0
+    assert only_n.absorption_wavelengths_nm.size == 0
+    # ``k`` is the dispersion grid read with nothing to put in it: zeros, not an empty
+    # array, because ``epsilon_from_index`` still has to evaluate the index row.
+    assert only_n.k.size == only_n.wavelengths_nm.size
+    assert not only_n.k.any()
+
+    fit, damped = fitter.fit_material(only_n, oscillators=2, starts=2)
+
+    assert damped is None
+    assert fit.rms_log_alpha == 0.0  # nothing was wrong because nothing was claimed
+    assert any("never touched" in note for note in fitter.absorption_warnings(fit, only_n))
+
+
+def test_fitting_damping_without_a_transmittance_row_is_refused(tmp_path):
+    dispersion, _ = fitter.write_round_trip_tables("N-BK7", directory=tmp_path)
+    only_n = fitter.load_tables("N-BK7", dispersion, fitter.NO_ABSORPTION)
+    fit = fitter.fit_index(only_n, oscillators=2, starts=2)
+
+    with pytest.raises(ValueError, match="NO_ABSORPTION"):
+        fitter.fit_damping(fit, only_n)
+
+
+def test_a_dispersion_only_fit_leaves_the_widths_alone(tmp_path):
+    """Stage one gets no grip on damping, so it must be given none.
+
+    With nothing to answer to, a damping is free to buy index at a discount: the
+    dispersion-only fits this replaced parked widths of 0.6 and 2.5 eV on ultraviolet bands,
+    which moves the blue end of the table by 8e-3 and reports a good index RMS. A width is
+    stage two's decision or nobody's.
+    """
+    dispersion, _ = fitter.write_round_trip_tables("N-BK7", directory=tmp_path)
+    only_n = fitter.load_tables("N-BK7", dispersion, fitter.NO_ABSORPTION)
+    fit = fitter.fit_index(only_n, oscillators=3, starts=2)
+
+    assert all(damping > 1.0e-5 for _s, _e, damping in fit.oscillators)
+    assert all(damping < 1.0e-3 for _s, _e, damping in fit.oscillators)
+    assert fitter.free_indices(3, has_absorption=False).size == 1 + 2 * 3
+    assert fitter.free_indices(3, has_absorption=True).size == 1 + 3 * 3
+
+
+def test_a_ridge_model_is_not_a_physical_one(data):
+    """Strength 100 at 0.01 eV fits an index row and describes no glass.
+
+    That is the degenerate direction: a band driven toward zero energy with its strength
+    growing to match leaves only ``S * E ** 2`` visible, so it buys the fit a free wing
+    shape. :func:`bands_are_physical` is what stops such a candidate being shipped, and
+    :func:`sellmeier_start` is what gives the optimizer a physical basin to find first.
+    """
+    ridge = fitter.MaterialFit(
+        epsilon_inf=1.4,
+        oscillators=((100.0, 0.01, 1e-5), (0.8, 10.0, 1e-5)),
+        cost=1.0,
+        rms_nm=1e-6,
+        rms_k=1e-9,
+        rms_log_alpha=0.01,
+        iterations=1,
+        lambda_final=1.0,
+    )
+
+    assert not fitter.bands_are_physical(ridge, data)
+    assert fitter.bands_are_physical(fitter.fit_index(data, oscillators=2, starts=2), data)
+
+    _epsilon_inf, terms = fitter.sellmeier_start(data, 3)
+
+    assert fitter.bands_are_physical(
+        fitter.MaterialFit(1.5, terms, 0.0, 0.0, 0.0, 0.0, 0, 0.0), data
+    )
+    assert all(strength > 0.0 for strength, _e, _g in terms)
+
+
+def test_a_band_the_fit_duplicated_is_merged_and_a_band_it_split_is_left_alone(data):
+    """Two uses of one rule, and the guard -- not the tolerance -- decides between them.
+
+    A strength-pinned fifth oscillator that lands on a band the model already has is one
+    band the optimizer split to get a second damping to fit absorption with: merging it is
+    exact and free, and the zero-strength band the fit parks at the ceiling on its way out
+    goes with it. A pair genuinely 1 % apart is a different matter -- at 0.11 eV, 1 % is
+    enough to move ``n`` by 1e-5, so merging costs the table's precision and the candidate is
+    refused rather than tidied. That is the tables being the last word, which is the whole
+    point of the check.
+    """
+    base = fitter.fit_index(data, oscillators=2, starts=2)
+    (s0, e0, g0), (s1, e1, g1) = sorted(base.oscillators, key=lambda term: term[1])
+
+    def fit_with(terms):
+        return fitter.MaterialFit(
+            epsilon_inf=base.epsilon_inf,
+            oscillators=tuple(terms),
+            cost=base.cost,
+            rms_nm=base.rms_nm,
+            rms_k=base.rms_k,
+            rms_log_alpha=base.rms_log_alpha,
+            iterations=1,
+            lambda_final=1.0,
         )
 
-
-def test_the_fitted_catalog_entry_and_the_fit_agree():
-    """The shipped N-BK7 row is this pipeline's output; drift here means one moved alone."""
-    from optics.materials import material_for_name
-
-    shipped = material_for_name("N-BK7").model
-    truth = LorentzModel(
-        epsilon_inf=float(TRUTH["epsilon_inf"]),
-        oscillators=tuple(
-            LorentzOscillator(
-                strength=float(term["strength"]),
-                resonance_ev=float(term["resonance_ev"]),
-                damping_ev=float(term["damping_ev"]),
-            )
-            for term in TRUTH["oscillators"]
-        ),
+    duplicated = fit_with(
+        [
+            (0.6 * s0, e0, g0),
+            (0.4 * s0, e0, g0),
+            (s1, e1, g1),
+            (1.0e-9, 100.0, 1.0e-5),  # the band a fit parks at the ceiling when done with it
+        ]
+    )
+    apart = fit_with(
+        [(0.6 * s0, e0 * 1.005, g0), (0.4 * s0, e0 * 0.995, g0), (s1, e1, g1)]
     )
 
-    assert shipped.oscillators  # a real model, not a constant index
-    assert shipped.epsilon_inf == pytest.approx(truth.epsilon_inf, abs=0.1)
-    # Same glass, same prescription, even though the term count differs: the fit cannot
-    # resolve the two ultraviolet bands, and says so with one band instead of two.
-    assert Material(shipped).index_at(D_LINE_NM) == pytest.approx(
-        Material(truth).index_at(D_LINE_NM), abs=2e-4
-    )
-    assert Path(fitter.DATA_DIR, "PLACEHOLDER.md").exists()
+    merged = fitter.simplify_bands(duplicated, data)
+    untouched = fitter.simplify_bands(apart, data)
+
+    assert len(merged.oscillators) == 2
+    strength, resonance, _damping = min(merged.oscillators, key=lambda term: term[1])
+    assert strength == pytest.approx(s0, rel=1e-9)
+    assert resonance == pytest.approx(e0, rel=1e-9)
+    assert merged.rms_nm == pytest.approx(base.rms_nm, rel=1e-3)
+    assert len(untouched.oscillators) == 3  # merging would have cost the index more than it bought
+
+
+# --- absorption the vendor guaranteed rather than measured -----------------------
+
+
+def test_a_guarantee_is_a_bound_on_alpha_read_off_the_same_beer_lambert_law():
+    """``Ti >= 88 %/cm`` and ``tau_i = 0.88`` on 10 mm are the same sentence, opposite signs."""
+    assert fitter.absorption_bound_from_guarantee(88.00) == pytest.approx(-math.log(0.88) / 10.0)
+    assert fitter.absorption_bound_from_guarantee(50.0, path_mm=1.0) == pytest.approx(math.log(2.0))
+
+    # The HPFS numbers the catalog's F_SILICA row was anchored with.
+    bounds = {
+        wavelength: fitter.absorption_bound_from_guarantee(percent)
+        for wavelength, percent in fitter.HPFS_7980_GUARANTEES
+    }
+
+    assert bounds[185.0] == pytest.approx(1.278e-2, rel=1e-3)
+    assert bounds[248.0] == pytest.approx(1.0005e-4, rel=1e-3)
+    assert bounds[193.0] == pytest.approx(5.013e-4, rel=1e-3)
+
+
+@pytest.mark.parametrize("percent, path", [(0.0, 10.0), (100.0, 10.0), (50.0, 0.0)])
+def test_an_impossible_guarantee_is_refused(percent, path):
+    with pytest.raises(ValueError):
+        fitter.absorption_bound_from_guarantee(percent, path)
+
+
+def test_scaling_the_damping_hits_the_guaranteed_absorption_without_moving_the_index(data):
+    """One scalar, one target, and the index as collateral that must not move.
+
+    This is how ``F_SILICA`` got its transparency: a dispersion table says nothing about
+    widths, so the widths are set to whatever the vendor's tightest guarantee permits -- and
+    the check that the trick was fair is that ``n`` did not move.
+    """
+    fit = fitter.fit_index(data, oscillators=2, starts=2)
+    before, _ = fitter.complex_index(data.wavelengths_nm, fit.epsilon_inf, _parameters(fit))
+
+    anchor = fitter.scale_damping_to_absorption(fit, data, 550.0, 1.0e-3)
+
+    achieved = _absorption_at(anchor.fit, 550.0)
+    _after, _k = fitter.complex_index(data.wavelengths_nm, anchor.fit.epsilon_inf, _parameters(anchor.fit))
+    assert achieved == pytest.approx(1.0e-3, rel=1e-6)
+    assert anchor.delta_n_max < 1e-9
+    assert anchor.factor != pytest.approx(1.0)  # the fit's own widths were not already there
+
+    # Monotone, which is what makes the bisection legitimate: a tighter bound is less glass.
+    looser = fitter.scale_damping_to_absorption(fit, data, 550.0, 1.0e-2)
+    assert looser.factor > anchor.factor
+    assert before.shape == _after.shape
+
+
+def test_the_tightest_guarantee_is_the_one_the_model_sits_on(data):
+    """Three bounds, one scale: the smallest cap binds and the rest are reported as margins."""
+    fit = fitter.fit_index(data, oscillators=2, starts=2)
+    guarantees = list(fitter.HPFS_7980_GUARANTEES)
+
+    anchor = fitter.anchor_to_guarantees(fit, data, guarantees)
+    notes = fitter.guarantee_notes(anchor.fit, guarantees)
+
+    assert anchor.anchor_nm == 248.0  # the KrF bound is the tightest of the three
+    assert len(notes) == 3
+    for note, (wavelength, percent) in zip(notes, guarantees):
+        bound = fitter.absorption_bound_from_guarantee(percent)
+        assert _absorption_at(anchor.fit, wavelength) <= bound * (1.0 + 1e-9), note
+    assert sum("margin" in note for note in notes) == 3
+
+
+def test_the_command_line_refuses_a_guarantee_on_a_measured_table(capsys):
+    """A guarantee is a last resort; a printed ``tau_i`` row outranks it, always."""
+    status = fitter.main(["--name", "N-BK7", "--guarantee", "193:99.50"])
+
+    assert status == 2
+    assert "outranks a guarantee" in capsys.readouterr().err
+
+
+# --- the campaign ---------------------------------------------------------------
+
+
+def test_the_catalog_requests_every_glass_once():
+    """The campaign covers the catalog: every name in one, and one row for each in the other."""
+    from optics.materials.catalog import MATERIALS, material_names
+
+    requested = [request.name for request in fit_catalog.CATALOG_FIT_REQUESTS]
+
+    assert sorted(requested) == sorted(name for name in material_names() if name != "AIR")
+    assert len(requested) == len(set(requested))
+    assert "AIR" not in MATERIALS["AIR"].model.oscillators  # inert, as the catalog documents
+
+
+def test_rounding_the_blocks_costs_nothing_that_the_tables_could_notice():
+    """Nine significant digits, checked rather than asserted.
+
+    The first version of the campaign rounded to eight *decimal* places, which on a damping
+    of 2e-5 eV is two significant digits and moved the fitted absorption visibly.
+    """
+    worst_n = worst_alpha = 0.0
+    for request in fit_catalog.CATALOG_FIT_REQUESTS:
+        material = fit_catalog.fit_request(request)
+        delta_n, delta_log_alpha = fit_catalog.rounding_cost(
+            material.fit, material.block(), material.data
+        )
+        worst_n = max(worst_n, delta_n)
+        worst_alpha = max(worst_alpha, delta_log_alpha)
+
+    assert worst_n < 1e-8  # the tables are quoted to 1e-5
+    assert worst_alpha < 1e-6  # and a transmittance to three decimals, i.e. ~1e-2 in ln alpha
+

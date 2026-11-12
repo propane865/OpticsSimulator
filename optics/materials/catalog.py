@@ -8,23 +8,34 @@ material its elements were built with, so a file stays readable if this table is
 edited, renamed or removed. The lens editor seeds its material list from here and
 the :file:`optics.importers.zmx` importer resolves glass names through it.
 
-.. admonition:: These parameters are PROVISIONAL placeholders.
+.. admonition:: Where these numbers come from.
 
-    Every oscillator set below was fitted to *placeholder* tabulated data: a
-    glass-like dispersion curve pinned to the published refractive index
-    :math:`n_d` and Abbe number :math:`V_d` of the glass, and a
-    transmittance-like absorption band placed in the neighbourhood where that
-    family of glass really does absorb (deep ultraviolet, infrared phonon
-    edge). Published :math:`n_d` and :math:`V_d` are catalog specifications,
-    not measured spectra, and the published internal-transmittance curve is
-    **not** represented here.
+    Every oscillator set below is a fit to a published optical table: SCHOTT's
+    refractive-index and internal-transmittance tables for the eight crowned and
+    flint glasses, and Corning's HPFS 7980 index table for ``F_SILICA``. The tables
+    as printed are in :file:`raw_optical_data_csvs`; the two rows each fit read are
+    in :file:`tools/data`; the blocks exactly as the fitter emitted them are in
+    :file:`tools/data/fitted_blocks.json`; and :file:`tools/data/README.md` holds the
+    provenance, the per-glass fit reports and what each row still cannot claim.
+    :file:`tools/fit_catalog.py` refits all nine, and a test diffs this table against
+    what it writes, so nine rows of literals cannot be mis-transcribed in peace.
 
-    :file:`tools/fit_lorentz_material.py` regenerates these numbers from the
-    tabulated dispersion and absorbance tables in :file:`tools/data`, and the
-    fitting notes in :file:`tools/data/PLACEHOLDER.md` say what is still fake
-    and how to replace it. Until measured tables are in place, no quantity
-    here should be quoted as a measured absorption of any real glass --
-    extinction in particular is a placeholder shape, not data.
+    Three limits survived the fitting, and they belong in front of the numbers:
+
+    * a fitted ultraviolet edge is only as good as a damped oscillator's wing. Below
+      about 380 nm these models are *more transparent* than the tables fitted to --
+      at 300 nm N-BK7's printed ``tau_i`` says the glass has gone opaque, and this
+      model still transmits 98 % of a 25 mm path;
+    * the same holds above roughly 1.5 um, where real infrared absorption rises
+      faster than any single band's wing does;
+    * ``F_SILICA``'s absorption is a vendor *guarantee* rather than a measurement, and
+      the eight SCHOTT absorptions come from a transmittance printed to three decimals
+      -- at ``tau_i = 0.998`` that is a 25 % band on ``alpha``, wider than the fits' own
+      residuals.
+
+    None of it is a measurement of a particular melt, and no threshold of the
+    ``T70/50`` -- solarization, laser-damage, absorption-limit -- kind may be quoted
+    from it, because nothing here measured one.
 """
 
 from __future__ import annotations
@@ -34,8 +45,8 @@ from typing import Any
 from ..primitive import LorentzModel, LorentzOscillator, Material
 
 # The glass a fresh lens starts with, and the fallback for a material block the
-# editor cannot read: a real crown (n_d 1.5168, V_d 64.17) rather than a made-up
-# index, so a new element behaves like glass a reader could buy.
+# editor cannot read: a real crown (n_d 1.51680, V_d 64.14 on its own table) rather
+# than a made-up index, so a new element behaves like glass a reader could buy.
 DEFAULT_MATERIAL_NAME = "N-BK7"
 
 # One name that is not a glass: the exact constant-index model at n = 1, for the
@@ -43,88 +54,155 @@ DEFAULT_MATERIAL_NAME = "N-BK7"
 # permittivity and no resonances -- so it needs no special case anywhere.
 _AIR_NAME = "AIR"
 
-# PROVISIONAL placeholder parameters (see the module docstring): each entry is the
-# ``lorentz`` block of one glass, keyed by the name the editor shows and the ZMX
-# importer looks up. The comments record the published (n_d, V_d) pair each set is
-# pinned to and the placeholder absorption strength at 550 nm, which is what a
-# reader needs to judge how much of this row is real.
-_PROVISIONAL_LORENTZ_BLOCKS: dict[str, dict[str, Any]] = {
-    # The one row produced by :mod:`tools.fit_lorentz_material` rather than tuned by
-    # hand: fitted to the placeholder tables in ``tools/data`` (which are themselves
-    # synthetic -- see ``tools/data/PLACEHOLDER.md``), two oscillators after the
-    # negligible third term was pruned. Its published-pair match and its transparency
-    # are the same as the tuned rows'; what the fit buys is provenance, not accuracy.
+# The ``lorentz`` block of one glass, keyed by the name the editor shows and the ZMX
+# importer looks up. Each entry is a fit; each comment says which rows produced it, which
+# bands the fit was left with, what the glass's own table says at the Fraunhofer lines
+# against what the fit returns, and how the fitted absorption sits against the printed
+# transmittance.
+#
+# The shapes agree across the table because glass is like that: one band in the far
+# infrared (0.09 to 0.14 eV, the multiphonon absorption whose wing curves the red end of
+# the index row) and one or two above the measured window (4 to 11 eV, the electronic
+# systems that hold up the blue end). What a table ending near 310 nm cannot separate is
+# the *pair* of ultraviolet systems -- it sees their sum -- and where the tables cannot
+# see this catalog does not pretend: the band count is the smallest the row demanded.
+# The widths are less lucky. A transmittance row resolves the infrared band's width on
+# every glass here; on the four densest it leaves the ultraviolet band's width unresolved
+# and the fitted damping sits at the fitter's floor, which is the honest way of saying
+# that these four models carry no fitted ultraviolet absorption.
+_FITTED_LORENTZ_BLOCKS: dict[str, dict[str, Any]] = {
+    # N-BK7 -- fitted from tools/data/N-BK7-n.csv and tools/data/N-BK7-ti.csv; rms n 8.1e-06.
+    # Bands, the one below the measured window first: 0.1186 eV (S 1.0707, Gamma 4.10e-06) + 10.8726 eV (S 0.8316,
+    #   Gamma 1.73e-06).
+    # Its own rows give n_d 1.51680, V_d 64.14; this model returns 1.51680, 64.18.
+    # alpha(550 nm) 2.7e-04 mm^-1 fitted against the 2.0e-04 mm^-1 the printed tau_i implies there. On 25 mm the
+    #   model matches the printed internal transmittance to within 0.004 over 420 to 700 nm (0.005 once the 405 nm
+    #   row is included, where the ultraviolet wing, not the visible, is what is wrong).
     "N-BK7": {
-        "epsilon_inf": 1.68085047,
+        "epsilon_inf": 1.43989783,
         "oscillators": [
-            {"strength": 0.58818591, "resonance_ev": 9.11918305, "damping_ev": 9.995155e-06},
-            {"strength": 0.60894586, "resonance_ev": 0.10926037, "damping_ev": 2.998139e-04},
+            {"strength": 1.07067802, "resonance_ev": 0.118634502, "damping_ev": 4.09628677e-06},
+            {"strength": 0.83161904, "resonance_ev": 10.872643, "damping_ev": 1.73479158e-06},
         ],
-    },  # n_d 1.5168, V_d 64.17; alpha(550 nm) 0.0028 mm^-1 (placeholder)
+    },
+    # F_SILICA -- fitted from Corning HPFS 7980 index table, via tools/data/F_SILICA-n.csv; rms n 6.5e-07.
+    # Bands, the one below the measured window first: 0.1381 eV (S 0.7357, Gamma 1.68e-07) + 10.5667 eV (S 0.3605,
+    #   Gamma 1.43e-07) + 16.2876 eV (S 0.6574, Gamma 1.39e-07).
+    # Its own rows give n_d 1.45847, V_d 67.78; this model returns 1.45847, 67.79.
+    # No transmittance table exists for HPFS 7980 -- only grade guarantees -- so the dampings are one common scale,
+    #   set to put alpha(248 nm) on the KrF bound (Ti >= 99.90 %/cm), the tightest of the three printed. The ArF and
+    #   Standard bounds then hold with 2.3x and 49x to spare. alpha(550 nm) 1.7e-05 mm^-1 follows from a vendor's
+    #   tolerance, not from a measurement, and a 25 mm transmittance is not a claim this row can be checked against.
     "F_SILICA": {
-        "epsilon_inf": 1.57733359,
+        "epsilon_inf": 1.08622787,
         "oscillators": [
-            {"strength": 0.34371898, "resonance_ev": 10.3, "damping_ev": 1.0e-05},
-            {"strength": 0.18, "resonance_ev": 8.4, "damping_ev": 1.0e-05},
-            {"strength": 0.45, "resonance_ev": 0.10, "damping_ev": 3.0e-04},
+            {"strength": 0.735709775, "resonance_ev": 0.138099272, "damping_ev": 1.68126981e-07},
+            {"strength": 0.360508382, "resonance_ev": 10.5667363, "damping_ev": 1.43494331e-07},
+            {"strength": 0.657358183, "resonance_ev": 16.287576, "damping_ev": 1.38661696e-07},
         ],
-    },  # n_d 1.4585, V_d 67.80; alpha(550 nm) 0.0021 mm^-1 (placeholder)
+    },
+    # N-SF11 -- fitted from tools/data/N-SF11-n.csv and tools/data/N-SF11-ti.csv; rms n 4.8e-06.
+    # Bands, the one below the measured window first: 0.0937 eV (S 2.1564, Gamma 1.74e-05) + 3.9864 eV (S 0.0241,
+    #   Gamma 3.88e-05) + 6.6032 eV (S 1.1297, Gamma 1.00e-09).
+    # Its own rows give n_d 1.78473, V_d 25.70; this model returns 1.78472, 25.68.
+    # alpha(550 nm) 2.0e-03 mm^-1 fitted against the 9.0e-04 mm^-1 the printed tau_i implies there. On 25 mm the
+    #   model matches the printed internal transmittance to within 0.028 over 420 to 700 nm (0.126 once the 405 nm
+    #   row is included, where the ultraviolet wing, not the visible, is what is wrong).
     "N-SF11": {
-        "epsilon_inf": 0.48314985,
+        "epsilon_inf": 1.89783637,
         "oscillators": [
-            {"strength": 2.15226910, "resonance_ev": 9.5, "damping_ev": 1.0e-05},
-            {"strength": 0.4, "resonance_ev": 7.0, "damping_ev": 1.0e-05},
-            {"strength": 0.6, "resonance_ev": 0.12, "damping_ev": 3.0e-04},
+            {"strength": 2.15640376, "resonance_ev": 0.0937281896, "damping_ev": 1.73611269e-05},
+            {"strength": 0.0240985302, "resonance_ev": 3.98636633, "damping_ev": 3.88231467e-05},
+            {"strength": 1.12970063, "resonance_ev": 6.6032429, "damping_ev": 1e-09},
         ],
-    },  # n_d 1.7847, V_d 25.68; alpha(550 nm) 0.0068 mm^-1 (placeholder)
+    },
+    # N-SF5 -- fitted from tools/data/N-SF5-n.csv and tools/data/N-SF5-ti.csv; rms n 2.9e-06.
+    # Bands, the one below the measured window first: 0.1035 eV (S 1.5979, Gamma 2.37e-05) + 3.9659 eV (S 0.0112,
+    #   Gamma 4.03e-05) + 7.1677 eV (S 0.8986, Gamma 1.00e-09).
+    # Its own rows give n_d 1.67271, V_d 32.26; this model returns 1.67271, 32.25.
+    # alpha(550 nm) 1.2e-03 mm^-1 fitted against the 5.0e-04 mm^-1 the printed tau_i implies there. On 25 mm the
+    #   model matches the printed internal transmittance to within 0.018 over 420 to 700 nm (0.052 once the 405 nm
+    #   row is included, where the ultraviolet wing, not the visible, is what is wrong).
     "N-SF5": {
-        "epsilon_inf": 1.10894108,
+        "epsilon_inf": 1.80233924,
         "oscillators": [
-            {"strength": 1.23427895, "resonance_ev": 9.6, "damping_ev": 1.0e-05},
-            {"strength": 0.36, "resonance_ev": 7.2, "damping_ev": 1.0e-05},
-            {"strength": 0.55, "resonance_ev": 0.12, "damping_ev": 3.0e-04},
+            {"strength": 1.59790582, "resonance_ev": 0.103471765, "damping_ev": 2.37336148e-05},
+            {"strength": 0.0112124561, "resonance_ev": 3.96593573, "damping_ev": 4.0343945e-05},
+            {"strength": 0.898561242, "resonance_ev": 7.16765811, "damping_ev": 1e-09},
         ],
-    },  # n_d 1.6727, V_d 32.21; alpha(550 nm) 0.0050 mm^-1 (placeholder)
+    },
+    # N-F2 -- fitted from tools/data/N-F2-n.csv and tools/data/N-F2-ti.csv; rms n 2.8e-06.
+    # Bands, the one below the measured window first: 0.1132 eV (S 1.2783, Gamma 2.18e-05) + 4.3194 eV (S 0.0200,
+    #   Gamma 2.14e-05) + 7.9247 eV (S 0.8539, Gamma 1.00e-09).
+    # Its own rows give n_d 1.62005, V_d 36.44; this model returns 1.62005, 36.43.
+    # alpha(550 nm) 9.1e-04 mm^-1 fitted against the 3.0e-04 mm^-1 the printed tau_i implies there. On 25 mm the
+    #   model matches the printed internal transmittance to within 0.015 over 420 to 700 nm (0.033 once the 405 nm
+    #   row is included, where the ultraviolet wing, not the visible, is what is wrong).
     "N-F2": {
-        "epsilon_inf": 1.32487915,
+        "epsilon_inf": 1.68293831,
         "oscillators": [
-            {"strength": 0.95291563, "resonance_ev": 9.4, "damping_ev": 1.0e-05},
-            {"strength": 0.36, "resonance_ev": 7.0, "damping_ev": 1.0e-05},
-            {"strength": 0.6, "resonance_ev": 0.12, "damping_ev": 3.0e-04},
+            {"strength": 1.27827254, "resonance_ev": 0.113179193, "damping_ev": 2.17692531e-05},
+            {"strength": 0.0200082846, "resonance_ev": 4.31941639, "damping_ev": 2.13725146e-05},
+            {"strength": 0.853880949, "resonance_ev": 7.92472316, "damping_ev": 1e-09},
         ],
-    },  # n_d 1.6500, V_d 33.84; alpha(550 nm) 0.0049 mm^-1 (placeholder)
+    },
+    # N-BAK4 -- fitted from tools/data/N-BAK4-n.csv and tools/data/N-BAK4-ti.csv; rms n 5.8e-06.
+    # Bands, the one below the measured window first: 0.1153 eV (S 1.0384, Gamma 1.80e-05) + 9.6166 eV (S 0.8500,
+    #   Gamma 2.03e-06).
+    # Its own rows give n_d 1.56883, V_d 56.01; this model returns 1.56882, 55.94.
+    # alpha(550 nm) 5.0e-04 mm^-1 fitted against the 2.0e-04 mm^-1 the printed tau_i implies there. On 25 mm the
+    #   model matches the printed internal transmittance to within 0.009 over 420 to 700 nm (0.009 once the 405 nm
+    #   row is included, where the ultraviolet wing, not the visible, is what is wrong).
     "N-BAK4": {
-        "epsilon_inf": 1.62238234,
+        "epsilon_inf": 1.57134623,
         "oscillators": [
-            {"strength": 0.55646477, "resonance_ev": 10.0, "damping_ev": 1.0e-05},
-            {"strength": 0.24, "resonance_ev": 8.0, "damping_ev": 1.0e-05},
-            {"strength": 0.55, "resonance_ev": 0.11, "damping_ev": 3.0e-04},
+            {"strength": 1.03841146, "resonance_ev": 0.115344737, "damping_ev": 1.80095213e-05},
+            {"strength": 0.849982084, "resonance_ev": 9.61664996, "damping_ev": 2.02755327e-06},
         ],
-    },  # n_d 1.5688, V_d 55.95; alpha(550 nm) 0.0030 mm^-1 (placeholder)
+    },
+    # N-SK16 -- fitted from tools/data/N-SK16-n.csv and tools/data/N-SK16-ti.csv; rms n 9.7e-06.
+    # Bands, the one below the measured window first: 0.1218 eV (S 1.1222, Gamma 8.85e-06) + 10.4160 eV (S 1.0495,
+    #   Gamma 3.39e-06).
+    # Its own rows give n_d 1.62041, V_d 60.31; this model returns 1.62040, 60.36.
+    # alpha(550 nm) 6.6e-04 mm^-1 fitted against the 2.0e-04 mm^-1 the printed tau_i implies there. On 25 mm the
+    #   model matches the printed internal transmittance to within 0.011 over 420 to 700 nm (0.011 once the 405 nm
+    #   row is included, where the ultraviolet wing, not the visible, is what is wrong).
     "N-SK16": {
-        "epsilon_inf": 1.71566691,
+        "epsilon_inf": 1.53504737,
         "oscillators": [
-            {"strength": 0.62553540, "resonance_ev": 10.1, "damping_ev": 1.0e-05},
-            {"strength": 0.24, "resonance_ev": 8.1, "damping_ev": 1.0e-05},
-            {"strength": 0.55, "resonance_ev": 0.11, "damping_ev": 3.0e-04},
+            {"strength": 1.12221872, "resonance_ev": 0.121778435, "damping_ev": 8.85374958e-06},
+            {"strength": 1.04949428, "resonance_ev": 10.4160398, "damping_ev": 3.38789344e-06},
         ],
-    },  # n_d 1.6204, V_d 60.32; alpha(550 nm) 0.0030 mm^-1 (placeholder)
+    },
+    # N-LAK22 -- fitted from tools/data/N-LAK22-n.csv and tools/data/N-LAK22-ti.csv; rms n 1.1e-05.
+    # Bands, the one below the measured window first: 0.1169 eV (S 1.1709, Gamma 8.83e-06) + 10.0025 eV (S 1.1208,
+    #   Gamma 3.74e-06).
+    # Its own rows give n_d 1.65113, V_d 55.91; this model returns 1.65113, 55.91.
+    # alpha(550 nm) 8.1e-04 mm^-1 fitted against the 3.0e-04 mm^-1 the printed tau_i implies there. On 25 mm the
+    #   model matches the printed internal transmittance to within 0.013 over 420 to 700 nm (0.013 once the 405 nm
+    #   row is included, where the ultraviolet wing, not the visible, is what is wrong).
     "N-LAK22": {
-        "epsilon_inf": 1.61319355,
+        "epsilon_inf": 1.55683452,
         "oscillators": [
-            {"strength": 1.05356058, "resonance_ev": 9.8, "damping_ev": 1.0e-05},
-            {"strength": 0.3, "resonance_ev": 7.6, "damping_ev": 1.0e-05},
-            {"strength": 0.55, "resonance_ev": 0.11, "damping_ev": 3.0e-04},
+            {"strength": 1.17087814, "resonance_ev": 0.116929636, "damping_ev": 8.82752057e-06},
+            {"strength": 1.12078986, "resonance_ev": 10.0024803, "damping_ev": 3.73772772e-06},
         ],
-    },  # n_d 1.7440, V_d 47.24; alpha(550 nm) 0.0039 mm^-1 (placeholder)
+    },
+    # N-LASF9 -- fitted from tools/data/N-LASF9-n.csv and tools/data/N-LASF9-ti.csv; rms n 2.7e-06.
+    # Bands, the one below the measured window first: 0.0966 eV (S 1.9077, Gamma 2.15e-05) + 4.2644 eV (S 0.0297,
+    #   Gamma 7.14e-05) + 7.6257 eV (S 1.4288, Gamma 1.00e-09).
+    # Its own rows give n_d 1.85026, V_d 32.18; this model returns 1.85025, 32.18.
+    # alpha(550 nm) 3.3e-03 mm^-1 fitted against the 1.1e-03 mm^-1 the printed tau_i implies there. On 25 mm the
+    #   model matches the printed internal transmittance to within 0.059 over 420 to 700 nm (0.101 once the 405 nm
+    #   row is included, where the ultraviolet wing, not the visible, is what is wrong).
     "N-LASF9": {
-        "epsilon_inf": 1.22331526,
+        "epsilon_inf": 1.84084062,
         "oscillators": [
-            {"strength": 1.61831967, "resonance_ev": 9.3, "damping_ev": 1.0e-05},
-            {"strength": 0.45, "resonance_ev": 6.9, "damping_ev": 1.0e-05},
-            {"strength": 0.65, "resonance_ev": 0.13, "damping_ev": 3.0e-04},
+            {"strength": 1.9077148, "resonance_ev": 0.0965866341, "damping_ev": 2.14740061e-05},
+            {"strength": 0.0297173473, "resonance_ev": 4.26440926, "damping_ev": 7.13797711e-05},
+            {"strength": 1.42876919, "resonance_ev": 7.62572566, "damping_ev": 1e-09},
         ],
-    },  # n_d 1.8502, V_d 32.17; alpha(550 nm) 0.0064 mm^-1 (placeholder)
+    },
 }
 
 
@@ -146,7 +224,7 @@ def _model_from_block(block: dict[str, Any]) -> LorentzModel:
 #: Every catalog material, by name, in the order the editor lists them.
 MATERIALS: dict[str, Material] = {
     _AIR_NAME: Material(LorentzModel.constant(1.0)),
-    **{name: Material(_model_from_block(block)) for name, block in _PROVISIONAL_LORENTZ_BLOCKS.items()},
+    **{name: Material(_model_from_block(block)) for name, block in _FITTED_LORENTZ_BLOCKS.items()},
 }
 
 

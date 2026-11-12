@@ -7,20 +7,32 @@ publishes is a dispersion row (``n`` versus ``lambda``) and an internal-transmit
 row (``tau_i`` versus ``lambda``). This tool is the conversion, and it is the only
 place in the project that turns measured data into model parameters.
 
-Physics of the conversion
--------------------------
+How the fit is split
+--------------------
 Internal transmittance already excludes surface reflection, so it maps straight onto
 bulk absorption over the tabulated thickness::
 
     alpha(lambda) = -ln(tau_i) / thickness_mm        [mm^-1]
     k(lambda)     = alpha * lambda_nm * 1e-6 / (4 pi)
 
-The fit then minimises normalised residuals in three blocks -- ``n`` linear, ``k``
-linear, and ``ln alpha`` -- because the two ends of the data disagree about scale:
-in the visible a glass has ``k`` near 1e-9, twenty orders of magnitude below the
-infrared band's ``k``. Weighted only in linear ``k``, the infrared would decide the
-whole fit and the visible transparency (which is what a traced ray feels) would be
-arbitrary; the log block is what keeps the transparent region honest.
+The two published rows then determine disjoint pieces of the model, and fitting them in
+one objective spends one to buy the other. With the damping small the real permittivity
+is the published Sellmeier sum ``epsilon_inf + sum_j S_j E_j^2/(E_j^2 - E^2)``, so the
+**index row alone** fixes the background, the strengths and the resonance positions; the
+**transmittance row alone** fixes the widths, since ``Gamma_j`` reaches the real
+permittivity only as ``Gamma_j^2 E^2`` beside ``(E_j^2 - E^2)^2`` and moves ``n`` not at
+all for a band outside the measured window. So the fit is two stages: ``fit_index`` then
+``fit_damping``, with each stage judged only by its own row.
+
+Absorption is minimised in ``ln alpha`` -- in the visible a glass has ``k`` near 1e-9,
+twenty orders of magnitude below its infrared band, and a linearly weighted fit would
+let the infrared decide everything -- over the rows the oscillator model can reach; a row
+it misses by more than a decade is a published band edge, which no handful of resonances
+contains, and is reported rather than fitted (see :data:`EDGE_LOG_ALPHA`). A joint
+variant of the whole objective is kept as :func:`fit_lorentz` / :func:`fit_lorentz_pruned`:
+it is what the synthetic round trip measures, and ``--joint`` runs it, but it cannot be
+released as a catalog material from measured tables -- it trades a published index of
+1.51680 against the ultraviolet edge and returns something nearer 1.5160.
 
 Seeding comes from the tables alone. ``epsilon' = n^2 - k^2`` and
 ``epsilon'' = 2 n k`` are computed from the data; resonance energies are the peaks of
@@ -30,20 +42,30 @@ damping comes from the peak widths, and ``epsilon_inf`` is the high-frequency
 intercept of ``epsilon'`` against ``1/E^2``. No previous parameterisation is used as
 a starting point -- a fit that needed one would not work on data that has none.
 
-Placeholder data
-----------------
-:mod:`tools.data` currently ships *synthetic* tables: they are generated from the
-hidden truth recorded in :data:`PLACEHOLDER_TRUTH`, and the round-trip test
-(``tests/tools/test_fit_lorentz_material.py``) asserts this tool recovers that truth.
-That is what makes the fitter verifiable today, and it is why every parameter this
-tool has produced is labelled provisional: when measured tables land, they replace
-the CSVs and nothing here changes.
+The tables it reads
+-------------------
+:data:`DATA_DIR` holds one pair of rows per glass, written from the vendor tables by
+:mod:`tools.import_raw_optical_data` -- never by hand, and ``--check`` there proves it.
+A glass published without a transmittance row (Corning's HPFS 7980 quotes guarantee
+limits rather than a curve) is fitted with ``--dispersion-only``, and its damping is then
+set by those guarantees with ``--guarantee`` -- which bounds its absorption and is
+reported as bounding it, never written up as a measurement.
+
+The synthetic pair this tool was developed against still exists as
+:data:`ROUND_TRIP_TRUTH`, because a fitter is only proved by a round trip: generate a
+model, tabulate it, fit the tabulation, ask what came back. ``--make-round-trip``
+writes those tables (somewhere other than the measured directory, which it refuses),
+and :mod:`tests.tools.test_fit_lorentz_material` runs that round trip in a temporary
+directory.
 
 Usage::
 
+    python tools/import_raw_optical_data.py            # vendor CSVs -> DATA_DIR
     python tools/fit_lorentz_material.py --name N-BK7 --oscillators 3
     python tools/fit_lorentz_material.py --name N-BK7 --out fitted.json
-    python tools/fit_lorentz_material.py --make-placeholder N-BK7
+    python tools/fit_lorentz_material.py --name F_SILICA --oscillators 3 \\
+        --dispersion-only --guarantee 185:88.00 --guarantee 248:99.90 --guarantee 193:99.50
+    python tools/fit_lorentz_material.py --make-round-trip N-BK7 --out-dir /tmp/scratch
 """
 
 from __future__ import annotations
@@ -52,7 +74,9 @@ import argparse
 import json
 import math
 import sys
-from dataclasses import dataclass, field
+import tempfile
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -66,33 +90,59 @@ from optics.constants import HC_EV_NM
 __all__ = [
     "DATA_DIR",
     "DEFAULT_DAMPING_EV",
+    "EDGE_LOG_ALPHA",
+    "HPFS_7980_GUARANTEES",
     "KEEP_RMS_LOG_ALPHA",
     "KEEP_RMS_N",
     "MAX_LOG_STEP",
     "MIN_ABSORPTION_ROWS",
     "NEGLIGIBLE_STRENGTH",
-    "PLACEHOLDER_TRUTH",
+    "NO_ABSORPTION",
+    "ROUND_TRIP_TRUTH",
     "SIGMA_LOG_ALPHA",
     "SIGMA_N",
     "TAU_FLOOR",
     "TAU_ROUNDING_TOLERANCE",
+    "AbsorptionAnchor",
+    "DampingFit",
+    "LorentzTerm",
     "MaterialFit",
+    "absorption_bound_from_guarantee",
     "absorption_from_internal_transmittance",
+    "absorption_warnings",
     "alpha_from_k",
+    "anchor_to_guarantees",
+    "band_regions",
+    "bands_are_physical",
+    "bound_warnings",
     "clip_theta",
     "complex_index",
     "dielectric",
     "epsilon_from_index",
     "extinction_from_absorption",
+    "fit_damping",
     "fit_lorentz",
+    "fit_lorentz_pruned",
+    "fit_material",
     "grow_model",
+    "guarantee_notes",
+    "index_candidates",
+    "index_with_bands",
     "ladder_terms",
     "main",
     "material_document",
+    "merged_resonance",
     "model_parameters",
+    "negligible_terms",
+    "photon_energies",
     "read_dispersion",
     "read_internal_transmittance",
+    "round_trip_tables",
+    "scale_damping_to_absorption",
     "seed_model",
+    "sellmeier_start",
+    "simplify_bands",
+    "write_round_trip_tables",
 ]
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -131,6 +181,27 @@ TAU_ROUNDING_TOLERANCE = 1.0e-6
 MIN_ABSORPTION_ROWS = 3
 
 
+class _NoAbsorption:
+    """The type of :data:`NO_ABSORPTION` -- a table that genuinely has no ``tau_i`` row.
+
+    A distinct type rather than ``None``, because ``None`` already means "use the default
+    file name" and those two states must not collapse: one is "fit both rows", the other
+    is "this material was published without a transmittance table". A typo in a
+    ``--name`` has to stay an error rather than silently becoming a dispersion-only fit
+    that prints damping it has no data for.
+    """
+
+    def __repr__(self) -> str:  # pragma: no cover - reporting only
+        return "NO_ABSORPTION"
+
+
+#: Pass as ``load_tables``' transmittance argument for a material published without a
+#: transmittance table (Corning's HPFS 7980 quotes guarantee limits, not a curve).
+#: Absorption is then *nothing the fit was ever told*, which :func:`absorption_warnings`
+#: says out loud instead of leaving the reader to infer from a plausible damping column.
+NO_ABSORPTION = _NoAbsorption()
+
+
 @dataclass(frozen=True)
 class TabulatedData:
     """The two published rows, on their own wavelength grids."""
@@ -142,8 +213,19 @@ class TabulatedData:
     alpha_per_mm: np.ndarray
 
     @property
+    def has_absorption(self) -> bool:
+        """Whether this table says anything at all about absorption."""
+        return bool(self.alpha_per_mm.size)
+
+    @property
     def k(self) -> np.ndarray:
-        """Extinction coefficient on the dispersion grid."""
+        """Extinction coefficient on the dispersion grid.
+
+        An empty absorption row is no measurement, so it is no extinction either: ``k``
+        is zero everywhere rather than an interpolation of nothing.
+        """
+        if not self.has_absorption:
+            return np.zeros_like(self.n)
         return extinction_from_absorption(
             np.interp(
                 self.wavelengths_nm,
@@ -156,12 +238,18 @@ class TabulatedData:
         )
 
 
+LorentzTerm = tuple[float, float, float]
+"""One oscillator as the catalogue stores it: ``(S_j, E_j, Gamma_j)``, dimensionless
+strength, resonance energy and damping, the last two in eV.
+"""
+
+
 @dataclass
 class MaterialFit:
     """The fitted model plus the report the fit was judged by."""
 
     epsilon_inf: float
-    oscillators: tuple[tuple[float, float, float], ...]  # (S_j, E_j, Gamma_j)
+    oscillators: tuple[LorentzTerm, ...]
     cost: float
     rms_nm: float
     rms_k: float
@@ -289,6 +377,18 @@ def complex_index(
 # (which is a constant, not a resonance), and neither is a material. The bounds are
 # generous -- five decades below any measurable damping, three above any bound
 # electron -- because their job is to exclude nonsense, not to pick the answer.
+#
+# What the box does *not* do is choose between two models that both fit. A band driven
+# toward zero resonance energy with its strength growing to match leaves only the product
+# ``S_j * E_j^2`` visible in a measured window: that is an infrared band's wing shape with
+# the position and the strength individually unidentified, and a fit can buy absorption
+# freedom by inflating ``S_j`` along it. Measured tables do walk there -- strengths pinned
+# at 100 with resonances at 0.01 eV, which is not a resonance but a numerical trick. The
+# box lets them: tightening the floor or the ceiling enough to stop it also clips the seeds
+# and stalls the projection, which is how this file first lost N-BAK4's index fit. What
+# refuses a ridge model instead is :func:`bands_are_physical`, a rule about candidates
+# rather than a wall around the search: it costs the optimizer nothing and it can explain
+# itself, which a bound at 0.05 eV cannot.
 _BOUNDS: tuple[tuple[float, float], ...] = (
     (math.log(1.0e-3), math.log(50.0)),
     (math.log(1.0e-8), math.log(100.0)),
@@ -344,6 +444,8 @@ def _residual(theta: np.ndarray, data: TabulatedData) -> np.ndarray:
 
 def _alpha_k(data: TabulatedData, k: np.ndarray) -> np.ndarray:
     """Re-interpolate a model ``k`` onto the absorption grid (the two rows differ)."""
+    if not data.has_absorption:
+        return np.empty(0)
     if len(data.absorption_wavelengths_nm) == len(data.wavelengths_nm) and np.array_equal(
         data.absorption_wavelengths_nm, data.wavelengths_nm
     ):
@@ -355,6 +457,30 @@ def _alpha_k(data: TabulatedData, k: np.ndarray) -> np.ndarray:
         left=k[0],
         right=k[-1],
     )
+
+
+def free_indices(bands: int, has_absorption: bool) -> np.ndarray:
+    """Which log-parameters a fit of this table is allowed to move.
+
+    Always the background and, for every band, its strength and resonance energy. The
+    damping joins only when there is a transmittance row: it is the parameter that decides
+    absorption, and with no absorption row to answer to it is free to do something
+    horrible at a *discount* -- the index-only fits this replaced parked dampings of 0.6
+    and 2.5 eV on ultraviolet bands, which moves ``n`` by 8e-3 at the blue edge of the
+    table and would have been shipped as a claim about a glass's transparency. Stage two
+    (``fit_damping``) is where the widths belong, and stage one now has nothing to say
+    there.
+    """
+    indices = [0]
+    for band in range(bands):
+        indices += [1 + 3 * band, 2 + 3 * band]
+        if has_absorption:
+            indices.append(3 + 3 * band)
+    # Ascending by construction, so that fitting everything is the identity permutation and
+    # a joint fit is bit-for-bit the fit it always was rather than the same fit with its
+    # Jacobian columns shuffled -- which is enough to change which local minimum a
+    # multi-start lands in.
+    return np.array(indices, dtype=int)
 
 
 def _jacobian(theta: np.ndarray, data: TabulatedData, residual: np.ndarray) -> np.ndarray:
@@ -395,7 +521,8 @@ def _levenberg(
     cost = 0.5 * float(residual @ residual)
     used = 0
     for _round in range(max(1, restarts)):
-        theta, cost, lam, used = _levenberg_pass(theta, data, iterations, tolerance)
+        theta, cost, lam, passed = _levenberg_pass(theta, data, iterations, tolerance)
+        used += passed  # across restarts: how much work the fit actually did
         if not math.isfinite(cost):
             break
     return theta, cost, lam, used
@@ -404,7 +531,13 @@ def _levenberg(
 def _levenberg_pass(
     theta: np.ndarray, data: TabulatedData, iterations: int, tolerance: float
 ) -> tuple[np.ndarray, float, float, int]:
-    """One unconverged-to-converged pass, starting from a fresh trust radius."""
+    """One unconverged-to-converged pass, starting from a fresh trust radius.
+
+    Only the columns :func:`free_indices` allows are solved for; a frozen parameter keeps
+    the value it was seeded with, which is what makes a dispersion-only fit a Sellmeier fit
+    rather than a fit with invisible extra freedom in it.
+    """
+    free = free_indices((len(theta) - 1) // 3, data.has_absorption)
     lam = 1.0e-3
     residual = _residual(theta, data)
     cost = 0.5 * float(residual @ residual)
@@ -412,7 +545,7 @@ def _levenberg_pass(
     relative = 1.0
     for iteration in range(1, iterations + 1):
         used = iteration  # reported as "iterations": how far the pass actually got
-        jacobian = _jacobian(theta, data, residual)
+        jacobian = _jacobian(theta, data, residual)[:, free]
         normal = jacobian.T @ jacobian
         gradient = jacobian.T @ residual
         curvature = np.diag(normal).copy()
@@ -436,7 +569,9 @@ def _levenberg_pass(
             worst = float(np.max(np.abs(delta)))
             if worst > MAX_LOG_STEP:
                 delta = delta * (MAX_LOG_STEP / worst)
-            trial = theta + delta
+            step = np.zeros_like(theta)
+            step[free] = delta
+            trial = theta + step
             trial_residual = _residual(trial, data)
             trial_cost = 0.5 * float(trial_residual @ trial_residual)
             if math.isfinite(trial_cost) and trial_cost < cost:
@@ -460,9 +595,16 @@ def _rms(theta: np.ndarray, data: TabulatedData) -> tuple[float, float, float]:
     a low cost alone cannot tell you whether the visible index or the infrared edge is
     the one that came out wrong. ``rms_log_alpha`` is the fractional error of the
     absorption coefficient, which is the number the trace turns into power.
+
+    A table with no absorption row has no absorption error to report, so both absorption
+    blocks read ``0.0``: nothing was wrong because nothing was claimed. That is why the
+    dispersion-only report carries :func:`absorption_warnings` rather than a bare number
+    a reader could mistake for "fits the absorption perfectly".
     """
     epsilon_inf, parameters = model_parameters(theta)
     n, k = complex_index(data.wavelengths_nm, epsilon_inf, parameters)
+    if not data.has_absorption:
+        return float(np.sqrt(np.mean((n - data.n) ** 2))), 0.0, 0.0
     k_tab = data.k
     alpha_model = alpha_from_k(_alpha_k(data, k), data.absorption_wavelengths_nm)
     usable = data.alpha_per_mm > 0.0
@@ -579,7 +721,7 @@ def epsilon_inf_of(data: TabulatedData) -> float:
     return seed_model(data, 2)[0]
 
 
-def seed_model(data: TabulatedData, oscillators: int) -> tuple[float, tuple[tuple[float, float, float], ...]]:
+def seed_model(data: TabulatedData, oscillators: int) -> tuple[float, tuple[LorentzTerm, ...]]:
     """A starting ``(epsilon_inf, [(S, E, Gamma)])`` derived only from the tables.
 
     Resonances come from the peaks of ``epsilon''``; when the table shows fewer bands
@@ -726,7 +868,7 @@ def grow_model(
     return background, tuple(terms)
 
 
-def ladder_terms(data: TabulatedData, oscillators: int) -> tuple[tuple[float, float, float], ...]:
+def ladder_terms(data: TabulatedData, oscillators: int) -> tuple[LorentzTerm, ...]:
     """Neutral starting terms: bands log-spaced over everything a band could be.
 
     The range is deliberately wider than the data -- a quarter of the reddest photon
@@ -755,7 +897,7 @@ def fit_lorentz(
     iterations: int = 120,
     tolerance: float = 1.0e-12,
     seed: int = 0,
-    initial: tuple[float, tuple[tuple[float, float, float], ...]] | None = None,
+    initial: tuple[float, tuple[LorentzTerm, ...]] | None = None,
 ) -> MaterialFit:
     """Fit the model to ``data`` and return the best of several starts.
 
@@ -887,9 +1029,10 @@ def fit_lorentz_pruned(
     The test is against the *data*, not against the parameter values, which is what
     makes it safe: a term with a small strength that happens to hold up an absorption
     edge is kept, and a strong term duplicated by its neighbours goes. This is the
-    plan's "add oscillators only when the residuals demand it" rule seen from the other
-    end, and it is why the shipped catalog entry carries two oscillators when three were
-    asked for.
+    "add oscillators only when the residuals demand it" rule seen from the other end --
+    the two-stage path sees it from this end instead, by growing the count upward in
+    :func:`fit_index`, because pruning a joint fit on measured tables stops wherever the
+    ridge in :data:`_BOUNDS` happens to be.
     """
     fit = fit_lorentz(data, oscillators, starts, iterations, tolerance, seed)
     for _ in range(max(0, rounds)):
@@ -912,6 +1055,598 @@ def fit_lorentz_pruned(
     return fit
 
 
+# --- the shipped path: index first, then damping -------------------------------
+
+# A published absorption edge is not an oscillator wing. Measured against the tables
+# here, N-BK7's transmittance falls from 0.998 at 500 nm to 0.29 at 300 nm -- a factor of
+# 600 in the absorption coefficient across two thirds of a decade of photon energy -- and
+# rises again by a factor of 400 between 1060 nm and 2500 nm, while a damped oscillator's
+# wing moves as E/((E_j^2 - E^2)^2 + Gamma^2 E^2), which is a smooth E^-3 in the infrared
+# and far shallower than that at the ultraviolet end. Real glass absorbs by defect and
+# multiphonon processes that no handful of resonances contains.
+#
+# So a transmittance row is fitted over the rows the model can reach, and a row missed by
+# more than this much -- one decade, comfortably beyond the few percent a table quotes and
+# the factor of a few a wing can be talked into -- is reported as outside the model rather
+# than fitted. The alternative tried first, a soft (pseudo-Huber) loss, failed the same
+# way every soft loss fails against a systematically unreachable block: its linear tail
+# has no restoring force, so the dampings walked to their bound while the transparent
+# region, which is what a traced ray spends its power on, was abandoned. Excluding the
+# edges is the same judgement already made about a floored ``tau_i`` row -- a limit is not
+# a magnitude -- written where it can be seen and argued with.
+EDGE_LOG_ALPHA = math.log(10.0)
+
+
+@dataclass
+class DampingFit:
+    """A model whose dampings came from a transmittance row, and the truth about that row."""
+
+    fit: MaterialFit
+    rows: int
+    fitted_rows: int
+    rms_log_alpha: float
+    rms_log_alpha_fitted: float
+    worst_ratio: float
+    worst_ratio_wavelength_nm: float
+    delta_n_max: float
+
+    @property
+    def unreachable(self) -> int:
+        """Rows the model misses by more than a decade -- band edges it cannot hold."""
+        return self.rows - self.fitted_rows
+
+    def report(self) -> str:
+        return (
+            f"damping fitted to {self.fitted_rows} of {self.rows} transmittance rows"
+            f" ({self.unreachable} outside the model's reach):"
+            f" rms ln alpha {self.rms_log_alpha_fitted:.3f} fitted / {self.rms_log_alpha:.3f} all,"
+            f" worst ratio {self.worst_ratio:.3g} at {self.worst_ratio_wavelength_nm:g} nm,"
+            f" index moved by at most {self.delta_n_max:.3e}"
+        )
+
+
+def without_absorption(data: TabulatedData) -> TabulatedData:
+    """``data`` with the transmittance row set aside, for a stage that fits only ``n``."""
+    return TabulatedData(
+        name=data.name,
+        wavelengths_nm=data.wavelengths_nm,
+        n=data.n,
+        absorption_wavelengths_nm=np.empty(0),
+        alpha_per_mm=np.empty(0),
+    )
+
+
+SELLMEIER_BAND_REGIONS: tuple[tuple[float, float], ...] = ((0.08, 0.20), (1.2, 3.0))
+"""Where a glass's resonances are allowed to be, relative to its own measured window.
+
+Two regions, because that is what an optical glass has: one far-infrared multiphonon band
+-- 8 to 20 um, which is 0.06 to 0.15 eV and is what curves the red end of an index table
+-- and one or more ultraviolet band systems above the window, where the electrons are.
+Nothing sits in between: a band inside the measured window is an absorption band inside
+the glass's own transmission region, which is the opposite of what the table says.
+
+The upper multiplier on the ultraviolet side is loose on purpose. What it buys is room for
+the second band system (fused silica has its at 18 eV, 50 nm above the first) without
+letting a band wander so far out that it degenerates into the background.
+"""
+
+INFRARED_START_EV: tuple[float, ...] = (0.09, 0.12, 0.16)
+"""Candidate positions for a glass's far-infrared band: 14, 10 and 8 um.
+
+Used only to start a fit (:func:`sellmeier_start`), never to constrain one -- the fitted
+values land between 0.09 and 0.15 eV, which is the range the multiphonon bands of oxide
+glasses occupy, and the spread of the three starts is what tells the multistart that this
+arrangement, and not the degenerate one, is what it should be polishing.
+"""
+
+MAX_DAMPING_INDEX_SHIFT = 1.0e-6
+"""How far the damping stage may move the index, in absolute ``n``.
+
+The widths are supposed to be free of the index: ``Gamma_j`` enters the real permittivity
+only through ``Gamma_j^2 E^2``, which for a band outside the measured window is nothing.
+When the reported shift exceeds this, the widths were being used to fix a dispersion
+residual, and the candidate is refused. Fitted models here move ``n`` by about 1e-9.
+"""
+
+MAX_PHYSICAL_STRENGTH = 4.0
+"""The largest oscillator strength a published glass is allowed to need.
+
+The fitted values here come out 0.02 to 2.0, and the published Sellmeier ``B``
+coefficients of the glasses whose tables are shipped here run to about 1.9 -- the same
+numbers, since :func:`fit_lorentz` and a Sellmeier fit are the same fit. A band wanting a
+strength an order of magnitude past that is not a strong band, it is the fit standing on
+the degenerate ridge of :data:`_BOUNDS`, where only ``S_j * E_j ** 2`` is identified.
+"""
+
+
+def photon_energies(wavelengths_nm: np.ndarray) -> np.ndarray:
+    """Photon energies of a wavelength table, the units every model here is fitted in."""
+    return HC_EV_NM / np.asarray(wavelengths_nm, dtype=float)
+
+
+def band_regions(data: TabulatedData) -> tuple[tuple[float, float], ...]:
+    """The allowed resonance energies for ``data``'s window, from :data:`SELLMEIER_BAND_REGIONS`."""
+    energies = photon_energies(data.wavelengths_nm)
+    low, high = float(np.min(energies)), float(np.max(energies))
+    infrared, ultraviolet = SELLMEIER_BAND_REGIONS
+    return ((infrared[0], min(infrared[1], low * 0.9)), (ultraviolet[0] * high, ultraviolet[1] * high))
+
+
+def bands_are_physical(fit: MaterialFit, data: TabulatedData) -> bool:
+    """Whether every band of ``fit`` sits where a glass's bands sit, and is not too strong.
+
+    This is a judgement about the *model*, not about the fit quality: a candidate can
+    reproduce the table to its precision and still be nonsense, with a strength of 100 at
+    0.01 eV doing the work of an infrared band whose position and strength the table never
+    measured. Those candidates are not published; see :func:`fit_index`.
+    """
+    regions = band_regions(data)
+    for strength, resonance, _damping in fit.oscillators:
+        if strength > MAX_PHYSICAL_STRENGTH:
+            return False
+        if not any(low <= resonance <= high for low, high in regions):
+            return False
+    return True
+
+
+def sellmeier_start(
+    data: TabulatedData, oscillators: int, infrared_ev: float = 0.12
+) -> tuple[float, tuple[LorentzTerm, ...]]:
+    """A start in the shape of a real glass: one infrared band, the rest above the window.
+
+    The strengths and the background come from :func:`_background_and_strengths`, which is
+    an exact linear solve for them given positions -- so the start is already close, and
+    the positions are the ones a Sellmeier fit would use. Without it the multistart has to
+    discover this arrangement by chance and on the denser flints does not: it lands on the
+    ridge instead, a few thousandths of index better and nothing like a material.
+    """
+    high = float(np.max(photon_energies(data.wavelengths_nm)))
+    infrared = infrared_ev  # eV, in the multiphonon region every oxide glass shares
+    slots: list[float] = []
+    if oscillators >= 2:
+        slots.append(infrared)
+    slots.append(1.4 * high)
+    if oscillators >= 4:
+        slots.append(2.6 * high)
+    while len(slots) < oscillators:
+        slots.append(2.0 * high)
+    energies = [float(value) for value in slots[:oscillators]]
+    epsilon, strengths = _background_and_strengths(
+        photon_energies(data.wavelengths_nm), np.real(epsilon_from_index(data.n, data.k)), energies
+    )
+    return epsilon, tuple(
+        (float(strength), float(energy), DEFAULT_DAMPING_EV)
+        for strength, energy in zip(strengths, energies, strict=True)
+    )
+
+
+def index_candidates(
+    data: TabulatedData,
+    bands: int,
+    starts: int = 4,
+    iterations: int = 120,
+    tolerance: float = 1.0e-12,
+    seed: int = 0,
+) -> list[MaterialFit]:
+    """Every index-only fit worth considering at this band count.
+
+    Three families, because the tables alone do not say where a band goes. The first is
+    :func:`fit_lorentz`'s own multistart, which asks nothing of the model beyond the box.
+    The others are :func:`sellmeier_start` at each of the infrared positions a glass band
+    plausibly has -- 0.09, 0.12 and 0.16 eV, i.e. 14, 10 and 8 um -- since one position is
+    as much an assumption as the others and the residual differences are what decide it.
+    All of them see only the index row: see :func:`free_indices` for why the widths are not
+    among the parameters on offer here.
+    """
+    view = without_absorption(data)
+    candidates = [
+        fit_lorentz(
+            view, oscillators=bands, starts=starts, iterations=iterations, tolerance=tolerance, seed=seed
+        )
+    ]
+    for offset, infrared_ev in enumerate(INFRARED_START_EV, start=1):
+        candidates.append(
+            fit_lorentz(
+                view,
+                oscillators=bands,
+                starts=starts,
+                initial=sellmeier_start(data, bands, infrared_ev),
+                iterations=iterations,
+                tolerance=tolerance,
+                seed=seed + offset,
+            )
+        )
+    # Simplified before anyone reads them: a candidate that arrives with a zero-strength
+    # band at the ceiling is the same model as the one without it, and the extra band would
+    # be rejected as unphysical (correctly, as it happens) for a reason that has nothing to
+    # do with the model it is being compared against.
+    return [simplify_bands(candidate, data) for candidate in candidates]
+
+
+def fit_index(
+    data: TabulatedData,
+    oscillators: int = 3,
+    starts: int = 4,
+    iterations: int = 120,
+    tolerance: float = 1.0e-12,
+    seed: int = 0,
+) -> MaterialFit:
+    """Stage one: the dispersion row alone, with as few bands as that row demands.
+
+    The index row is the one the simulator leans on -- it is what bends the ray -- and it
+    is also the row a Lorentz model represents essentially exactly: with the damping
+    small, the real permittivity is the published Sellmeier sum
+    ``epsilon_inf + sum_j S_j E_j^2 / (E_j^2 - E^2)``, so fitting ``n`` recovers the
+    background, the strengths and the resonance positions, and leaves the widths for the
+    row that measures them.
+
+    Bands are added only while the index still misses the table, which is the
+    "add oscillators only when the residuals demand it" rule taken from the right end:
+    start at one and stop at the first count that reproduces the table to its own
+    precision (:data:`KEEP_RMS_N`). Growing upward rather than pruning downward matters on
+    measured rows, because an over-parameterised index fit does not merely chase rounding,
+    it stands on the degenerate ridge described at :data:`_BOUNDS`.
+
+    The candidates are then filtered by :func:`bands_are_physical` before the smallest
+    count is taken, and among the survivors the weakest maximum strength wins: two
+    candidates can agree on ``n`` to a millionth and disagree on whether the glass has an
+    infrared band at 0.12 eV or a numerical artifact at 0.01 eV, and only one of those is a
+    claim about a material worth shipping. If no candidate passes, the closest physical one
+    is still returned -- the table is the last word, and its bounds warnings say so.
+    """
+    pool: list[MaterialFit] = []
+    for count in range(1, max(1, oscillators) + 1):
+        pool.extend(index_candidates(data, count, starts, iterations, tolerance, seed))
+    adequate = [fit for fit in pool if fit.rms_nm <= KEEP_RMS_N and bands_are_physical(fit, data)]
+    if adequate:
+        return min(
+            adequate,
+            key=lambda fit: (len(fit.oscillators), max(s for s, _e, _g in fit.oscillators), fit.cost),
+        )
+    physical = [fit for fit in pool if bands_are_physical(fit, data)]
+    return min(physical or pool, key=lambda fit: (fit.rms_nm, max(s for s, _e, _g in fit.oscillators)))
+
+
+def fit_damping(
+    fit: MaterialFit,
+    data: TabulatedData,
+    reach: float = EDGE_LOG_ALPHA,
+    rounds: int = 4,
+    iterations: int = 80,
+) -> DampingFit:
+    """Stage two: the widths, with everything the index row determined held fixed.
+
+    Split out of the joint fit because the two rows measure different things and one
+    objective between them spends one to buy the other. The coupling that makes the split
+    legitimate is one-directional where it matters: ``Gamma_j`` enters the real
+    permittivity only through ``Gamma_j^2 E^2`` beside ``(E_j^2 - E^2)^2``, so for a band
+    outside the measured window -- which is where a glass's bands are -- the widths move
+    ``k`` across twenty decades and ``n`` not at all. The largest change in ``n`` is
+    reported for exactly that reason: it is the check, not the assumption, that the widths
+    were free to take without buying a different index.
+
+    With the background, strengths and positions fixed, ``ln alpha`` is convex in the
+    ``ln Gamma_j`` (the log of a sum of terms linear in them), so this needs no
+    multi-start: one damped Gauss-Newton run has one place to arrive. It is arrived at
+    twice, though -- once over the rows the model can reach and once over the rows it
+    cannot -- because of :data:`EDGE_LOG_ALPHA`: the fitted rows are re-selected after
+    fitting and the fit repeated until the selection stops changing. A damping is also
+    never allowed to exceed its own resonance energy: an oscillator wider than the
+    resonance it broadens is not a resonance, and it is the direction a fit walks when a
+    band edge it cannot represent keeps offering a cheaper cost.
+    """
+    if not data.has_absorption:
+        raise ValueError("fitting damping needs a transmittance row (see NO_ABSORPTION for a material without one)")
+    wavelengths = data.absorption_wavelengths_nm
+    tabulated = data.alpha_per_mm
+    usable = tabulated > 0.0
+    if usable.sum() < MIN_ABSORPTION_ROWS:
+        raise ValueError(
+            f"only {int(usable.sum())} usable absorption rows; fitting damping needs {MIN_ABSORPTION_ROWS}"
+        )
+    grid = wavelengths[usable]
+    target = np.log(tabulated[usable])
+    base = np.array([value for term in fit.oscillators for value in term], dtype=float)
+    floor = math.exp(_BOUNDS[3][0])
+    # A band's width cannot exceed its own energy: beyond that the oscillator is smeared
+    # past recognition, and it is exactly where an unreachable absorption band drives a
+    # fit that has nowhere else to go.
+    limit = np.minimum(base[1::3], math.exp(_BOUNDS[3][1]))
+    low_log, high_log = math.log(floor), np.log(limit)
+    n_before, _ = complex_index(data.wavelengths_nm, fit.epsilon_inf, base)
+
+    def parameters(x: np.ndarray) -> np.ndarray:
+        out = base.copy()
+        out[2::3] = np.exp(np.clip(x, low_log, high_log))
+        return out
+
+    def log_alpha(x: np.ndarray, grid_points: np.ndarray) -> np.ndarray:
+        _n, k = complex_index(grid_points, fit.epsilon_inf, parameters(x))
+        return np.log(np.maximum(alpha_from_k(k, grid_points), 1.0e-300))
+
+    def ratios(x: np.ndarray) -> np.ndarray:
+        out = log_alpha(x, grid) - target
+        return np.where(np.isfinite(out), out, 0.0)
+
+    def least_squares(x: np.ndarray, keep: np.ndarray) -> np.ndarray:
+        """Damped Gauss-Newton on ``ln alpha`` over the kept rows."""
+        points, wanted = grid[keep], target[keep]
+
+        def residual(vector: np.ndarray) -> np.ndarray:
+            out = log_alpha(vector, points) - wanted
+            return np.where(np.isfinite(out), out, 0.0) / SIGMA_LOG_ALPHA
+
+        lam = 1.0e-3
+        current = residual(x)
+        cost = 0.5 * float(current @ current)
+        for _ in range(max(1, iterations)):
+            jacobian = np.empty((current.size, x.size))
+            for index in range(x.size):
+                step = 1.0e-5
+                forward = x.copy()
+                forward[index] += step
+                jacobian[:, index] = (residual(forward) - current) / step
+            normal = jacobian.T @ jacobian
+            gradient = jacobian.T @ current
+            curvature = np.maximum(np.diag(normal), 1.0e-12)
+            improved = False
+            for _ in range(40):
+                try:
+                    delta = np.linalg.solve(normal + lam * np.diag(curvature), -gradient)
+                except np.linalg.LinAlgError:
+                    lam *= 8.0
+                    continue
+                trial = np.clip(x + delta, low_log, high_log)
+                trial_residual = residual(trial)
+                trial_cost = 0.5 * float(trial_residual @ trial_residual)
+                if math.isfinite(trial_cost) and trial_cost < cost:
+                    x, current, cost, improved = trial, trial_residual, trial_cost, True
+                    lam = max(lam * 0.3, 1.0e-12)
+                    break
+                lam *= 5.0
+                if lam > 1.0e12:
+                    break
+            if not improved:
+                break
+        return x
+
+    x = np.clip(np.log(base[2::3]), low_log, high_log)
+    # The fit starts on the transparent half of the table, and only ever widens from there
+    # if widening keeps fitting the rows it already trusted. Which rows are "outside the
+    # model's reach" is decided by the model's own residuals, so a fit started on all of
+    # them lets an unreachable band edge decide the answer -- and an answer dominated by an
+    # edge puts every other row outside the reach, at which point there is nothing left to
+    # exclude and the edge has won. Widening without a guard cycles for the same reason:
+    # the wider set spoils the rows that earned it.
+    transparent = np.argsort(target)[: max(MIN_ABSORPTION_ROWS, target.size // 2)]
+    keep = np.zeros(grid.shape, dtype=bool)
+    keep[transparent] = True
+    x = least_squares(x, keep)
+    for _ in range(max(1, rounds)):
+        reachable = keep | (np.abs(ratios(x)) <= reach)
+        if reachable.sum() <= keep.sum():
+            break
+        candidate = least_squares(x.copy(), reachable)
+        if float(np.max(np.abs(ratios(candidate)[keep]))) > reach:
+            break  # the wider set costs the trusted rows more than the model can pay
+        keep, x = reachable, candidate
+
+    final = parameters(x)
+    all_ratios = ratios(x)
+    n_after, _ = complex_index(data.wavelengths_nm, fit.epsilon_inf, final)
+    rms_nm, rms_k, _reported_log_alpha = _rms(model_theta(fit.epsilon_inf, final), data)
+    result = MaterialFit(
+        epsilon_inf=fit.epsilon_inf,
+        oscillators=tuple(
+            (float(final[i]), float(final[i + 1]), float(final[i + 2])) for i in range(0, len(final), 3)
+        ),
+        cost=0.5 * float(np.sum((all_ratios[keep] / SIGMA_LOG_ALPHA) ** 2)),
+        rms_nm=rms_nm,
+        rms_k=rms_k,
+        rms_log_alpha=float(np.sqrt(np.mean(all_ratios[keep] ** 2))),
+        iterations=fit.iterations,
+        lambda_final=fit.lambda_final,
+        seeds=fit.seeds,
+    )
+    return DampingFit(
+        fit=result,
+        rows=int(usable.sum()),
+        fitted_rows=int(keep.sum()),
+        rms_log_alpha=float(np.sqrt(np.mean(all_ratios**2))),
+        rms_log_alpha_fitted=float(np.sqrt(np.mean(all_ratios[keep] ** 2))),
+        worst_ratio=float(np.exp(np.max(np.abs(all_ratios)))),
+        worst_ratio_wavelength_nm=float(grid[int(np.argmax(np.abs(all_ratios)))]),
+        delta_n_max=float(np.max(np.abs(n_after - n_before))),
+    )
+
+
+def index_with_bands(
+    data: TabulatedData,
+    bands: int,
+    starts: int = 4,
+    iterations: int = 120,
+    tolerance: float = 1.0e-12,
+    seed: int = 0,
+) -> MaterialFit | None:
+    """The best *physical* index-only fit using exactly ``bands`` oscillators, if any.
+
+    :func:`fit_index` stops at the fewest bands the index row demands. This asks for a
+    fixed number anyway, because the absorption row can demand more than the index row
+    does -- one infrared band cannot be steep enough for a glass's 2.5 um rise and flat
+    enough for its visible at the same time -- and the extra band has to come from the same
+    physical arrangement, not from the ridge. ``None`` says the count admits no physical
+    arrangement, which is the point at which adding bands stops being modelling.
+    """
+    pool = index_candidates(data, bands, starts, iterations, tolerance, seed)
+    physical = [fit for fit in pool if bands_are_physical(fit, data)]
+    if not physical:
+        return None
+    return min(physical, key=lambda fit: (fit.rms_nm, max(s for s, _e, _g in fit.oscillators)))
+
+
+MINIMUM_ABSORPTION_IMPROVEMENT = 0.9
+"""How much better a wider model must fit absorption to be worth its extra band.
+
+A band added for a 1% improvement is a band fitted to the table's rounding, and the extra
+freedom shows up as a duplicate of a band the model already had -- measured here, where a
+fifth oscillator arrived as an exact copy of the third. Ten percent is far above the few
+percent a transmittance table is quoted to, and well below the factor-of-two improvements a
+genuine second infrared band buys.
+"""
+
+BAND_MERGE_TOLERANCE = 0.02
+"""Relative resonance separation below which two bands are the same band.
+
+A glass's ultraviolet band systems are decades apart and its infrared one is a single
+multiphonon feature, so two fitted bands within 2% of each other are one band that the
+optimizer split -- which it does, since a split band has two dampings to fit absorption
+with and one resonance the index can barely tell apart. Merging costs nothing the tables
+could have checked: the combined band keeps the strength and the ``S_j E_j^2`` sum exactly,
+so the index is unchanged to within the rounding of the table it was fitted to.
+"""
+
+
+def merged_resonance(
+    first_strength: float,
+    first_energy: float,
+    second_strength: float,
+    second_energy: float,
+    reference_ev: float,
+) -> float:
+    """The one resonance that stands in for a split pair without moving the index.
+
+    Matching the strengths and the ``S_j E_j^2`` sum -- the obvious thing to do -- is wrong
+    by 2e-5 in ``n`` at the red end of a table, because the band the pair replaces is not
+    *far* from the measured photons: at 2.5 um a 0.11 eV band is only four times below the
+    photon, where the second term of ``S E_j^2 / (E_j^2 - E^2)`` still matters. So the
+    merged band is placed where a disagreement would cost most: the measured photon closest
+    to it, which is the reddest for a band below the window and the bluest for one above.
+    Equating the pair's response with the single band's there is linear in the merged
+    ``E_j^2`` and solves in one line; when that solution is not positive -- a pair straddling
+    the reference energy, which no fit here produces -- the strength-weighted mean of
+    ``E_j^2`` is what is left, and the caller's refit decides whether even that was affordable.
+    """
+    total = first_strength + second_strength
+    if total <= 0.0:
+        return first_energy
+    reference_squared = reference_ev * reference_ev
+    response = (
+        first_strength * first_energy * first_energy / (first_energy * first_energy - reference_squared)
+        + second_strength * second_energy * second_energy
+        / (second_energy * second_energy - reference_squared)
+    )
+    ratio = response / total
+    if abs(ratio - 1.0) < 1.0e-12:
+        return math.sqrt(
+            (first_strength * first_energy**2 + second_strength * second_energy**2) / total
+        )
+    merged_squared = ratio * reference_squared / (ratio - 1.0)
+    if not math.isfinite(merged_squared) or merged_squared <= 0.0:
+        return math.sqrt(
+            (first_strength * first_energy**2 + second_strength * second_energy**2) / total
+        )
+    return math.sqrt(merged_squared)
+
+
+def simplify_bands(fit: MaterialFit, data: TabulatedData) -> MaterialFit:
+    """``fit`` without the bands that are not bands, and the report recomputed.
+
+    Two things get dropped, and neither is a judgement about the glass:
+
+    * a band whose strength is negligible against the strongest one
+      (:data:`NEGLIGIBLE_STRENGTH`), which the optimizer leaves behind when it has more
+      bands than the row needed -- on fused silica it parked a band of strength 1e-8 at the
+      100 eV ceiling, which is not a claim about any material;
+    * two bands within :data:`BAND_MERGE_TOLERANCE` of each other, which are one band the
+      optimizer split in order to have two dampings to fit absorption with.
+
+    The merged band keeps the strength sum and is placed by :func:`merged_resonance`, which
+    equates the pair's response with the single band's at the edge of the window the pair
+    sits closest to, so the index is unchanged to within the rounding of the table. A
+    simplification that costs the index more than the table's own precision is refused: the
+    tables are the last word, and a band that turns out to be carrying information stays in.
+    """
+    bands = list(fit.oscillators)
+    if bands:
+        strongest = max(term[0] for term in bands)
+        bands = [term for term in bands if term[0] >= NEGLIGIBLE_STRENGTH * strongest]
+    energies = photon_energies(data.wavelengths_nm)
+    reddest, bluest = float(np.min(energies)), float(np.max(energies))
+    bands.sort(key=lambda term: term[1])
+    merged: list[LorentzTerm] = []
+    for strength, resonance, damping in bands:
+        if merged:
+            s0, e0, g0 = merged[-1]
+            if abs(resonance - e0) <= BAND_MERGE_TOLERANCE * abs(e0):
+                total = s0 + strength
+                if total > 0.0:
+                    # The edge of the window the pair is closest to, since that is the photon
+                    # whose response a merge has to keep.
+                    edge = reddest if 0.5 * (e0 + resonance) < reddest else bluest
+                    merged[-1] = (
+                        total,
+                        merged_resonance(s0, e0, strength, resonance, edge),
+                        (s0 * g0 + strength * damping) / total,
+                    )
+                    continue
+        merged.append((strength, resonance, damping))
+    if len(merged) == len(fit.oscillators):
+        return fit
+    parameters = np.array([value for term in merged for value in term], dtype=float)
+    rms_nm, rms_k, rms_log_alpha = _rms(model_theta(fit.epsilon_inf, parameters), data)
+    if rms_nm > max(fit.rms_nm, KEEP_RMS_N):
+        return fit
+    return replace(fit, oscillators=tuple(merged), rms_nm=rms_nm, rms_k=rms_k, rms_log_alpha=rms_log_alpha)
+
+
+def fit_material(
+    data: TabulatedData,
+    oscillators: int = 3,
+    starts: int = 4,
+    iterations: int = 120,
+    tolerance: float = 1.0e-12,
+    seed: int = 0,
+) -> tuple[MaterialFit, DampingFit | None]:
+    """The material for a pair of published rows: index, then damping.
+
+    The two stages are one pipeline, not two choices: stage one decides what the glass
+    *is* (a background and the resonances its index shows), stage two decides how wide
+    those resonances are, which is all a transmittance row can say. Each stage is judged
+    by the row it was given -- :data:`KEEP_RMS_N` for the index, the reported
+    :class:`DampingFit` for the absorption -- so neither can quietly spend the other.
+
+    The number of bands is the one place the absorption row gets a vote. It starts from
+    the count the index demanded, and adds bands while the transmittance row is still
+    outside the model's reach, because a published 2.5 um absorption usually needs a
+    second infrared band the index never asked for. A wider model is only taken if it
+    fits the absorption row better over *every* usable row -- not merely more rows -- and
+    the index stays within its own precision, so adding a band cannot buy absorption with
+    dispersion. The band count is capped at ``oscillators + 2`` so a glass whose edge the
+    oscillator model simply does not contain (most of them, at 300 nm) stops early rather
+    than accumulating bands chasing a decade it cannot reach.
+    """
+    fit = fit_index(data, oscillators, starts, iterations, tolerance, seed)
+    if not data.has_absorption:
+        return fit, None
+    damped = fit_damping(fit, data, iterations=max(iterations, 80))
+    best = damped
+    for bands in range(len(fit.oscillators) + 1, oscillators + 3):
+        if best.unreachable == 0:
+            break
+        wider = index_with_bands(data, bands, starts, iterations, tolerance, seed)
+        if wider is None or wider.rms_nm > KEEP_RMS_N:
+            break
+        trial = fit_damping(wider, data, iterations=max(iterations, 80))
+        if trial.delta_n_max > MAX_DAMPING_INDEX_SHIFT or trial.fit.rms_nm > KEEP_RMS_N:
+            break  # it bought absorption with dispersion, which is not this pipeline's deal
+        if trial.rms_log_alpha < best.rms_log_alpha * MINIMUM_ABSORPTION_IMPROVEMENT:
+            best = trial
+        else:
+            break
+    simplified = simplify_bands(best.fit, data)
+    return simplified, replace(best, fit=simplified) if simplified is not best.fit else best
+
+
 def bound_warnings(fit: MaterialFit) -> list[str]:
     """Where the fit sits on a physical bound -- i.e. where the table said nothing.
 
@@ -919,10 +1654,16 @@ def bound_warnings(fit: MaterialFit) -> list[str]:
     transmittance table floors: a fit that pins ``Gamma`` at the floor is reporting
     that the glass is more transparent than the table can prove. Saying so beats
     printing a number that looks determined.
+
+    A resonance on the floor is the other bound worth stating: it is the fit standing on
+    the degenerate ridge of :data:`_BOUNDS`, where only ``S_j * E_j ** 2`` is identified
+    and the printed ``S_j`` and ``E_j`` individually are whichever end of the ridge the
+    optimizer walked to.
     """
     warnings = []
     low_gamma, high_gamma = math.exp(_BOUNDS[3][0]), math.exp(_BOUNDS[3][1])
-    for index, (_strength, resonance, damping) in enumerate(fit.oscillators, start=1):
+    low_energy = math.exp(_BOUNDS[2][0])
+    for index, (strength, resonance, damping) in enumerate(fit.oscillators, start=1):
         if damping <= low_gamma * 1.001:
             warnings.append(
                 f"oscillator {index} (E={resonance:.4g} eV): damping at the floor"
@@ -933,7 +1674,252 @@ def bound_warnings(fit: MaterialFit) -> list[str]:
                 f"oscillator {index} (E={resonance:.4g} eV): damping at the ceiling"
                 f" ({high_gamma:.0f} eV) -- the band is smeared out of the data"
             )
+        if resonance <= low_energy * 1.001:
+            warnings.append(
+                f"oscillator {index} (S={strength:.4g}): resonance at the floor"
+                f" ({low_energy:.3g} eV) -- only S*E^2 of this band is determined by the"
+                f" tables, its position and strength individually are not"
+            )
     return warnings
+
+
+def absorption_warnings(fit: MaterialFit, data: TabulatedData) -> list[str]:
+    """Everything the fit cannot claim about absorption, in words.
+
+    :func:`bound_warnings` catches the case where a damping sits on a physical bound.
+    This adds the case a bound cannot see: a table with no transmittance row leaves
+    *every* damping where the seeding happened to leave it, so the printed numbers are
+    the fit's starting hypothesis, not a result. Silence here means the fit was told
+    something about absorption; anything it says means the model's ``k`` is an
+    assumption the reader has to be told about before quoting a power loss.
+    """
+    notes = bound_warnings(fit)
+    if not data.has_absorption:
+        notes.append(
+            "no transmittance table was provided: every damping -- and therefore all of"
+            " this model's absorption -- is a starting value the data never touched"
+        )
+    return notes
+
+
+# --- absorption the vendor guaranteed rather than measured ---------------------
+
+
+def absorption_bound_from_guarantee(
+    transmittance_percent_per_path: float,
+    path_mm: float = TAU_THICKNESS_MM,
+) -> float:
+    """The absorption coefficient a published ``Ti >= x %`` statement caps.
+
+    A guarantee is the mirror image of a measured ``tau_i``: the same Beer--Lambert
+    conversion, read as a ceiling on ``alpha`` instead of a value of it. Corning prints
+    HPFS guarantees per centimetre, so the path is a centimetre under this tool's own
+    default -- a vendor quoting per millimetre passes ``path_mm=1.0``.
+    """
+    if not 0.0 < transmittance_percent_per_path < 100.0:
+        raise ValueError("a transmittance guarantee must lie strictly between 0 and 100 percent")
+    if path_mm <= 0.0:
+        raise ValueError("the guaranteed path length must be positive")
+    tau = transmittance_percent_per_path / 100.0
+    return float(-math.log(tau) / float(path_mm))
+
+
+HPFS_7980_GUARANTEES: tuple[tuple[float, float], ...] = (
+    (185.0, 88.00),  # Standard grade
+    (248.0, 99.90),  # KrF grade
+    (193.0, 99.50),  # ArF grade
+)
+"""Corning's printed HPFS 7980 transmittance guarantees, as ``(wavelength_nm, Ti_percent)``.
+
+From ``raw_optical_data_csvs/HPFS-7980/transmittance_guarantees.csv``. These are the only
+absorption numbers HPFS publishes without a spectrophotometer in hand, and they are
+guarantees: each says a grade of that material is *at least* that transparent on that path,
+which caps ``alpha`` and says nothing about its true value. ``anchor_to_guarantees`` puts a
+dispersion-only model on the cap of the tightest one, which is the most absorbing the
+vendor's own words allow -- conservative for a power trace, and stated as a bound wherever
+it is read.
+"""
+
+
+@dataclass(frozen=True)
+class AbsorptionAnchor:
+    """A fit whose damping was set by a guaranteed absorption, and what that cost."""
+
+    fit: MaterialFit
+    factor: float
+    anchor_nm: float
+    alpha_per_mm: float
+    delta_n_max: float
+
+    def report(self) -> str:
+        direction = "the fit was more absorbing" if self.factor < 1.0 else "the fit was more transparent"
+        return (
+            f"absorption anchored at {self.anchor_nm:.4g} nm to alpha {self.alpha_per_mm:.4g} mm^-1"
+            f": damping scaled {self.factor:.4g} ({direction}),"
+            f" index moved by at most {self.delta_n_max:.3e}"
+        )
+
+
+def scale_damping_to_absorption(
+    fit: MaterialFit,
+    data: TabulatedData,
+    anchor_nm: float,
+    alpha_per_mm: float,
+    tolerance: float = 1.0e-10,
+) -> AbsorptionAnchor:
+    """Scale every damping by one factor so the model absorbs a stated amount at one
+    wavelength -- for a table that bounds absorption but never measures it.
+
+    One factor for all bands, because a guarantee caps the *material*, not a band: the
+    statement is about how much light gets through a centimetre, and the only thing the
+    model can be asked to match is its total. The scaling is exact rather than fitted --
+    with every ``Gamma_j`` multiplied by ``c`` the imaginary permittivity is monotone in
+    ``c``, so a bracket and a bisection land on the guaranteed value instead of trading
+    it against anything, and the index is left alone except for the second-order shift
+    the anchor reports.
+
+    The report carries the largest change in ``n``, because that is the number that says
+    whether the anchor bought absorption without buying a different glass: a damping big
+    enough to move ``n`` by more than a table's own precision is a damping the fit should
+    have found in the dispersion, not one handed to it.
+    """
+    if alpha_per_mm <= 0.0:
+        raise ValueError("a guaranteed absorption must be positive")
+    if anchor_nm <= 0.0:
+        raise ValueError("the guaranteed wavelength must be positive")
+    parameters = np.array([value for term in fit.oscillators for value in term], dtype=float)
+    before, _ = complex_index(data.wavelengths_nm, fit.epsilon_inf, parameters)
+
+    def alpha_at(factor: float) -> float:
+        scaled = parameters.copy()
+        scaled[2::3] *= factor
+        return _absorption_at(fit.epsilon_inf, scaled, anchor_nm)
+
+    def log_alpha_at(factor: float) -> float:
+        """``ln alpha`` at a damping scale, with ``-inf`` where the model is transparent.
+
+        Scaling a damping toward zero eventually underflows ``k`` entirely; that is
+        "absorbing nothing", which is the bottom of the bracket rather than an error the
+        bisection should die on.
+        """
+        value = alpha_at(factor)
+        return math.log(value) if value > 0.0 and math.isfinite(value) else -math.inf
+
+    # Bracket, then bisect in log(factor). Absorption runs to zero with the damping, so
+    # the guaranteed value can be arbitrarily far from wherever the fit left it and a
+    # fixed window would silently miss it; a factor of e^80 (~1e35) is far past any
+    # damping the physical box admits, so failing to bracket by then is a real failure.
+    target = math.log(alpha_per_mm)
+    low, high = 0.0, 0.0
+    steps = 0
+    while log_alpha_at(math.exp(low)) > target:
+        steps += 1
+        if steps > 160:
+            raise RuntimeError(f"could not reach alpha={alpha_per_mm} mm^-1 at {anchor_nm} nm by scaling damping")
+        low -= 0.5
+    while log_alpha_at(math.exp(high)) < target:
+        steps += 1
+        if steps > 160:
+            raise RuntimeError(f"could not reach alpha={alpha_per_mm} mm^-1 at {anchor_nm} nm by scaling damping")
+        high += 0.5
+    while high - low > tolerance:
+        middle = 0.5 * (low + high)
+        if log_alpha_at(math.exp(middle)) <= target:
+            low = middle
+        else:
+            high = middle
+    factor = math.exp(0.5 * (low + high))
+
+    scaled = parameters.copy()
+    scaled[2::3] *= factor
+    floor, ceiling = math.exp(_BOUNDS[3][0]), math.exp(_BOUNDS[3][1])
+    scaled[2::3] = np.clip(scaled[2::3], floor, ceiling)
+    n_after, _ = complex_index(data.wavelengths_nm, fit.epsilon_inf, scaled)
+    theta = model_theta(fit.epsilon_inf, scaled)
+    rms_nm, rms_k, rms_log_alpha = _rms(theta, data)
+    residual = _residual(theta, data)
+    anchored = MaterialFit(
+        epsilon_inf=fit.epsilon_inf,
+        oscillators=tuple(
+            (float(scaled[i]), float(scaled[i + 1]), float(scaled[i + 2]))
+            for i in range(0, len(scaled), 3)
+        ),
+        cost=0.5 * float(residual @ residual),
+        rms_nm=rms_nm,
+        rms_k=rms_k,
+        rms_log_alpha=rms_log_alpha,
+        iterations=fit.iterations,
+        lambda_final=fit.lambda_final,
+        seeds=fit.seeds,
+    )
+    return AbsorptionAnchor(
+        fit=anchored,
+        factor=factor,
+        anchor_nm=anchor_nm,
+        alpha_per_mm=alpha_per_mm,
+        delta_n_max=float(np.max(np.abs(n_after - before))),
+    )
+
+
+def _absorption_at(epsilon_inf: float, parameters: np.ndarray, wavelength_nm: float) -> float:
+    """``alpha`` (mm^-1) of the model at one wavelength -- the anchor's objective."""
+    _n, k = complex_index(np.array([wavelength_nm]), epsilon_inf, parameters)
+    return float(alpha_from_k(k, np.array([wavelength_nm]))[0])
+
+
+def anchor_to_guarantees(
+    fit: MaterialFit,
+    data: TabulatedData,
+    guarantees: list[tuple[float, float]],
+    path_mm: float = TAU_THICKNESS_MM,
+) -> AbsorptionAnchor:
+    """Set the damping by the *tightest* of several published guarantees.
+
+    Each statement caps ``alpha`` at its own wavelength, and absorption grows
+    monotonically with the damping scale, so each one caps the scale itself. Taking the
+    smallest of those caps means the model respects every statement the vendor printed
+    and touches the one that says the most -- which is the only claim a guarantee
+    supports: the material is at least this transparent, and exactly this transparent is
+    all the paper is worth.
+    """
+    if not guarantees:
+        raise ValueError("at least one guarantee is needed to anchor absorption")
+    best: AbsorptionAnchor | None = None
+    for wavelength_nm, percent in guarantees:
+        bound = absorption_bound_from_guarantee(percent, path_mm)
+        anchor = scale_damping_to_absorption(fit, data, wavelength_nm, bound)
+        if best is None or anchor.factor < best.factor:
+            best = anchor
+    assert best is not None  # guarantees is non-empty
+    return best
+
+
+def guarantee_notes(
+    fit: MaterialFit,
+    guarantees: Sequence[tuple[float, float]],
+    path_mm: float = TAU_THICKNESS_MM,
+) -> list[str]:
+    """How ``fit`` sits against each published transmittance guarantee, as sentences.
+
+    A guarantee is an upper bound, so a model can satisfy it with a mile to spare and the
+    reader needs to know that -- a model whose absorption is a thousandth of the guarantee is
+    not "the guaranteed absorption", it is a transparent material that happens to be
+    permitted to be less transparent than it is. The tightest bound is the one
+    :func:`anchor_to_guarantees` anchors on; these notes say what the others then cost,
+    which is nothing at all and worth stating because it is the only cross-check an
+    absorption-free model has.
+    """
+    parameters = np.array([value for term in fit.oscillators for value in term], dtype=float)
+    notes = []
+    for wavelength_nm, percent in guarantees:
+        bound = absorption_bound_from_guarantee(percent, path_mm)
+        alpha = _absorption_at(fit.epsilon_inf, parameters, wavelength_nm)
+        margin = f"{bound / alpha:.4g}x margin" if alpha > 0.0 else "no absorption at all"
+        notes.append(
+            f"guarantee Ti >= {percent:.2f} % on {path_mm:.0f} mm at {wavelength_nm:.0f} nm:"
+            f" alpha <= {bound:.4g} mm^-1, model {alpha:.4g} mm^-1 ({margin})"
+        )
+    return notes
 
 
 def material_document(fit: MaterialFit, name: str) -> dict[str, object]:
@@ -941,15 +1927,18 @@ def material_document(fit: MaterialFit, name: str) -> dict[str, object]:
     return fit.document(name)
 
 
-# --- placeholder tables --------------------------------------------------------
+# --- synthetic round-trip tables -----------------------------------------------
 
-# The hidden truth behind the shipped CSVs, recorded verbatim so the placeholder can
-# be regenerated, audited or thrown away. These are the parameters the round-trip
-# test asks the fitter to recover -- they are not measurements of any real melt.
+# A model, recorded verbatim so it can be tabulated, fitted and audited at any time.
+# The shipped tables are measured vendor data now, so this is what the synthetic pair is
+# for: a fitter is only proved by a round trip, and a round trip needs a question whose
+# answer is known. It is glass-shaped on purpose -- two deep-ultraviolet electronic bands
+# that set the visible dispersion and one far-infrared band whose wing rises across the
+# red end of the table -- and it is not a measurement of any real melt.
 # ``Any`` rather than ``object`` because this is a literal data table: every read is a
 # lookup of a key this file itself wrote, and typing it as ``object`` would make the
 # reader prove that over and over again.
-PLACEHOLDER_TRUTH: dict[str, dict[str, Any]] = {
+ROUND_TRIP_TRUTH: dict[str, dict[str, Any]] = {
     "N-BK7": {
         "epsilon_inf": 1.64143538,
         "oscillators": [
@@ -960,21 +1949,21 @@ PLACEHOLDER_TRUTH: dict[str, dict[str, Any]] = {
     }
 }
 
-# Grids the placeholder tables are written on. The dispersion row is fine (a vendor
+# Grids the round-trip tables are written on. The dispersion row is fine (a vendor
 # publishes n every 10 nm); the transmittance row is coarser, which is also how those
 # tables are published.
 DISPERSION_GRID_NM = np.round(np.arange(300.0, 2501.0, 10.0), 6)
 ABSORPTION_GRID_NM = np.round(np.arange(320.0, 2501.0, 20.0), 6)
 
 
-def placeholder_tables(name: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def round_trip_tables(name: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """``(dispersion wavelengths, n, absorption wavelengths, tau_i)`` from the truth.
 
     ``tau_i`` is floored at :data:`TAU_FLOOR` exactly as a published table is: below
     that a spectrophotometer reports "opaque" without a number, and a fit that read
     1e-40 as data would be fitting the generator's arithmetic, not a measurement.
     """
-    truth = PLACEHOLDER_TRUTH[name]
+    truth = ROUND_TRIP_TRUTH[name]
     epsilon_inf = float(truth["epsilon_inf"])
     entries = truth["oscillators"]
     parameters = np.array(
@@ -989,9 +1978,16 @@ def placeholder_tables(name: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, n
     return DISPERSION_GRID_NM.copy(), n_dispersion, ABSORPTION_GRID_NM.copy(), np.maximum(tau, TAU_FLOOR)
 
 
-def write_placeholder_tables(name: str, directory: Path = DATA_DIR) -> tuple[Path, Path]:
-    """Write the placeholder CSVs for ``name`` and return their paths."""
-    n_wavelengths, n_values, a_wavelengths, tau = placeholder_tables(name)
+def write_round_trip_tables(name: str, directory: Path) -> tuple[Path, Path]:
+    """Write the synthetic round-trip CSVs for ``name`` into ``directory``.
+
+    The directory is required because the alternative -- a default of :data:`DATA_DIR` --
+    is a way to overwrite a measured table with a synthetic one by forgetting a flag. It is
+    created if it does not exist: the caller asked for tables at a path, and making the parent
+    is not the same decision as choosing that path.
+    """
+    n_wavelengths, n_values, a_wavelengths, tau = round_trip_tables(name)
+    directory.mkdir(parents=True, exist_ok=True)
     dispersion = directory / f"{name}-n.csv"
     transmittance = directory / f"{name}-ti.csv"
     dispersion.write_text(
@@ -1048,13 +2044,26 @@ def read_internal_transmittance(path: Path) -> tuple[np.ndarray, np.ndarray]:
 def load_tables(
     name: str,
     dispersion_path: Path | None = None,
-    transmittance_path: Path | None = None,
+    transmittance_path: Path | _NoAbsorption | None = None,
     thickness_mm: float = TAU_THICKNESS_MM,
 ) -> TabulatedData:
-    """The two rows as :class:`TabulatedData`, with transmittance turned into alpha."""
+    """The two rows as :class:`TabulatedData`, with transmittance turned into alpha.
+
+    ``transmittance_path=NO_ABSORPTION`` is how a material published without a
+    transmittance table is loaded: the dispersion row is read, the absorption row is
+    empty, and the fit that follows constrains ``n`` and nothing else.
+    """
     dispersion = dispersion_path or DATA_DIR / f"{name}-n.csv"
-    transmittance = transmittance_path or DATA_DIR / f"{name}-ti.csv"
     wavelengths, n = read_dispersion(dispersion)
+    if isinstance(transmittance_path, _NoAbsorption):
+        return TabulatedData(
+            name=name,
+            wavelengths_nm=wavelengths,
+            n=n,
+            absorption_wavelengths_nm=np.empty(0),
+            alpha_per_mm=np.empty(0),
+        )
+    transmittance = transmittance_path or DATA_DIR / f"{name}-ti.csv"
     absorption_wavelengths, tau = read_internal_transmittance(transmittance)
     alpha = absorption_from_internal_transmittance(tau, thickness_mm)
     # A row at the table's floor carries no magnitude, only "opaque": keeping it would
@@ -1083,34 +2092,89 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=0, help="rng seed for the perturbed starts")
     parser.add_argument("--out", type=Path, default=None, help="write the material document here")
     parser.add_argument(
-        "--make-placeholder",
+        "--dispersion-only",
+        action="store_true",
+        help="fit the index row alone, for a material published without a transmittance table",
+    )
+    parser.add_argument(
+        "--guarantee",
+        action="append",
+        default=[],
+        metavar="NM:TI_PERCENT",
+        help=(
+            "a published transmittance guarantee (e.g. 193:99.50 for Ti >= 99.50 %%/cm) to"
+            " set the damping by; repeatable, and the tightest one binds -- use it with"
+            " --dispersion-only, where nothing measured absorption"
+        ),
+    )
+    parser.add_argument(
+        "--joint",
+        action="store_true",
+        help="run the single-objective joint fit instead of the two-stage shipped path",
+    )
+    parser.add_argument(
+        "--make-round-trip",
         nargs="?",
         const="N-BK7",
         default=None,
         metavar="NAME",
-        help="regenerate the placeholder CSVs from the recorded truth instead of fitting",
+        help="write the synthetic tables whose model is known, instead of fitting",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="where --make-round-trip writes (never the measured tables' directory)",
     )
     args = parser.parse_args(argv)
 
-    if args.make_placeholder:
-        paths = write_placeholder_tables(str(args.make_placeholder))
+    if args.make_round_trip:
+        if args.out_dir is not None and args.out_dir.resolve() == DATA_DIR.resolve():
+            print(
+                f"refusing to write synthetic tables over the measured ones in {DATA_DIR}",
+                file=sys.stderr,
+            )
+            return 2
+        directory = args.out_dir or Path(tempfile.mkdtemp(prefix="optics-round-trip-"))
+        directory.mkdir(parents=True, exist_ok=True)
+        paths = write_round_trip_tables(str(args.make_round_trip), directory=directory)
         for path in paths:
             print(f"wrote {path}")
-        print("placeholder tables are synthetic: see tools/data/PLACEHOLDER.md")
+        print("these tables are synthetic: the model behind them is ROUND_TRIP_TRUTH")
         return 0
 
+    guarantees: list[tuple[float, float]] = []
     try:
-        data = load_tables(args.name, args.dispersion, args.transmittance, args.thickness)
+        for entry in args.guarantee:
+            wavelength_text, percent_text = entry.split(":")
+            guarantees.append((float(wavelength_text), float(percent_text)))
+        if guarantees and not args.dispersion_only:
+            raise ValueError("--guarantee needs --dispersion-only: a measured tau_i row outranks a guarantee")
+        data = load_tables(
+            args.name,
+            args.dispersion,
+            NO_ABSORPTION if args.dispersion_only else args.transmittance,
+            args.thickness,
+        )
     except (OSError, ValueError) as exc:
         print(f"could not read the tables: {exc}", file=sys.stderr)
         return 2
-    fit = fit_lorentz_pruned(
-        data, oscillators=args.oscillators, starts=args.starts, seed=args.seed
-    )
-    for warning in bound_warnings(fit):
+
+    if args.joint:
+        fit = fit_lorentz_pruned(data, oscillators=args.oscillators, starts=args.starts, seed=args.seed)
+        damped: DampingFit | None = None
+    else:
+        fit, damped = fit_material(data, oscillators=args.oscillators, starts=args.starts, seed=args.seed)
+    if guarantees:
+        anchor = anchor_to_guarantees(fit, data, guarantees, args.thickness)
+        fit = anchor.fit
+        print(f"note: {anchor.report()}")
+    for warning in absorption_warnings(fit, data):
         print(f"note: {warning}")
-    print(f"{args.name}: {len(data.wavelengths_nm)} dispersion rows,"
-          f" {len(data.alpha_per_mm)} absorption rows")
+    absorption_rows = f"{len(data.alpha_per_mm)} absorption rows" if data.has_absorption else "no absorption table"
+    print(f"{args.name}: {len(data.wavelengths_nm)} dispersion rows, {absorption_rows}")
+    if damped is not None:
+        print(f"note: {damped.report()}")
     print(fit.report())
     document = material_document(fit, args.name)
     if args.out is not None:

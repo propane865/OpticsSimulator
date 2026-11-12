@@ -40,11 +40,12 @@ DEFAULT_MEASUREMENT_CONFIG: dict[str, Any] = {
 }
 
 # The material a fresh lens starts with: the catalog's default glass, so a new
-# element is a real crown (n_d 1.5168, V_d 64.17) instead of a made-up constant
-# index. The UI's interactive add and the warm-up element share this one copy, and
-# it is written out inline -- a project document carries its material parameters
-# rather than a name, so it stays readable if the catalog changes. The parameters
-# themselves are provisional placeholders (see optics.materials.catalog).
+# element is a real crown (n_d 1.51680, V_d 64.14 -- the pair its own vendor table
+# prints) instead of a made-up constant index. The UI's interactive add and the
+# warm-up element share this one copy, and it is written out inline -- a project
+# document carries its material parameters rather than a name, so it stays readable
+# if the catalog changes. The parameters are a fit to that table, not a tune; see
+# optics.materials.catalog and tools/data/README.md for what they do and do not claim.
 # The catalog block is assembled at import from the shipped glass table, so the
 # type checker cannot see its shape; the cast states the contract that
 # :func:`optics.config.material_from_config` enforces on every reader.

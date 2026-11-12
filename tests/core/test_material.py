@@ -14,10 +14,10 @@ import pytest
 from optics.constants import C_LINE_NM, D_LINE_NM, F_LINE_NM, HC_EV_NM
 from optics.primitive import LorentzModel, LorentzOscillator, Material
 
-# A glass-like placeholder response used by the tests that need more than one
-# resonance: an ultraviolet pair that carries the visible dispersion and an
-# infrared oscillator that bends the long-wavelength end, with damping small
-# enough to leave the visible band near-transparent.
+# A hand-written glass-like response -- not a catalog entry -- for the tests that need
+# more than one resonance: an ultraviolet pair that carries the visible dispersion and
+# an infrared oscillator that bends the long-wavelength end, with damping small enough
+# to leave the visible band near-transparent.
 _CROWN = LorentzModel(
     epsilon_inf=1.0,
     oscillators=[

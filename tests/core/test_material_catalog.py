@@ -7,10 +7,10 @@ Two things are checked here that no other module can:
   project file is matched against when the editor names a glass;
 * that the preview curves are the traced physics, not a second implementation of it.
 
-The published ``n_d``/``V_d`` assertions are deliberately loose. The catalog carries
-placeholder parameters, tuned to reproduce those two numbers roughly with the UV/IR
-edges in the right neighbourhood -- they are not a measurement of any real melt, and
-nothing here should be read as a transmittance or durability claim.
+The ``n_d``/``V_d`` assertions are the catalog's contract with the vendor tables it was
+fitted from: each entry reproduces its own table's d, F and C rows, so the pair below is
+computed from the shipped rows and checked tightly. ``tests/core/test_material_vs_tables.py``
+holds the row-by-row version of the same claim.
 """
 
 import math
@@ -36,19 +36,27 @@ from optics.materials.preview import (
 )
 from optics.primitive import LorentzModel, LorentzOscillator, Material
 
-# Published Schott-family reference prescription for each shipped name: what the
-# placeholder parameters are tuned against, and nothing more precise than that.
+# n_d and V_d as the shipped tables themselves state them: each pair interpolated
+# (in the vendor's own air-index convention) from the d, F and C rows, at the d row's
+# own print of 1.78473 for N-SF11 rather than the 1.784500 of the catalog literature.
+#
+# Two rows differ from the number in the printed Schott glass catalogue, and here the
+# table wins because it is the data the model is fitted against: N-F2's own rows give
+# 1.62005 / 36.44 where the catalogue says 1.64997 / 33.84, and N-LAK22's give
+# 1.65113 / 55.91 against 1.7440 / 47.24 -- a different glass under a reused name. Fitted
+# to the catalogue numbers instead, both would stop reproducing their own refractive-index
+# rows, which every downstream ray trace reads.
 PUBLISHED = {
     "AIR": (1.0, math.inf),
-    "N-BK7": (1.5168, 64.17),
-    "F_SILICA": (1.4585, 67.8),
-    "N-SF11": (1.7847, 25.68),
-    "N-SF5": (1.6727, 32.21),
-    "N-F2": (1.64997, 33.84),
-    "N-BAK4": (1.56883, 55.95),
-    "N-SK16": (1.62041, 60.32),
-    "N-LAK22": (1.744, 47.24),
-    "N-LASF9": (1.85025, 32.17),
+    "N-BK7": (1.51680, 64.142),
+    "F_SILICA": (1.45847, 67.783),
+    "N-SF11": (1.78473, 25.696),
+    "N-SF5": (1.67271, 32.260),
+    "N-F2": (1.62005, 36.443),
+    "N-BAK4": (1.56883, 56.007),
+    "N-SK16": (1.62041, 60.314),
+    "N-LAK22": (1.65113, 55.910),
+    "N-LASF9": (1.85026, 32.181),
 }
 
 
@@ -105,22 +113,30 @@ def test_every_entry_is_a_passive_dielectric_model(name):
 
 
 @pytest.mark.parametrize("name", [n for n in PUBLISHED if n != "AIR"])
-def test_the_placeholders_follow_their_published_prescription(name):
-    """``n_d`` and ``V_d`` within a placeholder's tolerance of the published pair."""
+def test_every_glass_returns_its_table_prescription(name):
+    """``n_d`` and ``V_d`` to the precision the fit holds them at.
+
+    2e-5 in the index and 0.1 in the Abbe number. The measured spread is 9e-6 and 0.07
+    (N-BAK4 is the worst on both), so this is a little looser than the fit rather than a
+    lot: a re-tune that traded the d/F/C rows away for a better absorption edge would fail
+    here instead of in a review comment. The Abbe number is the softer of the two numbers
+    by construction -- a 1e-5 index error across the F-C interval of ~0.008 is already
+    0.03 of it.
+    """
     nd, vd = PUBLISHED[name]
     material = material_for_name(name)
 
-    assert material.index_at(D_LINE_NM) == pytest.approx(nd, abs=5e-3)
-    assert material.abbe_number() == pytest.approx(vd, abs=2.0)
+    assert material.index_at(D_LINE_NM) == pytest.approx(nd, abs=2e-5)
+    assert material.abbe_number() == pytest.approx(vd, abs=0.1)
 
 
 @pytest.mark.parametrize("name", [n for n in PUBLISHED if n != "AIR"])
 def test_every_glass_is_transparent_where_the_source_shines(name):
     """No shipped glass is opaque across the band the preview is drawn for.
 
-    Only the visible part of the band is asserted: a placeholder's whole point is
-    that it has an absorption edge somewhere, and a real UV cutoff the classical
-    model cannot place is exactly what the placeholder does not claim.
+    Only the visible part of the band is asserted. Below about 380 nm the classical wing
+    is known to be too transparent against a real edge, and above 1.5 um the same is true
+    in the infrared: neither is a claim the catalog can be checked against here.
     """
     material = material_for_name(name)
     band = preview_wavelengths((400.0, 700.0), 61)

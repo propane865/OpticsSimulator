@@ -1,0 +1,162 @@
+{
+  "N-BK7": {
+    "epsilon_inf": 1.43989783,
+    "oscillators": [
+      {
+        "strength": 1.07067802,
+        "resonance_ev": 0.118634502,
+        "damping_ev": 4.09628677e-06
+      },
+      {
+        "strength": 0.83161904,
+        "resonance_ev": 10.872643,
+        "damping_ev": 1.73479158e-06
+      }
+    ]
+  },
+  "N-BAK4": {
+    "epsilon_inf": 1.57134623,
+    "oscillators": [
+      {
+        "strength": 1.03841146,
+        "resonance_ev": 0.115344737,
+        "damping_ev": 1.80095213e-05
+      },
+      {
+        "strength": 0.849982084,
+        "resonance_ev": 9.61664996,
+        "damping_ev": 2.02755327e-06
+      }
+    ]
+  },
+  "N-SK16": {
+    "epsilon_inf": 1.53504737,
+    "oscillators": [
+      {
+        "strength": 1.12221872,
+        "resonance_ev": 0.121778435,
+        "damping_ev": 8.85374958e-06
+      },
+      {
+        "strength": 1.04949428,
+        "resonance_ev": 10.4160398,
+        "damping_ev": 3.38789344e-06
+      }
+    ]
+  },
+  "N-LAK22": {
+    "epsilon_inf": 1.55683452,
+    "oscillators": [
+      {
+        "strength": 1.17087814,
+        "resonance_ev": 0.116929636,
+        "damping_ev": 8.82752057e-06
+      },
+      {
+        "strength": 1.12078986,
+        "resonance_ev": 10.0024803,
+        "damping_ev": 3.73772772e-06
+      }
+    ]
+  },
+  "N-F2": {
+    "epsilon_inf": 1.68293831,
+    "oscillators": [
+      {
+        "strength": 1.27827254,
+        "resonance_ev": 0.113179193,
+        "damping_ev": 2.17692531e-05
+      },
+      {
+        "strength": 0.0200082846,
+        "resonance_ev": 4.31941639,
+        "damping_ev": 2.13725146e-05
+      },
+      {
+        "strength": 0.853880949,
+        "resonance_ev": 7.92472316,
+        "damping_ev": 1e-09
+      }
+    ]
+  },
+  "N-LASF9": {
+    "epsilon_inf": 1.84084062,
+    "oscillators": [
+      {
+        "strength": 1.9077148,
+        "resonance_ev": 0.0965866341,
+        "damping_ev": 2.14740061e-05
+      },
+      {
+        "strength": 0.0297173473,
+        "resonance_ev": 4.26440926,
+        "damping_ev": 7.13797711e-05
+      },
+      {
+        "strength": 1.42876919,
+        "resonance_ev": 7.62572566,
+        "damping_ev": 1e-09
+      }
+    ]
+  },
+  "N-SF5": {
+    "epsilon_inf": 1.80233924,
+    "oscillators": [
+      {
+        "strength": 1.59790582,
+        "resonance_ev": 0.103471765,
+        "damping_ev": 2.37336148e-05
+      },
+      {
+        "strength": 0.0112124561,
+        "resonance_ev": 3.96593573,
+        "damping_ev": 4.0343945e-05
+      },
+      {
+        "strength": 0.898561242,
+        "resonance_ev": 7.16765811,
+        "damping_ev": 1e-09
+      }
+    ]
+  },
+  "N-SF11": {
+    "epsilon_inf": 1.89783637,
+    "oscillators": [
+      {
+        "strength": 2.15640376,
+        "resonance_ev": 0.0937281896,
+        "damping_ev": 1.73611269e-05
+      },
+      {
+        "strength": 0.0240985302,
+        "resonance_ev": 3.98636633,
+        "damping_ev": 3.88231467e-05
+      },
+      {
+        "strength": 1.12970063,
+        "resonance_ev": 6.6032429,
+        "damping_ev": 1e-09
+      }
+    ]
+  },
+  "F_SILICA": {
+    "epsilon_inf": 1.08622787,
+    "oscillators": [
+      {
+        "strength": 0.735709775,
+        "resonance_ev": 0.138099272,
+        "damping_ev": 1.68126981e-07
+      },
+      {
+        "strength": 0.360508382,
+        "resonance_ev": 10.5667363,
+        "damping_ev": 1.43494331e-07
+      },
+      {
+        "strength": 0.657358183,
+        "resonance_ev": 16.287576,
+        "damping_ev": 1.38661696e-07
+      }
+    ]
+  }
+}
