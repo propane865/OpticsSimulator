@@ -17,6 +17,7 @@ either fail or push the fitter into over-fitting noise.
 
 import json
 import math
+from pathlib import Path
 
 import fit_catalog
 import fit_lorentz_material as fitter
@@ -719,7 +720,169 @@ def test_the_command_line_refuses_a_guarantee_on_a_measured_table(capsys):
     assert "outranks a guarantee" in capsys.readouterr().err
 
 
+# --- absorption a printed chart bounded rather than measured ---------------------
+
+
+def _ceilings_csv(tmp_path, rows) -> Path:
+    """A ceilings file in exactly the shape the importer writes."""
+    path = tmp_path / "X-ti-ceilings.csv"
+    body = "".join(f"{lo!r},{hi!r},{alpha!r}\n" for lo, hi, alpha in rows)
+    path.write_text(f"wavelength_lo_nm,wavelength_hi_nm,alpha_max_per_mm\n{body}", encoding="utf-8")
+    return path
+
+
+def test_a_ceiling_span_is_read_back_as_the_bound_it_states(tmp_path):
+    """The importer writes ceilings and this reads them; the seam has to hold by name."""
+    path = _ceilings_csv(tmp_path, [(400.0, 500.0, 1.0e-4), (500.0, 500.0, 2.0e-4)])
+
+    ceilings = fitter.read_ceilings(path)
+
+    assert [ceiling.label for ceiling in ceilings] == ["400-500 nm", "500 nm"]
+    assert ceilings[0].alpha_per_mm == 1.0e-4
+    # Three points settle a flat bound: both ends and the middle, clipped to the window asked for.
+    assert ceilings[0].sample_wavelengths() == (400.0, 450.0, 500.0)
+    assert ceilings[0].sample_wavelengths((450.0, 700.0)) == (450.0, 475.0, 500.0)
+    assert ceilings[0].overlaps((480.0, 900.0)) and not ceilings[0].overlaps((501.0, 900.0))
+
+
+@pytest.mark.parametrize(("lo", "hi", "alpha"), [(500.0, 400.0, 1.0e-4), (400.0, 500.0, 0.0)])
+def test_a_ceiling_that_bounds_nothing_is_refused(lo, hi, alpha):
+    with pytest.raises(ValueError):
+        fitter.AbsorptionCeiling(lo, hi, alpha)
+
+
+def test_a_ceiling_file_is_not_mistaken_for_a_transmittance_table(tmp_path):
+    path = tmp_path / "X-ti-ceilings.csv"
+    path.write_text("wavelength_nm,tau_i_10mm\n500,0.99\n600,0.995\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="alpha_max_per_mm"):
+        fitter.read_ceilings(path)
+
+
+def test_capping_pulls_a_model_under_a_ceiling_without_touching_the_index(data):
+    """One factor, down only, exact: the same argument that makes the anchor a bisection.
+
+    The index is the collateral that proves the cap was fair -- a bound on transparency bought by
+    moving ``n`` would be buying a different glass to keep a promise about this one.
+    """
+    fit = fitter.fit_index(data, oscillators=2, starts=2)
+    ceiling = fitter.AbsorptionCeiling(420.0, 700.0, _absorption_at(fit, 550.0) / 4.0)
+
+    cap = fitter.cap_damping_to_ceilings(fit, data, [ceiling], (420.0, 700.0))
+
+    assert cap.capped and 0.0 < cap.factor < 1.0
+    assert _absorption_at(cap.fit, 550.0) <= ceiling.alpha_per_mm * (1.0 + 1.0e-6)
+    assert cap.delta_n_max < 1.0e-9
+    assert [term[:2] for term in cap.fit.oscillators] == [term[:2] for term in fit.oscillators]
+    assert "damping scaled" in cap.report()
+
+
+def test_a_model_already_under_a_ceiling_is_left_exactly_alone(data):
+    """A ceiling is an upper bound: a transparent model has nothing to learn from it.
+
+    Scaling *up* to touch a bound is what an anchor does when nothing measured the absorption,
+    and it is the one thing a cap must never do -- otherwise "bounded by the chart" quietly
+    becomes "as absorbing as the chart could see".
+    """
+    fit = fitter.fit_index(data, oscillators=2, starts=2)
+    ceiling = fitter.AbsorptionCeiling(420.0, 700.0, _absorption_at(fit, 550.0) * 100.0)
+
+    cap = fitter.cap_damping_to_ceilings(fit, data, [ceiling], (420.0, 700.0))
+
+    assert not cap.capped and cap.factor == 1.0
+    assert cap.fit.oscillators == fit.oscillators
+    assert "untouched" in cap.report()
+
+
+def test_a_ceiling_outside_the_window_bounds_nothing_but_is_still_said_loudly(data):
+    """The window is where the promise is made; everywhere else is a reported contradiction.
+
+    This is the whole F_SILICA situation in miniature: two ceilings a damped wing cannot both
+    hold, so one caps the widths and the other is written up by :func:`ceiling_notes` instead of
+    being dropped from the record.
+    """
+    fit = fitter.fit_index(data, oscillators=2, starts=2)
+    ultraviolet = fitter.AbsorptionCeiling(300.0, 400.0, _absorption_at(fit, 350.0) / 100.0)
+    visible = fitter.AbsorptionCeiling(420.0, 700.0, _absorption_at(fit, 550.0) * 100.0)
+
+    cap = fitter.cap_damping_to_ceilings(fit, data, [ultraviolet, visible], (420.0, 700.0))
+    notes = fitter.ceiling_notes(cap.fit, [ultraviolet, visible], (420.0, 700.0))
+
+    assert not cap.capped  # the tight bound is outside the window, so it does not bind
+    assert len(notes) == 3
+    assert "2 bounded spans" in notes[0]
+    assert "within" in notes[1]
+    assert "above 1 of the 1 spans outside 420-700 nm" in notes[2]
+    assert "reported, not fitted" in notes[2]
+
+
+def test_no_ceilings_means_no_notes(data):
+    assert fitter.ceiling_notes(fitter.fit_index(data, oscillators=1, starts=1), []) == []
+
+
+def test_the_command_line_caps_a_fit_at_a_ceiling_file(tmp_path, capsys):
+    directory = tmp_path / "tables"
+    dispersion, transmittance = fitter.write_round_trip_tables("N-BK7", directory=directory)
+    ceilings = _ceilings_csv(tmp_path, [(420.0, 700.0, 1.0e-6)])
+
+    status = fitter.main(
+        [
+            "--name", "N-BK7",
+            "--dispersion", str(dispersion),
+            "--transmittance", str(transmittance),
+            "--oscillators", "2",
+            "--ceilings", str(ceilings),
+            "--cap-window", "420:700",
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert status == 0
+    assert "absorption capped at" in out
+    assert "damping scaled" in out
+
+
+def test_a_cap_window_without_a_ceiling_file_is_refused(capsys):
+    assert fitter.main(["--name", "N-BK7", "--oscillators", "2", "--cap-window", "420:700"]) == 2
+    assert "needs --ceilings" in capsys.readouterr().err
+
+
 # --- the campaign ---------------------------------------------------------------
+
+
+def test_only_a_glass_with_bounded_spans_is_capped():
+    """``ceilings=True`` has to mean "there is a ceilings file", or the cap is on nothing.
+
+    The flag and the artifact are two different facts, and the failure mode of them disagreeing
+    is a catalog row whose damping was quietly never capped -- so ask the campaign, not the
+    comment.
+    """
+    assert [request.name for request in fit_catalog.CATALOG_FIT_REQUESTS if request.ceilings] == ["F_SILICA"]
+    for request in fit_catalog.CATALOG_FIT_REQUESTS:
+        assert bool(fit_catalog.ceilings_for(request)) == request.ceilings
+
+    with pytest.raises(ValueError, match="does not exist"):
+        fit_catalog.ceilings_for(fit_catalog.FitRequest("N-BK7", ceilings=True))
+
+
+def test_fused_silica_is_fitted_and_capped_rather_than_anchored():
+    """The row's widths come from magnitudes, bounded by a ceiling, with the guarantees reported.
+
+    Three claims in one report, and all three used to be different: the damping was one common
+    scale, set so ``alpha(248 nm)`` sat on the KrF grade's tolerance. A measured curve outranks a
+    tolerance, so now the widths are fitted, a ceiling caps them, and the guarantees survive only
+    as bounds the row is checked against -- with margins, never the word "anchored".
+    """
+    request = next(request for request in fit_catalog.CATALOG_FIT_REQUESTS if request.name == "F_SILICA")
+
+    material = fit_catalog.fit_request(request)
+    report = material.report()
+
+    assert not request.dispersion_only
+    assert len(material.data.alpha_per_mm) > 400
+    assert "absorption capped at" in report
+    assert "damping scaled" in report
+    assert "guarantee Ti >=" in report
+    assert "anchored" not in report
 
 
 def test_the_catalog_requests_every_glass_once():

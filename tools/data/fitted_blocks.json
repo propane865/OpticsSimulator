@@ -140,22 +140,22 @@
     ]
   },
   "F_SILICA": {
-    "epsilon_inf": 1.08622787,
+    "epsilon_inf": 1.07231617,
     "oscillators": [
       {
-        "strength": 0.735709775,
-        "resonance_ev": 0.138099272,
-        "damping_ev": 1.68126981e-07
+        "strength": 0.630857634,
+        "resonance_ev": 0.148863859,
+        "damping_ev": 9.384363e-06
       },
       {
-        "strength": 0.360508382,
-        "resonance_ev": 10.5667363,
-        "damping_ev": 1.43494331e-07
+        "strength": 0.371566322,
+        "resonance_ev": 10.5932038,
+        "damping_ev": 8.01458469e-09
       },
       {
-        "strength": 0.657358183,
-        "resonance_ev": 16.287576,
-        "damping_ev": 1.38661696e-07
+        "strength": 0.66019747,
+        "resonance_ev": 16.596322,
+        "damping_ev": 1e-09
       }
     ]
   }

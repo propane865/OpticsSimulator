@@ -222,10 +222,12 @@ glass (N-LASF9).
 
 The limits are written up per glass in `tools/data/README.md`, and they are real:
 these parameters are not a transmittance percentage for a real part, not an
-ultraviolet cutoff (the classical wing runs up to 274x too transparent below
-~380 nm), not infrared behaviour past ~1.5 um, and not any absorption claim at
-all for `F_SILICA`, whose damping is anchored to Corning's grade guarantees
-because HPFS 7980 publishes no transmittance table. A material the catalog does
+ultraviolet cutoff (the classical wing runs up to 274x too transparent below ~380 nm)
+and not infrared behaviour past ~1.5 um. `F_SILICA` carries no absorption *number* at
+all: HPFS 7980 publishes its transmittance as two printed charts, most of which says only
+"no absorption this chart can see", so its damping is fitted to the 413 rows that are deep
+enough to be magnitudes, capped to the one ceiling the visible band allows, and reported as
+sitting above 24 of the 30 other bounds the charts imply. A material the catalog does
 not carry is imported through the lens editor's **Load Custom Material...** as the
 same `lorentz` block, inline in that one element, after which the editor labels it
 `Custom`.

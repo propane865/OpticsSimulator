@@ -46,10 +46,15 @@ The tables it reads
 -------------------
 :data:`DATA_DIR` holds one pair of rows per glass, written from the vendor tables by
 :mod:`tools.import_raw_optical_data` -- never by hand, and ``--check`` there proves it.
-A glass published without a transmittance row (Corning's HPFS 7980 quotes guarantee
-limits rather than a curve) is fitted with ``--dispersion-only``, and its damping is then
-set by those guarantees with ``--guarantee`` -- which bounds its absorption and is
-reported as bounding it, never written up as a measurement.
+A glass published without a transmittance row (a sheet that quotes guarantee limits rather
+than a curve) is fitted with ``--dispersion-only``, and its damping is then set by those
+guarantees with ``--guarantee`` -- which bounds its absorption and is reported as bounding
+it, never written up as a measurement. A glass whose absorption was published as a *printed
+chart* rather than a table arrives as magnitudes plus ceilings: rows deep enough to be a
+measurement, and bounded spans where the trace sat on a level the chart could not resolve
+(:class:`AbsorptionCeiling`). Ceilings are never fitted as rows; they cap the widths with
+``--ceilings`` inside the band the catalog is used in (``--cap-window``), and
+:func:`ceiling_notes` says which of them the shipped row still sits above.
 
 The synthetic pair this tool was developed against still exists as
 :data:`ROUND_TRIP_TRUTH`, because a fitter is only proved by a round trip: generate a
@@ -65,6 +70,8 @@ Usage::
     python tools/fit_lorentz_material.py --name N-BK7 --out fitted.json
     python tools/fit_lorentz_material.py --name F_SILICA --oscillators 3 \\
         --dispersion-only --guarantee 185:88.00 --guarantee 248:99.90 --guarantee 193:99.50
+    python tools/fit_lorentz_material.py --name F_SILICA --oscillators 4 \\
+        --ceilings tools/data/F_SILICA-ti-ceilings.csv --cap-window 420:700
     python tools/fit_lorentz_material.py --make-round-trip N-BK7 --out-dir /tmp/scratch
 """
 
@@ -104,6 +111,8 @@ __all__ = [
     "TAU_FLOOR",
     "TAU_ROUNDING_TOLERANCE",
     "AbsorptionAnchor",
+    "AbsorptionCeiling",
+    "CeilingCap",
     "DampingFit",
     "LorentzTerm",
     "MaterialFit",
@@ -115,6 +124,8 @@ __all__ = [
     "band_regions",
     "bands_are_physical",
     "bound_warnings",
+    "cap_damping_to_ceilings",
+    "ceiling_notes",
     "clip_theta",
     "complex_index",
     "dielectric",
@@ -135,6 +146,7 @@ __all__ = [
     "model_parameters",
     "negligible_terms",
     "photon_energies",
+    "read_ceilings",
     "read_dispersion",
     "read_internal_transmittance",
     "round_trip_tables",
@@ -1922,6 +1934,275 @@ def guarantee_notes(
     return notes
 
 
+# --- absorption a printed chart bounded rather than measured --------------------
+
+
+@dataclass(frozen=True)
+class AbsorptionCeiling:
+    """A wavelength span over which a published chart never went below one printed level.
+
+    ``alpha_per_mm`` is what that level implies, and it is a *ceiling*: the material is no more
+    absorbing than it, and could be far more transparent. The importer writes the spans a chart
+    left behind where it had no magnitude (``<NAME>-ti-ceilings.csv``) and this is the shape
+    both ends use, because a ceiling is a statement about absorption rather than about a CSV.
+
+    A ceiling is the mirror image of a guarantee (see
+    :func:`absorption_bound_from_guarantee`) and the same kind of non-row as a floored
+    ``tau_i``: it can bound a model and it can be reported against one, but fitting it as a
+    magnitude would make the glass as absorbing as the top pixel of a chart that is saying it
+    cannot see any absorption at all.
+    """
+
+    wavelength_lo_nm: float
+    wavelength_hi_nm: float
+    alpha_per_mm: float
+
+    def __post_init__(self) -> None:
+        if self.wavelength_lo_nm > self.wavelength_hi_nm:
+            raise ValueError("a ceiling span has to run from short to long wavelength")
+        if self.alpha_per_mm <= 0.0:
+            raise ValueError("a ceiling has to bound a positive absorption coefficient")
+
+    @property
+    def label(self) -> str:
+        """The span, as a report line wants it."""
+        lo, hi = self.wavelength_lo_nm, self.wavelength_hi_nm
+        return f"{lo:g} nm" if lo == hi else f"{lo:g}-{hi:g} nm"
+
+    def overlaps(self, window: tuple[float, float]) -> bool:
+        """Whether any part of this span lies inside ``window``."""
+        return self.wavelength_hi_nm >= window[0] and self.wavelength_lo_nm <= window[1]
+
+    def sample_wavelengths(self, window: tuple[float, float] | None = None) -> tuple[float, ...]:
+        """Where to evaluate a model against this span: its ends and its middle.
+
+        A ceiling is flat across its span and ``alpha`` is smooth inside it, so three points
+        settle whether a model is under it -- and the spans are printed pixel runs, which is as
+        fine a grid as the claim was ever worth.
+        """
+        lo, hi = self.wavelength_lo_nm, self.wavelength_hi_nm
+        if window is not None:
+            lo, hi = max(lo, window[0]), min(hi, window[1])
+        return tuple(sorted({lo, 0.5 * (lo + hi), hi}))
+
+
+def read_ceilings(path: Path) -> tuple[AbsorptionCeiling, ...]:
+    """The bounded spans of a ``wavelength_lo_nm,wavelength_hi_nm,alpha_max_per_mm`` CSV."""
+    lines = [
+        line.strip()
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    if not lines or "alpha" not in lines[0].lower():
+        raise ValueError(f"{path}: expected a wavelength_lo_nm,wavelength_hi_nm,alpha_max_per_mm table")
+    return tuple(
+        AbsorptionCeiling(*(float(cell) for cell in line.split(","))) for line in lines[1:]
+    )
+
+
+def _scaled_damping(parameters: np.ndarray, factor: float) -> np.ndarray:
+    """Every damping times one factor, kept inside the fitter's own physical box.
+
+    One factor for all bands, because a bound on a material's transparency bounds the material:
+    which band pays it is not something a chart says. Clipping to the box is what lets a cap
+    run out of room -- a damping already on the floor cannot be made more transparent -- and
+    :func:`cap_damping_to_ceilings` reports that rather than shipping a damping below the floor
+    the rest of the fit is not allowed to use.
+    """
+    scaled = parameters.copy()
+    scaled[2::3] = np.clip(
+        parameters[2::3] * factor, math.exp(_BOUNDS[3][0]), math.exp(_BOUNDS[3][1])
+    )
+    return scaled
+
+
+def _worst_ceiling_ratio(
+    epsilon_inf: float,
+    parameters: np.ndarray,
+    ceilings: Sequence[AbsorptionCeiling],
+    window: tuple[float, float] | None = None,
+) -> tuple[float, float, AbsorptionCeiling | None]:
+    """How far a model sits above the tightest ceiling, as ``(ratio, wavelength, span)``.
+
+    ``ratio`` is ``alpha_model / alpha_ceiling``, maximised over every sampled point of every
+    span, so 1.0 is "sitting on the bound" and 0.5 is "half as absorbing as the chart could
+    see". Spans outside ``window`` are skipped, which is how a cap can be asked for in the band
+    a catalog is traced in without pretending the other ceilings do not exist -- they are still
+    counted, by :func:`ceiling_notes`.
+    """
+    worst_ratio, worst_wavelength, worst_ceiling = 0.0, 0.0, None
+    for ceiling in ceilings:
+        if window is not None and not ceiling.overlaps(window):
+            continue
+        points = np.array(ceiling.sample_wavelengths(window))
+        _n, k = complex_index(points, epsilon_inf, parameters)
+        ratios = alpha_from_k(k, points) / ceiling.alpha_per_mm
+        index = int(np.argmax(ratios))
+        if float(ratios[index]) > worst_ratio:
+            worst_ratio, worst_wavelength, worst_ceiling = float(ratios[index]), float(points[index]), ceiling
+    return worst_ratio, worst_wavelength, worst_ceiling
+
+
+@dataclass(frozen=True)
+class CeilingCap:
+    """A fit whose widths were capped so a bounded region stays bounded."""
+
+    fit: MaterialFit
+    factor: float
+    binding: AbsorptionCeiling | None
+    binding_wavelength_nm: float
+    delta_n_max: float
+    #: Spans inside the window the capped model is still above -- empty unless the damping
+    #: floor itself is more absorbing than the chart allows, which is a report, not a pass.
+    violated: tuple[AbsorptionCeiling, ...] = ()
+
+    @property
+    def capped(self) -> bool:
+        """Whether the cap changed anything."""
+        return self.factor < 1.0
+
+    def report(self) -> str:
+        if not self.capped:
+            return "absorption already inside every ceiling in the capped window: damping untouched"
+        where = (
+            f"at {self.binding_wavelength_nm:.4g} nm to alpha <= {self.binding.alpha_per_mm:.4g} mm^-1"
+            if self.binding
+            else "to the capped window"
+        )
+        return (
+            f"absorption capped {where}: damping scaled {self.factor:.4g} (more transparent),"
+            f" index moved by at most {self.delta_n_max:.3e}"
+        )
+
+
+def cap_damping_to_ceilings(
+    fit: MaterialFit,
+    data: TabulatedData,
+    ceilings: Sequence[AbsorptionCeiling],
+    window: tuple[float, float],
+    tolerance: float = 1.0e-10,
+) -> CeilingCap:
+    """Scale every damping down until the model respects every ceiling in ``window``.
+
+    Down and never up: a ceiling is an upper bound, so a model already under it has nothing to
+    learn from it, and pulling a transparent model *up* to touch a bound is what
+    :func:`anchor_to_guarantees` is allowed to do only where nothing measured the absorption at
+    all. The scaling is one factor for all bands, exact by bisection -- with every ``Gamma_j``
+    multiplied by ``c`` the imaginary permittivity is monotone in ``c``, so there is one place
+    where the worst ratio crosses 1.0 and it can be landed on instead of traded against
+    anything. The index move is reported because it is the check that the cap did not buy a
+    bound with a different glass.
+
+    Ceilings outside ``window`` are never capped, and a span inside the window the box floor
+    still cannot get under is returned in :attr:`CeilingCap.violated`. Where no model of this
+    class can hold both a measured wing and a flat ceiling -- which is the case HPFS 7980's two
+    charts present -- the row has to pick which claim it sacrifices, and the window is where
+    that decision is made and stated.
+    """
+    parameters = np.array([value for term in fit.oscillators for value in term], dtype=float)
+    before, _ = complex_index(data.wavelengths_nm, fit.epsilon_inf, parameters)
+
+    def worst_at(factor: float) -> tuple[float, float, AbsorptionCeiling | None]:
+        return _worst_ceiling_ratio(fit.epsilon_inf, _scaled_damping(parameters, factor), ceilings, window)
+
+    ratio, wavelength, binding = worst_at(1.0)
+    if ratio <= 1.0:
+        return CeilingCap(fit, 1.0, None, wavelength, 0.0)
+    low, high = 0.0, 0.0  # log damping factor; the unscaled model is the top of the bracket
+    steps = 0
+    while worst_at(math.exp(low))[0] > 1.0:
+        steps += 1
+        if steps > 160:
+            break  # the damping floor is more absorbing than the chart allows: report it
+        low -= 0.5
+    while high - low > tolerance:
+        middle = 0.5 * (low + high)
+        if worst_at(math.exp(middle))[0] > 1.0:
+            high = middle
+        else:
+            low = middle
+    factor = math.exp(0.5 * (low + high))
+    scaled = _scaled_damping(parameters, factor)
+    ratio, wavelength, binding = worst_at(factor)
+    after, _ = complex_index(data.wavelengths_nm, fit.epsilon_inf, scaled)
+    theta = model_theta(fit.epsilon_inf, scaled)
+    rms_nm, rms_k, rms_log_alpha = _rms(theta, data)
+    residual = _residual(theta, data)
+    capped = MaterialFit(
+        epsilon_inf=fit.epsilon_inf,
+        oscillators=tuple(
+            (float(scaled[i]), float(scaled[i + 1]), float(scaled[i + 2])) for i in range(0, len(scaled), 3)
+        ),
+        cost=0.5 * float(residual @ residual),
+        rms_nm=rms_nm,
+        rms_k=rms_k,
+        rms_log_alpha=rms_log_alpha,
+        iterations=fit.iterations,
+        lambda_final=fit.lambda_final,
+        seeds=fit.seeds,
+    )
+    violated = (binding,) if ratio > 1.0 and binding is not None else ()
+    return CeilingCap(
+        fit=capped,
+        factor=min(factor, 1.0),
+        binding=binding,
+        binding_wavelength_nm=wavelength,
+        delta_n_max=float(np.max(np.abs(after - before))),
+        violated=violated,
+    )
+
+
+def ceiling_notes(
+    fit: MaterialFit,
+    ceilings: Sequence[AbsorptionCeiling],
+    window: tuple[float, float] | None = None,
+) -> list[str]:
+    """How ``fit`` sits against the ceilings a chart published, as sentences.
+
+    The inside-window line is the claim the row makes; the outside-window line is the claim it
+    breaks, said out loud for the same reason :meth:`DampingFit.report` counts the rows a model
+    cannot reach: a bound a shipped row sails past is a fact about the row, and a reader quoting
+    a power loss needs it before they do, not after.
+    """
+    if not ceilings:
+        return []
+    parameters = np.array([value for term in fit.oscillators for value in term], dtype=float)
+    tightest = min(ceilings, key=lambda ceiling: ceiling.alpha_per_mm)
+    lo = min(ceiling.wavelength_lo_nm for ceiling in ceilings)
+    hi = max(ceiling.wavelength_hi_nm for ceiling in ceilings)
+    notes = [
+        f"{len(ceilings)} bounded spans over {lo:g}-{hi:g} nm print no magnitude:"
+        f" tightest alpha <= {tightest.alpha_per_mm:.3g} mm^-1 at {tightest.label}"
+    ]
+    inside, outside = list(ceilings), []
+    if window is not None:
+        inside = [ceiling for ceiling in ceilings if ceiling.overlaps(window)]
+        outside = [ceiling for ceiling in ceilings if not ceiling.overlaps(window)]
+        if inside:
+            ratio, wavelength, _span = _worst_ceiling_ratio(fit.epsilon_inf, parameters, inside, window)
+            bound = min(ceiling.alpha_per_mm for ceiling in inside)
+            state = "within" if ratio <= 1.001 else "ABOVE the bound it was capped to"
+            notes.append(
+                f"{len(inside)} of them cover {window[0]:g}-{window[1]:g} nm, bound alpha at <="
+                f" {bound:.3g} mm^-1, and the row sits at alpha({wavelength:g} nm) ="
+                f" {ratio * bound:.3g} mm^-1 ({ratio:.3g}x, {state})"
+            )
+    above = [
+        ceiling
+        for ceiling in outside
+        if _worst_ceiling_ratio(fit.epsilon_inf, parameters, [ceiling])[0] > 1.001
+    ]
+    if above:
+        ratio, wavelength, _span = _worst_ceiling_ratio(fit.epsilon_inf, parameters, above)
+        spans = f"{window[0]:g}-{window[1]:g} nm" if window else "the capped window"
+        notes.append(
+            f"the row is above {len(above)} of the {len(outside)} spans outside {spans}: worst"
+            f" {ratio:.3g}x at {wavelength:g} nm, where the wing that has to reach a measured"
+            f" magnitude at the other end of the chart is what sets alpha -- reported, not fitted"
+        )
+    return notes
+
+
 def material_document(fit: MaterialFit, name: str) -> dict[str, object]:
     """The named material document for a fit (what the editor imports)."""
     return fit.document(name)
@@ -2108,6 +2389,22 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--ceilings",
+        type=Path,
+        default=None,
+        metavar="CSV",
+        help=(
+            "a wavelength_lo_nm,wavelength_hi_nm,alpha_max_per_mm table of bounded spans"
+            " (written by the importer for a digitized chart) to cap the fitted damping to"
+        ),
+    )
+    parser.add_argument(
+        "--cap-window",
+        default=None,
+        metavar="LO:HI",
+        help="the wavelength band --nm:nm-- in which --ceilings cap the damping; default 420:700",
+    )
+    parser.add_argument(
         "--joint",
         action="store_true",
         help="run the single-objective joint fit instead of the two-stage shipped path",
@@ -2144,18 +2441,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     guarantees: list[tuple[float, float]] = []
+    cap_window = (420.0, 700.0)
     try:
         for entry in args.guarantee:
             wavelength_text, percent_text = entry.split(":")
             guarantees.append((float(wavelength_text), float(percent_text)))
         if guarantees and not args.dispersion_only:
             raise ValueError("--guarantee needs --dispersion-only: a measured tau_i row outranks a guarantee")
+        if args.cap_window is not None:
+            low_text, high_text = args.cap_window.split(":")
+            cap_window = (float(low_text), float(high_text))
+            if args.ceilings is None:
+                raise ValueError("--cap-window needs --ceilings: a window around nothing caps nothing")
         data = load_tables(
             args.name,
             args.dispersion,
             NO_ABSORPTION if args.dispersion_only else args.transmittance,
             args.thickness,
         )
+        ceilings = read_ceilings(args.ceilings) if args.ceilings is not None else ()
     except (OSError, ValueError) as exc:
         print(f"could not read the tables: {exc}", file=sys.stderr)
         return 2
@@ -2169,6 +2473,12 @@ def main(argv: list[str] | None = None) -> int:
         anchor = anchor_to_guarantees(fit, data, guarantees, args.thickness)
         fit = anchor.fit
         print(f"note: {anchor.report()}")
+    if ceilings:
+        cap = cap_damping_to_ceilings(fit, data, ceilings, cap_window)
+        fit = cap.fit
+        print(f"note: {cap.report()}")
+        for note in ceiling_notes(fit, ceilings, cap_window):
+            print(f"note: {note}")
     for warning in absorption_warnings(fit, data):
         print(f"note: {warning}")
     absorption_rows = f"{len(data.alpha_per_mm)} absorption rows" if data.has_absorption else "no absorption table"

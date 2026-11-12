@@ -35,6 +35,16 @@ What the raw tables look like, and what this does about it:
 * **Rows come descending.** Vendors print short wavelengths last; the loaders sort,
   but the written files are ascending so that reading one with the raw table side by
   side is not an exercise in inverted order.
+* **Some curves are pixel traces, and a trace has a pixel size.** Corning's HPFS 7980
+  transmittance curves were digitized off printed charts: every value of the broad chart is
+  an integer multiple of 100/676 %, and the ultraviolet chart's printed spacing is 0.00148
+  percentage points, so a printed level is worth 1.48e-4 mm^-1 (broad) or 1.48e-6 mm^-1
+  (ultraviolet) of absorption. A level is then a *bin*, and two of its edges carry no
+  magnitude: a row within :data:`MAGNITUDE_PIXELS` of the chart's own top level says
+  "absorption below what this chart can show", which is an upper bound on ``alpha`` and is
+  written to a ceilings file, and a row on the axis floor says "opaque, magnitude unknown",
+  which is the printed ``0.000`` seen from the other end and is counted with it. What is
+  left is a measurement, and only measurements become fit rows.
 
 Values are written with :func:`repr` so a row round-trips to the exact float the
 vendor printed -- ``1.448866`` stays seven digits and ``0.998`` stays three -- where a
@@ -50,9 +60,12 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -60,16 +73,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fit_lorentz_material as fitter
 
 __all__ = [
+    "CHART_FILES",
+    "CURVE_COLUMN",
     "GUARANTEE_FILE",
+    "MAGNITUDE_PIXELS",
     "RAW_DIR",
     "TRANSMITTANCE_COLUMN",
+    "Ceiling",
+    "ChartSpec",
+    "ChartTrace",
     "VendorTable",
+    "chart_overlap_worst_ratio",
     "import_all",
     "import_glass",
     "main",
     "out_of_date_tables",
     "read_transmittance",
+    "read_transmittance_chart",
     "read_wavelength_index_table",
+    "write_ceilings",
     "write_rows",
 ]
 
@@ -91,6 +113,70 @@ TRANSMITTANCE_COLUMN = "tau_i_10mm"
 #: Raw table directory -> catalog name, where the two differ. Every SCHOTT page is
 #: named for its glass; Corning's HPFS 7980 is the catalog's generic fused silica.
 CATALOG_NAMES: dict[str, str] = {"HPFS-7980": "F_SILICA"}
+
+# --- the printed charts, which are traces rather than tables ---------------------
+
+#: The column of a digitized chart: internal transmittance in percent per centimetre.
+#: A centimetre *is* the path this fitter tabulates (``TAU_THICKNESS_MM`` is 10 mm), so
+#: converting a chart value into a fit row is a unit change and nothing else -- there is no
+#: path-length rescaling here, which is the one thing about these files that was easy to get
+#: wrong.
+CURVE_COLUMN = "internal_transmittance_percent_per_cm"
+
+#: A percent-transmittance axis is a length, not a ratio: its floor is 0 %, and a trace that
+#: reaches the floor is off the bottom of the chart. A row this close to it is "opaque" --
+#: the absorption is at least what the level implies and has no upper limit -- so it is the
+#: same kind of nothing as a printed ``0.000`` and is counted with it.
+OFF_SCALE_LEVELS = 1.0
+
+#: How far below a chart's own top level a row has to sit before its depth counts as a
+#: magnitude. Near the top of a transmittance chart, absorption is proportional to the number
+#: of pixels below the top, so ten pixels is a reading whose own quantization is under a tenth
+#: of what it says -- the precision the fitter's absorption objective (``SIGMA_LOG_ALPHA``)
+#: assumes, and the bar a three-decimal ``tau_i = 0.998`` row just barely clears. Shallower
+#: rows bound ``alpha`` from above and are written to the ceilings file; fitting them as
+#: magnitudes would make the glass as absorbing as the top pixel of a chart that is saying it
+#: cannot see any absorption at all.
+MAGNITUDE_PIXELS = 10.0
+
+#: A printed value is a rounded pixel, so both thresholds above get half a pixel of slack.
+HALF_PIXEL = 0.5
+
+
+@dataclass(frozen=True)
+class ChartSpec:
+    """One chart file of a raw directory, and the spectrum it is authoritative for."""
+
+    file: str
+    #: The chart supplies the rows below this wavelength / above that one. Two charts over
+    #: the same span are not a contradiction to average: the finer one is the measurement and
+    #: the coarser one is a rounder copy of it, so ownership is declared here rather than
+    #: settled by whichever file happened to be read first.
+    owns_below_nm: float | None = None
+    owns_above_nm: float | None = None
+
+
+#: Raw directory -> its chart files. HPFS 7980 publishes two transmittance charts of the same
+#: material: the ultraviolet one (185.2-400.0 nm) quantizes a hundred times finer than the broad
+#: one (179.7-4353.0 nm), 0.00148 % against 0.14793 % of a centimetre. Where they overlap the
+#: coarse chart's trace never leaves its top two pixels, so its sharpest statement is a bound of
+#: alpha <= 2.96e-4 mm^-1 over 179.7-204.2 nm -- and the fine chart *measures* 5.68e-4 there,
+#: 1.92x more. That is not a contradiction to average: a chart whose pixel is two thousandths of a
+#: percent cannot see 0.0057 % absorption and has no standing to bound it. The fine chart owns the
+#: overlap; the coarse chart owns everything past the end of the fine one.
+CHART_FILES: dict[str, tuple[ChartSpec, ...]] = {
+    "HPFS-7980": (
+        ChartSpec("hpfs_uv_7980.csv", owns_below_nm=400.0),
+        ChartSpec("hpfs_broad_spectrum_7980.csv", owns_above_nm=400.0),
+    ),
+}
+
+
+#: A bounded span: a wavelength range over which the trace never left one printed level, and
+#: the absorption that level implies as an upper bound. The shape is the fitter's -- a ceiling
+#: is a statement about absorption, not about a CSV -- so the importer that writes one and the
+#: fitter that reads one cannot disagree about what it means.
+Ceiling = fitter.AbsorptionCeiling
 
 
 @dataclass
@@ -234,6 +320,183 @@ def _wavelength_column(header: list[str]) -> str:
     return found[0]
 
 
+# --- reading a printed chart ---------------------------------------------------
+
+
+@dataclass
+class ChartTrace:
+    """One digitized transmittance chart: its magnitudes, its ceilings, and the bookkeeping.
+
+    ``rows`` is what a reader thinks of as the curve -- the rows deep enough to be a
+    magnitude. ``ceilings`` is the rest of the ink: the spans where the trace sat near the top
+    of the chart, which say how transparent the material is and nothing about how much.
+    """
+
+    source: str
+    #: The printed spacing between adjacent levels, in percent -- one pixel of the chart.
+    quantum_percent: float = 0.0
+    #: ``(wavelength_nm, tau_i_10mm)`` magnitude rows, ascending.
+    rows: list[tuple[float, float]] = field(default_factory=list)
+    ceilings: list[Ceiling] = field(default_factory=list)
+    discarded_columns: list[str] = field(default_factory=list)
+    blank_rows: int = 0
+    #: Rows on the axis floor: opaque, magnitude unknown.
+    floored_rows: int = 0
+    #: Rows within :data:`MAGNITUDE_PIXELS` of the chart's own top level.
+    ceiling_rows: int = 0
+    #: ``(wavelength_nm, percent)`` rows of a span a finer chart owns -- printed, not used,
+    #: and kept only so the two charts can be compared against each other where they overlap.
+    foreign_readings: list[tuple[float, float]] = field(default_factory=list)
+    #: What the charts said about the same light where they overlapped, worst case.
+    overlap_worst_ratio: float = 0.0
+    overlap_worst_wavelength_nm: float = 0.0
+
+    @property
+    def alpha_quantum_per_mm(self) -> float:
+        """The absorption one pixel of this chart is worth at the transparent end."""
+        return -math.log(max(1.0 - self.quantum_percent / 100.0, 1.0e-12)) / fitter.TAU_THICKNESS_MM
+
+    @property
+    def note(self) -> str:
+        details = [
+            f"{len(self.rows)} magnitude rows",
+            f"quantum {self.alpha_quantum_per_mm:.3g} mm^-1/pixel",
+        ]
+        if self.ceiling_rows:
+            details.append(f"{self.ceiling_rows} ceiling rows -> {len(self.ceilings)} bounded spans")
+        if self.floored_rows:
+            details.append(f"{self.floored_rows} on the axis floor (opaque)")
+        if self.foreign_readings:
+            details.append(f"{len(self.foreign_readings)} rows of a span a finer chart owns")
+        if self.blank_rows:
+            details.append(f"{self.blank_rows} blank")
+        if self.discarded_columns:
+            details.append(f"discarded {', '.join(self.discarded_columns)}")
+        return f"{self.source}: " + ", ".join(details)
+
+
+def _print_quantum(values: Sequence[float]) -> float:
+    """The smallest nonzero spacing between distinct printed values: the chart's pixel.
+
+    Read off the file rather than assumed, because it is the whole basis of the
+    magnitude-versus-ceiling decision -- and it is different for the two charts by a factor of
+    a hundred (100/676 % against 0.00148 %), which is exactly the difference between "the
+    trace is flat" and "the trace is flat to within a tenth of the absorption it implies".
+    """
+    distinct = sorted(set(values))
+    gaps = [high - low for low, high in pairwise(distinct) if high - low > 1.0e-9]
+    if not gaps:
+        raise ValueError("the chart prints one level everywhere, so it carries no trace")
+    return min(gaps)
+
+
+def _ceilings_from_runs(runs: Sequence[tuple[float, float]], alpha_floor: float) -> list[Ceiling]:
+    """Adjacent rows that never left one printed level, merged into one bounded span.
+
+    The bound of a row is the absorption its own printed level implies -- the trace sat
+    *there*, so the material is no more absorbing than that level and no less transparent
+    than the level above it -- floored at one pixel, because a level printed as exactly
+    100.00000 % is the top of the axis and implies a meaningless ``alpha = 0``.
+    """
+    ceilings: list[Ceiling] = []
+    for wavelength, percent in runs:
+        alpha = max(-math.log(percent / 100.0) / fitter.TAU_THICKNESS_MM, alpha_floor)
+        if ceilings and math.isclose(ceilings[-1].alpha_per_mm, alpha, rel_tol=1.0e-12):
+            ceilings[-1] = Ceiling(ceilings[-1].wavelength_lo_nm, wavelength, alpha)
+        else:
+            ceilings.append(Ceiling(wavelength, wavelength, alpha))
+    return ceilings
+
+
+def read_transmittance_chart(
+    path: Path,
+    owns_below_nm: float | None = None,
+    owns_above_nm: float | None = None,
+) -> ChartTrace:
+    """``(wavelength_nm, tau_i_10mm)`` rows and ceilings from one digitized chart.
+
+    The chart is read as what it is: a trace on a printed axis. Its quantum comes from its own
+    values (:func:`_print_quantum`), a row within :data:`MAGNITUDE_PIXELS` of the chart's top
+    level becomes a ceiling rather than a row, a row within :data:`OFF_SCALE_LEVELS` of the
+    0 % floor is the opaque end of the curve, and rows outside the span this chart owns come
+    from a coarser view of light a finer chart already measured.
+    """
+    header, body = _read_raw(path)
+    wavelength_index = _column(header, _wavelength_column(header))
+    value_index = _column(header, CURVE_COLUMN)
+    trace = ChartTrace(
+        source=path.name,
+        discarded_columns=[name for number, name in enumerate(header) if number not in (wavelength_index, value_index)],
+    )
+    readings: list[tuple[float, float]] = []
+    for row in body:
+        wavelength = _positive(_number(row[wavelength_index]), "wavelength")
+        percent = _number(row[value_index])
+        if wavelength is None or percent is None:
+            trace.blank_rows += 1
+            continue
+        if not 0.0 < percent <= 100.0:
+            raise ValueError(
+                f"{path.name}: internal transmittance must lie in (0, 100] percent, found {percent}"
+            )
+        readings.append((wavelength, percent))
+    if len(readings) < 3:
+        raise ValueError(f"{path.name}: too few printed levels to read a trace ({len(readings)})")
+
+    quantum = _print_quantum([percent for _wavelength, percent in readings])
+    trace.quantum_percent = quantum
+    top = max(readings, key=lambda reading: reading[1])[1] / quantum
+    ceilings: list[tuple[float, float]] = []
+    for wavelength, percent in sorted(readings):
+        if (owns_below_nm is not None and wavelength > owns_below_nm) or (
+            owns_above_nm is not None and wavelength < owns_above_nm
+        ):
+            trace.foreign_readings.append((wavelength, percent))
+            continue
+        level = percent / quantum
+        if level <= OFF_SCALE_LEVELS + HALF_PIXEL:
+            trace.floored_rows += 1  # the trace is on the axis: opaque, and no magnitude
+        elif top - level < MAGNITUDE_PIXELS - HALF_PIXEL:
+            trace.ceiling_rows += 1
+            ceilings.append((wavelength, percent))
+        else:
+            trace.rows.append((wavelength, percent / 100.0))
+    trace.ceilings = _ceilings_from_runs(ceilings, trace.alpha_quantum_per_mm)
+    return trace
+
+
+def chart_overlap_worst_ratio(traces: Sequence[ChartTrace]) -> tuple[float, float]:
+    """How far one chart's magnitude exceeds another chart's ceiling, ``(ratio, nm)``.
+
+    Where two charts cover the same light, the coarse one can only be wrong in one direction:
+    its ceiling has to sit at or above the other chart's measurement. When it does not, the gap
+    is a measurement of how little ink the coarse chart had -- for HPFS 7980's two charts the
+    worst is 1.9x at 185.2 nm, one pixel of a 676-pixel axis, which is the evidence that the
+    fine chart is the one to believe in the overlap. Rows a chart does not own are read as the
+    implicit ceilings they are, since that is all a shallow row ever says.
+    """
+    implicit = [
+        _ceilings_from_runs(sorted(trace.foreign_readings), trace.alpha_quantum_per_mm) + trace.ceilings
+        for trace in traces
+    ]
+    worst_ratio, worst_wavelength = 0.0, 0.0
+    for trace in traces:
+        others = [
+            ceiling for other, ceilings in zip(traces, implicit) if other is not trace for ceiling in ceilings
+        ]
+        for wavelength, tau in trace.rows:
+            alpha = -math.log(max(tau, 1.0e-12)) / fitter.TAU_THICKNESS_MM
+            for ceiling in others:
+                if not ceiling.wavelength_lo_nm <= wavelength <= ceiling.wavelength_hi_nm:
+                    continue
+                ratio = alpha / ceiling.alpha_per_mm
+                if ratio > worst_ratio:
+                    worst_ratio, worst_wavelength = ratio, wavelength
+                break
+    return worst_ratio, worst_wavelength
+
+
+
 def write_rows(path: Path, header: tuple[str, str], rows: list[tuple[float, float]]) -> Path:
     """Write one canonical two-column table, ascending, with lossless values."""
     path.write_text(
@@ -243,15 +506,72 @@ def write_rows(path: Path, header: tuple[str, str], rows: list[tuple[float, floa
     return path
 
 
+def write_ceilings(path: Path, ceilings: Sequence[Ceiling]) -> Path:
+    """Write the bounded spans, ascending, in the shape the fitter's reader expects."""
+    body = "".join(
+        f"{ceiling.wavelength_lo_nm!r},{ceiling.wavelength_hi_nm!r},{ceiling.alpha_per_mm!r}\n"
+        for ceiling in ceilings
+    )
+    path.write_text("wavelength_lo_nm,wavelength_hi_nm,alpha_max_per_mm\n" + body, encoding="utf-8")
+    return path
+
+
 @dataclass
 class ImportedGlass:
-    """The two canonical files written for one glass (the transmittance one may be absent)."""
+    """The canonical files written for one glass; either table may be absent."""
 
     name: str
     raw_directory: str
     dispersion: Path
     transmittance: Path | None
     notes: list[str]
+    #: The bounded spans a chart left behind where it had no magnitude (charts only).
+    ceilings: Path | None = None
+
+
+def import_charts(directory: Path, data_dir: Path, name: str) -> tuple[Path, Path, list[str]] | None:
+    """Write the fit tables for a directory published as printed charts, if it has any.
+
+    Returns ``(transmittance, ceilings, notes)`` or ``None`` when the directory publishes no
+    charts -- the ordinary vendor table is the first thing asked for, and charts are the
+    fallback, never the other way round.
+    """
+    specs = CHART_FILES.get(directory.name)
+    if not specs:
+        return None
+    traces = [
+        read_transmittance_chart(
+            directory / spec.file,
+            owns_below_nm=spec.owns_below_nm,
+            owns_above_nm=spec.owns_above_nm,
+        )
+        for spec in specs
+    ]
+    for trace in traces:
+        if not trace.rows:
+            raise ValueError(f"{trace.source}: no row is deep enough to be a magnitude")
+    rows = sorted(row for trace in traces for row in trace.rows)
+    wavelengths = [row[0] for row in rows]
+    if len(set(wavelengths)) != len(wavelengths):
+        raise ValueError(f"{directory.name}: two charts both claim a wavelength, so neither owns it")
+    ceilings = sorted(
+        (ceiling for trace in traces for ceiling in trace.ceilings),
+        key=lambda ceiling: ceiling.wavelength_lo_nm,
+    )
+    notes = [trace.note for trace in traces]
+    ratio, wavelength = chart_overlap_worst_ratio(traces)
+    if ratio > 1.0:
+        notes.append(
+            f"where the charts overlap, the coarser chart's ceiling is {ratio:.2f}x tighter than "
+            f"the finer chart's magnitude at {wavelength:g} nm -- one pixel of the coarse axis"
+        )
+    transmittance = write_rows(
+        data_dir / f"{name}-ti.csv",
+        ("wavelength_nm", TRANSMITTANCE_COLUMN),
+        rows,
+    )
+    written_ceilings = write_ceilings(data_dir / f"{name}-ti-ceilings.csv", ceilings)
+    return transmittance, written_ceilings, notes
 
 
 def import_glass(directory: Path, data_dir: Path) -> ImportedGlass:
@@ -268,8 +588,9 @@ def import_glass(directory: Path, data_dir: Path) -> ImportedGlass:
     )
     notes = [dispersion.note]
 
-    transmittance_path = directory / TRANSMITTANCE_FILE
     transmittance: Path | None = None
+    ceilings: Path | None = None
+    transmittance_path = directory / TRANSMITTANCE_FILE
     if transmittance_path.is_file():
         table = read_transmittance(transmittance_path)
         if not table.rows:
@@ -280,11 +601,16 @@ def import_glass(directory: Path, data_dir: Path) -> ImportedGlass:
             table.rows,
         )
         notes.append(table.note)
+    elif (charts := import_charts(directory, data_dir, name)) is not None:
+        transmittance, ceilings, chart_notes = charts
+        notes.extend(chart_notes)
+        if (directory / GUARANTEE_FILE).is_file():
+            notes.append(f"{GUARANTEE_FILE} holds bounds, not a table")
     elif (directory / GUARANTEE_FILE).is_file():
         notes.append(f"no {TRANSMITTANCE_FILE}; {GUARANTEE_FILE} holds bounds, not a table")
     else:
         notes.append(f"no {TRANSMITTANCE_FILE}")
-    return ImportedGlass(name, directory.name, written, transmittance, notes)
+    return ImportedGlass(name, directory.name, written, transmittance, notes, ceilings)
 
 
 def import_all(
@@ -320,7 +646,7 @@ def out_of_date_tables(raw_dir: Path = RAW_DIR, data_dir: Path = fitter.DATA_DIR
         regenerated = import_all(raw_dir, Path(scratch))
         stale: list[Path] = []
         for glass in regenerated:
-            for written in (glass.dispersion, glass.transmittance):
+            for written in (glass.dispersion, glass.transmittance, glass.ceilings):
                 if written is None:
                     continue
                 shipped = data_dir / written.name
@@ -371,6 +697,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"    wrote {glass.dispersion.name}")
         if glass.transmittance is not None:
             print(f"    wrote {glass.transmittance.name}")
+        if glass.ceilings is not None:
+            print(f"    wrote {glass.ceilings.name}")
     print(
         "fit each with: python tools/fit_lorentz_material.py --name NAME --oscillators 3"
         "  (see tools/data/README.md)"

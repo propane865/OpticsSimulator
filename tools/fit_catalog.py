@@ -38,6 +38,19 @@ if str(TOOLS_DIR) not in sys.path:
 
 BLOCKS_PATH = fitter.DATA_DIR / "fitted_blocks.json"
 
+ABSORPTION_CAP_WINDOW_NM = (420.0, 700.0)
+"""The band in which a published ceiling is allowed to cap a fitted damping.
+
+Only a chart's flat regions can cap anything, and only one band's flat region can be honoured:
+HPFS 7980's two charts bound ``alpha`` at 1.48e-6 mm^-1 over 264-400 nm and a hundred times more
+loosely, at 1.48e-4 mm^-1, over 400-2050 nm -- two spans a fitted wing crosses in two thirds of a
+decade, where its own slope moves it by a factor of 5. Both cannot hold, so the cap is asked for
+where the catalog is actually used -- the visible window
+:file:`tests/core/test_material_vs_tables.py` holds every glass to -- and every ceiling outside
+it is reported by :func:`fit_lorentz_material.ceiling_notes` instead. That is a decision about
+what the row is for, written down rather than hidden in a fit weight.
+"""
+
 BLOCK_DIGITS = 9
 """Significant digits the emitted literals carry -- the precision the catalog is written to.
 
@@ -64,6 +77,8 @@ class FitRequest:
     oscillators: int = 3
     dispersion_only: bool = False
     guarantees: tuple[tuple[float, float], ...] = ()
+    #: Cap the fitted widths to ``<NAME>-ti-ceilings.csv``, if the glass has one.
+    ceilings: bool = False
     reason: str = ""
     """Why this glass needs saying at all -- a non-default band count, or no absorption row."""
 
@@ -80,14 +95,17 @@ CATALOG_FIT_REQUESTS: tuple[FitRequest, ...] = (
     FitRequest(
         "F_SILICA",
         oscillators=4,
-        dispersion_only=True,
+        ceilings=True,
         guarantees=fitter.HPFS_7980_GUARANTEES,
         reason=(
-            "no transmittance table exists for HPFS 7980, only grade guarantees, so the"
-            " damping is anchored to the tightest of them; four bands were asked because at"
-            " three every index-only fit left the infrared band on the degenerate ridge at"
-            " the resonance floor with strength ~5.7, and the fourth is what let it sit at"
-            " 0.138 eV (9.0 um) where fused silica's multiphonon band actually is"
+            "HPFS 7980 publishes two digitized transmittance charts, not a table: the rows deep "
+            "enough to be magnitudes are fitted (185.2-240.3 nm and 1355.7-4320.3 nm) and the "
+            "flat regions become ceilings that cap the widths over 420-700 nm, because no model "
+            "of this class holds both measured wings and both flat regions at once; four bands "
+            "were asked because at three, an index-only fit of this glass left the infrared band "
+            "on the degenerate ridge at the resonance floor with strength ~5.7, and the fourth is "
+            "what let it sit near 0.14 eV where fused silica's multiphonon band actually is "
+            "(three is what the campaign pruned back to)"
         ),
     ),
 )
@@ -107,6 +125,7 @@ class FittedMaterial:
     fit: fitter.MaterialFit
     data: fitter.TabulatedData
     notes: list[str]
+    ceilings: tuple[fitter.AbsorptionCeiling, ...] = ()
 
     @property
     def name(self) -> str:
@@ -135,6 +154,12 @@ class FittedMaterial:
             f" ({self.data.wavelengths_nm[0]:.1f}-{self.data.wavelengths_nm[-1]:.1f} nm),"
             f" {len(self.data.absorption_wavelengths_nm)} transmittance rows"
         )
+        if self.ceilings:
+            lines.append(
+                f"  {len(self.ceilings)} bounded ceiling spans over"
+                f" {self.ceilings[0].wavelength_lo_nm:.1f}-"
+                f"{self.ceilings[-1].wavelength_hi_nm:.1f} nm"
+            )
         lines.append(f"  bands {len(self.fit.oscillators)} of {self.request.oscillators} asked")
         for line in self.notes:
             lines.append(f"  {line}")
@@ -144,15 +169,29 @@ class FittedMaterial:
         return "\n".join(lines)
 
 
+def ceilings_for(request: FitRequest) -> tuple[fitter.AbsorptionCeiling, ...]:
+    """The bounded spans a glass's chart left behind, if it asked for them and has any."""
+    path = fitter.DATA_DIR / f"{request.name}-ti-ceilings.csv"
+    if not request.ceilings:
+        return ()
+    if not path.is_file():
+        raise ValueError(f"{request.name}: asked to cap to ceilings, but {path.name} does not exist")
+    return fitter.read_ceilings(path)
+
+
 def fit_request(request: FitRequest) -> FittedMaterial:
     """Fit one glass: dispersion first, then the widths, then whatever the row could not say.
 
     The pipeline is :func:`fit_lorentz_material.fit_material` unchanged -- a catalog built by
-    a campaign that quietly re-tuned a fit would not be an audit trail. A dispersion-only
-    material gets the guarantees applied instead of widths, and the guarantee that bound is
-    reported, because "HPFS absorbs this much" is a sentence about a vendor's tolerance, not
-    about a spectrophotometer.
+    a campaign that quietly re-tuned a fit would not be an audit trail. Two things can happen
+    afterwards, and neither is a fit: a glass published without any transmittance row has its
+    widths *anchored* to the tightest vendor guarantee, because nothing else says anything about
+    absorption; a glass whose ceilings came off a printed chart has its widths *capped*, which
+    can only ever pull them down. Guarantees on such a glass are reported and never anchored --
+    a measured curve outranks a tolerance, and HPFS's own 185 nm curve is 22x more transparent
+    than the Standard-grade cap it sits under.
     """
+    ceilings = ceilings_for(request)
     data = fitter.load_tables(
         request.name,
         transmittance_path=fitter.NO_ABSORPTION if request.dispersion_only else None,
@@ -161,15 +200,25 @@ def fit_request(request: FitRequest) -> FittedMaterial:
     notes = []
     if damped is not None:
         notes.append(damped.report())
-    if request.guarantees:
+    if request.dispersion_only and request.guarantees:
         anchor = fitter.anchor_to_guarantees(fit, data, list(request.guarantees))
         fit = anchor.fit
         notes = [anchor.report(), *fitter.guarantee_notes(fit, request.guarantees)]
-    elif not request.dispersion_only and damped is not None:
-        notes.append(f"alpha(550 nm) {absorption_at(fit, 550.0):.3e} mm^-1")
+    elif ceilings:
+        cap = fitter.cap_damping_to_ceilings(fit, data, ceilings, ABSORPTION_CAP_WINDOW_NM)
+        fit = cap.fit
+        notes.append(cap.report())
+        notes.extend(f"note: {note}" for note in fitter.ceiling_notes(fit, ceilings, ABSORPTION_CAP_WINDOW_NM))
+    if request.guarantees and not request.dispersion_only:
+        notes.extend(f"note: {note}" for note in fitter.guarantee_notes(fit, request.guarantees))
+    if damped is not None:
+        notes.append(
+            f"alpha(550 nm) {absorption_at(fit, 550.0):.3e} mm^-1"
+            + (f", capped from {absorption_at(damped.fit, 550.0):.3e}" if ceilings else "")
+        )
     elif request.dispersion_only:
         notes.append("absorption unmeasured: every damping is a starting value, none is data")
-    return FittedMaterial(request=request, fit=fit, data=data, notes=notes)
+    return FittedMaterial(request=request, fit=fit, data=data, notes=notes, ceilings=ceilings)
 
 
 def absorption_at(fit: fitter.MaterialFit, wavelength_nm: float) -> float:

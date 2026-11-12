@@ -14,11 +14,16 @@ its own synthetic pair into a temporary directory
 | --- | --- | --- |
 | `<NAME>-n.csv` | `wavelength_nm,n` | the vendor's printed refractive-index rows, vacuum wavelengths |
 | `<NAME>-ti.csv` | `wavelength_nm,tau_i_10mm` | the vendor's printed internal transmittance for a 10 mm path |
+| `<NAME>-ti-ceilings.csv` | `wavelength_lo_nm,wavelength_hi_nm,alpha_max_per_mm` | where a printed chart had no magnitude: absorption at or below this is all the chart said, and the fit is capped by it rather than fitted to it |
 | `fitted_blocks.json` | — | the campaign's output: the nine catalog blocks, before they became Python literals |
 
-`F_SILICA` has a `-n.csv` and no `-ti.csv`, and that absence is a fact about the source
-document rather than a gap to fill: HPFS 7980 publishes tabulated index and *guarantee
-statements*, not a transmittance table (see [Fused silica](#fused-silica-is-the-one-row-with-no-absorption-measurement)).
+`F_SILICA` is the one glass whose `-ti.csv` did not arrive as a table. HPFS 7980 publishes two
+printed transmittance *charts*, so its rows were digitized, and only the rows deep enough below
+the top of a chart to mean something were kept as magnitudes; the flat stretches became
+`F_SILICA-ti-ceilings.csv` instead (see
+[Fused silica](#fused-silica-is-the-one-row-whose-absorption-is-bounded-not-measured)). No other
+glass has a ceilings file, and none should: a ceiling is what a chart leaves behind when it has no
+number to give.
 
 ## Regenerating them
 
@@ -59,10 +64,13 @@ N-LASF9:  page 78,  as above, ranges 404.7-2325.4 nm / 365-2500 nm
 N-SF5:    page 95,  as above, ranges 404.7-2325.4 nm / 365-2500 nm
 N-SF11:   page 101, as above, ranges 404.7-2325.4 nm / 370-2500 nm
 F_SILICA: source Corning HPFS 7980 transmittance/guarantee sheet p.4 (tabulated index and
-          dn/dT) and p.6 (guarantee statements only -- the p.6 transmittance curves were NOT
-          digitized), as-published range 184.95-1128.95 nm, licence unrecorded, retrieved
-          2026-11-12, conversions applied: air->vacuum wavelengths; guarantees converted to
-          upper bounds on alpha at fit time and never into a data row
+          dn/dT) and p.6 (both transmittance curves, digitized: 185.2-400.0 nm and
+          179.7-4353.0 nm), as-published index range 184.95-1128.95 nm, licence unrecorded,
+          retrieved 2026-11-12, conversions applied: air->vacuum wavelengths; curve values are
+          percent of a centimetre and a centimetre *is* the fitted 10 mm path, so the conversion
+          is percent to fraction and nothing else; a chart's flat top and its rows on the axis
+          floor became ceilings and opaque-row counts, never magnitudes; the p.6 guarantees are
+          converted to upper bounds on alpha at fit time and never into a data row
 ```
 
 **The air-to-vacuum conversion, stated once.** SCHOTT prints wavelengths in air and Corning
@@ -98,15 +106,16 @@ classical model's limit and not the data's.
 | N-LASF9 | 0.097 (1.91), 4.26 (0.030), 7.63 (1.43) | 2.7e-06 | 20 of 20 rows | 3.32e-03 | 1.11e-03 |
 | N-SF5 | 0.104 (1.60), 3.97 (0.011), 7.17 (0.90) | 2.9e-06 | 18 of 20 rows | 1.21e-03 | 5.01e-04 |
 | N-SF11 | 0.094 (2.16), 3.99 (0.024), 6.60 (1.13) | 4.9e-06 | 18 of 19 rows | 2.01e-03 | 9.04e-04 |
-| F_SILICA | 0.138 (0.74), 10.57 (0.36), 16.29 (0.66) | 6.5e-07 | anchored to a guarantee | 1.69e-05 | no table exists |
+| F_SILICA | 0.149 (0.63), 10.59 (0.37), 16.60 (0.66) | 7.2e-07 | 355 of 413 rows, then capped | 9.10e-05 | ≤ 1.48e-04 (a ceiling, not a print) |
 
 Every glass returns its table's own `n_d` to within 9e-6 and its `V_d` to within 0.07, and
 the catalog comments quote those pairs per glass. The literals in `optics/materials/catalog.py`
 are these numbers rounded to **nine significant digits** — deliberately significant digits
 rather than decimal places, because a damping of 1e-9 eV has nothing left at eight decimal
 places. The campaign measures what that rounding costs: at most 1.9e-9 in `n` and 1.3e-8 in
-`ln alpha`, quoted in each glass's report. The shape is the same in all nine: one
-far-infrared band at 0.094–0.138 eV (7.0–13.2 µm, the multiphonon region for oxide glasses)
+`ln alpha`, quoted in each glass's report. Fused silica, the only block with a damping of 1e-9
+eV, costs 3.8e-11 and 2.2e-9 of that. The shape is the same in all nine: one
+far-infrared band at 0.094–0.149 eV (8.3–13.2 µm, the multiphonon region for oxide glasses)
 and the electronic band systems above the measured window — except that the four flints each
 needed a *third*, a weak band at 3.97–4.32 eV (287–312 nm) of strength 0.011–0.030 just below
 their tables' blue end, which is what carries their anomalous partial dispersion.
@@ -153,31 +162,76 @@ content — the *bulk* absorption a Lorentz wing models is only part of what a s
 traced. The model reproduces the *shape* (flat across the visible, rising at both ends) with
 the level too high, because the same wing also has to reach the ultraviolet.
 
-## Fused silica is the one row with no absorption measurement
+## Fused silica is the one row whose absorption is bounded rather than measured
 
-HPFS 7980 publishes three sentences, not a curve:
+HPFS 7980 publishes two transmittance *charts* on p.6 of its sheet, plus three sentences of grade
+guarantees. A chart is ink on an axis, and ink has a size: reading the two curves gave 676 printed
+levels across 179.7–4353.0 nm on the broad chart (one pixel = 0.14793 % of a centimetre, i.e.
+1.48e-4 mm⁻¹ of absorption) and 67 600 across 185.2–400.0 nm on the ultraviolet one (0.00148 %
+per pixel, 1.48e-6 mm⁻¹). So a row is only a measurement if it sits far enough below the top of
+its own chart for its depth to mean something, and the importer's rule is ten pixels: 140 rows
+from 185.2–240.3 nm and 273 rows from 1355.7–4320.3 nm are magnitudes, 31 spans stay near the top
+and are written as ceilings, and 18 rows sit on the axis floor at 2.7 µm and 4.33 µm, which is
+"opaque" and is dropped for the same reason a printed `0.000` is.
+
+The two charts overlap from 185–400 nm, and there they disagree: the broad chart's trace never
+leaves its top two pixels, so its sharpest statement there is a bound of α ≤ 2.96e-4 mm⁻¹, while
+the fine chart *measures* 5.68e-4 at 185.2 nm — 1.92× more. That is not two measurements to
+average. A chart whose pixel is two thousandths of a percent cannot see 0.0057 % absorption and has
+no standing to bound it, so the fine chart owns 400 nm and below, the coarse chart owns above it,
+and the disagreement is printed by the importer rather than reconciled.
+
+The guarantees are still only bounds, and now they are bounds with room to spare:
 
 | Grade | Guarantee | Equivalent bound on α | Model at that bound |
 | --- | --- | --- | --- |
-| Standard | Ti ≥ 88.00 %/cm at 185 nm | 1.278e-02 mm⁻¹ | 2.6e-04 mm⁻¹ (49× margin) |
-| ArF | Ti ≥ 99.50 %/cm at 193 nm | 5.013e-04 mm⁻¹ | 2.2e-04 mm⁻¹ (2.3× margin) |
-| KrF | Ti ≥ 99.90 %/cm at 248 nm | 1.001e-04 mm⁻¹ | 1.001e-04 mm⁻¹ (at the bound) |
+| Standard | Ti ≥ 88.00 %/cm at 185 nm | 1.278e-02 mm⁻¹ | 2.06e-05 mm⁻¹ (622× margin) |
+| ArF | Ti ≥ 99.50 %/cm at 193 nm | 5.013e-04 mm⁻¹ | 1.97e-05 mm⁻¹ (25× margin) |
+| KrF | Ti ≥ 99.90 %/cm at 248 nm | 1.001e-04 mm⁻¹ | 2.16e-05 mm⁻¹ (4.6× margin) |
 
-A guarantee is a *lower bound on transmittance*, hence an upper bound on absorption: it is
-not a data row, and fitting it as one would let a vendor's tolerance masquerade as a
-measurement. So `F_SILICA`'s index was fitted from its 20 index rows alone, all dampings were
-given one common starting value, and that single scale was set so `alpha(248 nm)` lands on the
-**tightest** of the three bounds; the other two then hold with the margins above. The scale is
-0.001514 of the fit's own starting dampings, and it moves `n` by at most 4.3e-11 — a rescaling
-of a quantity the index table never constrained, by a tolerance, cannot be allowed to move a
-quantity the index table did constrain.
+They no longer *set* anything. The row this replaces had all three dampings on one common scale,
+bisected so `alpha(248 nm)` sat exactly on the KrF cap, because nothing measured the material
+then — and the measured magnitude at 185 nm is 22× under the Standard cap, which is what a
+tolerance written for a worst acceptable part does: it describes a limit of the vendor's yield, not
+a curve. So the campaign now fits the 413 magnitudes like any other glass, and uses the ceilings
+for the one thing a bound can be used for: capping, never anchoring.
 
-Four bands were asked for this glass because with three, every index-only fit left the
-infrared band parked on a degenerate ridge (`S → large`, `E → 0`, strength ~5.7 at the
-resonance floor) — a numerically free combination that is not a physical claim. The fourth
-band let the infrared one sit at 0.138 eV (9.0 µm), where fused silica's multiphonon band
-actually is, and the ridge band fell away to strength 1e-8 at the ceiling and was pruned. The
-three published bands are what the model claims; the damping behind them is a tolerance.
+**The cap, and what it costs.** One damped-oscillator model cannot hold both of these charts, and
+the numbers that prove it are the fit's own. Left alone, the 413 magnitudes put `alpha(550 nm)` at
+5.84e-4 mm⁻¹ — 3.9× above the ceiling the broad chart prints straight across 400–2050 nm — because
+the same wing has to rise 38× between 240 nm and 185 nm (1.48e-5 → 5.68e-4 mm⁻¹) and 79× between
+1.4 µm and 4.3 µm (7.4e-3 → 5.82e-1) while staying flat in between. So the row is *capped* over one
+window — 420–700 nm, the band the catalog is traced and compared in — by scaling every damping by a
+single factor until the model sits under the ceiling there (0.1558; the index moves by at most
+1.24e-11, which is the collateral that proves the cap was fair). The window's binding point is its
+red end, where the infrared wing is largest: α(700 nm) lands exactly on 1.48e-4 mm⁻¹ and α(550 nm)
+at 9.1e-5. Every ceiling outside that window is reported, not fitted: the row is above 24 of the
+other 30 spans, worst 32.7× at 400 nm, because the wing that has to reach a measured magnitude at
+4.3 µm is what sets α there.
+
+What the row is worth, against the row it replaced and against the charts:
+
+| Wavelength | What the source says | Anchored row (was) | Fitted and capped (now) |
+| --- | --- | --- | --- |
+| 185.2 nm | α = 5.68e-4 mm⁻¹ (measured) | 2.59e-04 (2.2× under) | 2.05e-05 (28× under) |
+| 550 nm | α ≤ 1.48e-4 mm⁻¹ (a ceiling) | 1.69e-05 | 9.10e-05 |
+| 2.2 µm | α = 3.14e-2 mm⁻¹ (measured) | 3.06e-05 (1025× under) | 1.69e-03 (19× under) |
+| 4.3 µm | α = 5.82e-1 mm⁻¹ (measured) | 1.77e-04 (3296× under) | 1.09e-02 (54× under) |
+
+That is the trade, stated flatly: the infrared — where a silica window is actually used, and where
+the anchored row was three orders of magnitude out — is now 55–60× closer, and the deep ultraviolet
+is 13× worse, because the same wing cannot do both and the visible cap pulls every width down by
+0.156. `rms ln alpha` over the 355 magnitudes the model reaches is 0.998 (worst ratio 22.5 at
+2817.6 nm, in the 2.7 µm band the chart bottomed out next to).
+
+Four bands were asked for this glass because with three, every index-only fit left the infrared
+band parked on a degenerate ridge (`S → large`, `E → 0`, strength ~5.7 at the resonance floor) — a
+numerically free combination that is not a physical claim. The fourth band let the infrared one sit
+near 0.14 eV (8.3 µm), where fused silica's multiphonon band actually is. With the charts fitted the
+campaign pruned back to **three** published bands — 0.1489 eV (8.3 µm), 10.59 eV and 16.60 eV — so
+the fourth turned out not to be needed once there was absorption to fit against. The third band's
+damping sits on the fitter's 1e-9 eV floor: the charts say nothing about absorption at 75 nm, so its
+width is unconstrained.
 
 ## What these parameters must never be used to claim
 
@@ -188,20 +242,31 @@ three published bands are what the model claims; the damping behind them is a to
   damped-oscillator wing: at 290 nm N-BK7's model is 274× below the printed value, and the
   dense flints' worst rows (350–370 nm) are 7–28× low. The fit deliberately does not chase
   them — see `EDGE_LOG_ALPHA` in the fitter — because chasing an edge a classical band cannot
-  represent spends the visible and the infrared on it.
+  represent spends the visible and the infrared on it. Fused silica fails this bullet in the
+  *other* direction, which is what a cap buys: below 400 nm its row is too absorbing, 33× above
+  the ultraviolet chart's own flat top at 400 nm, and 28× under the magnitude measured at 185 nm.
 - **Infrared above ~1.5 µm is the wing of one band, not a multiphonon spectrum.** The printed
   rise from 1.0 to 1.55 µm is ~8× for N-BK7 while this model gives ~1.7×, so the 1.5–2.5 µm
-  transmission of these glasses is not modeled. Real fused silica's 2.2 µm OH shoulder is not
-  there either — the HPFS index table stops at 1129 nm, so there was nothing to fit it against.
+  transmission of these glasses is not modeled. Fused silica is the case that proves the point
+  rather than escaping it: its charts *do* measure 1.36–4.3 µm, the fit was given those rows, and
+  the row still lands 19× under the printed magnitude at 2.2 µm and 54× under at 4.3 µm. A wing
+  fitted to a multiphonon spectrum is still a wing — and its 2.2 µm OH shoulder is not in here at
+  all, because the published curve is a smooth trace of a grade, not a spectrum.
 - **A flint's visible absorption is systematically ~2–3× the printed value**, as measured
   above. If a design's answer depends on a fraction of a percent of absorption in N-SF11 at
   450 nm, this catalog cannot settle it.
-- **`F_SILICA` absorption is a vendor tolerance, not a measurement**, at every wavelength.
+- **`F_SILICA`'s absorption is bounded rather than measured, almost everywhere.** Of the ~1050
+  rows its two charts print, 413 are deep enough below the top of a chart to be magnitudes; the
+  rest say "no absorption this chart can see" (31 spans, written as ceilings) or "opaque" (18
+  rows). The row honours the bound it was capped to over 420–700 nm and is above 24 of the other
+  30, worst by 32.7×; the grade guarantees it also satisfies are margins of 4.6×–622×, not
+  targets it was tuned to. Nothing about this row supports a thickness-and-transmittance claim at
+  any wavelength — no vendor ever printed one.
 - Band positions outside the measured window are **fit parameters**, not located transitions.
   The flints' weak 3.97–4.32 eV bands fall just below their tables' blue ends, where a glass
   has more than one electronic band system and this model has one; and fused silica's second
-  ultraviolet band lands at 16.29 eV (76 nm) because the index table stops at 185 nm, so
-  nothing in the data separates it from the 10.57 eV one.
+  ultraviolet band lands at 16.60 eV (75 nm), where the charts' own short end (179.7 nm) still
+  cannot separate it from the 10.59 eV one.
 
 ## Why the fit is two stages
 

@@ -28,7 +28,13 @@ the :file:`optics.importers.zmx` importer resolves glass names through it.
       model still transmits 98 % of a 25 mm path;
     * the same holds above roughly 1.5 um, where real infrared absorption rises
       faster than any single band's wing does;
-    * ``F_SILICA``'s absorption is a vendor *guarantee* rather than a measurement, and
+    * ``F_SILICA``'s absorption is *bounded* rather than measured almost everywhere.
+      HPFS 7980 publishes two digitized transmittance charts, and a printed trace has a
+      pixel size: only 185-240 nm and 1.36-4.3 um are deep enough below the top of a chart
+      to be magnitudes, and the rest says "no absorption this chart can see" -- an upper
+      bound. The row is capped to the bound over 420-700 nm (alpha <= 1.48e-4 mm^-1) and is
+      above the sharper ultraviolet bound (1.48e-6 mm^-1 at 264-400 nm) by up to 33x,
+      because no model of this class holds both measured wings and both flat regions; and
       the eight SCHOTT absorptions come from a transmittance printed to three decimals
       -- at ``tau_i = 0.998`` that is a 25 % band on ``alpha``, wider than the fits' own
       residuals.
@@ -85,20 +91,27 @@ _FITTED_LORENTZ_BLOCKS: dict[str, dict[str, Any]] = {
             {"strength": 0.83161904, "resonance_ev": 10.872643, "damping_ev": 1.73479158e-06},
         ],
     },
-    # F_SILICA -- fitted from Corning HPFS 7980 index table, via tools/data/F_SILICA-n.csv; rms n 6.5e-07.
-    # Bands, the one below the measured window first: 0.1381 eV (S 0.7357, Gamma 1.68e-07) + 10.5667 eV (S 0.3605,
-    #   Gamma 1.43e-07) + 16.2876 eV (S 0.6574, Gamma 1.39e-07).
+    # F_SILICA -- fitted from Corning HPFS 7980's index table and its two digitized transmittance
+    #   charts, via tools/data/F_SILICA-n.csv, F_SILICA-ti.csv and F_SILICA-ti-ceilings.csv;
+    #   rms n 7.2e-07, rms ln alpha 1.0 over the 355 of 413 transmittance rows the model reaches.
+    # Bands, the one below the measured window first: 0.1489 eV (S 0.6309, Gamma 9.38e-06) + 10.5932 eV
+    #   (S 0.3716, Gamma 8.01e-09) + 16.5963 eV (S 0.6602, Gamma 1.00e-09, at the fitter's floor).
     # Its own rows give n_d 1.45847, V_d 67.78; this model returns 1.45847, 67.79.
-    # No transmittance table exists for HPFS 7980 -- only grade guarantees -- so the dampings are one common scale,
-    #   set to put alpha(248 nm) on the KrF bound (Ti >= 99.90 %/cm), the tightest of the three printed. The ArF and
-    #   Standard bounds then hold with 2.3x and 49x to spare. alpha(550 nm) 1.7e-05 mm^-1 follows from a vendor's
-    #   tolerance, not from a measurement, and a 25 mm transmittance is not a claim this row can be checked against.
+    # Only two regions of the charts carry magnitudes and both are wings the model cannot hold: the
+    #   measured alpha is 1.5e-5 -> 5.7e-4 mm^-1 from 240 to 185 nm and 1.8e-3 -> 5.8e-1 mm^-1 from 1.36
+    #   to 4.3 um, so one band's wing has to span a factor of 79 between 1.4 and 4.3 um where it reaches
+    #   17. What the fit is worth is bounded instead: alpha(550 nm) 9.1e-05 mm^-1 sits under the
+    #   1.48e-04 mm^-1 ceiling the broad chart prints across 400-2050 nm (the damping was scaled by 0.156
+    #   to get there, from a fitted 5.8e-04), and alpha(2200 nm) 1.7e-03 mm^-1 is within 18x of the
+    #   3.1e-02 mm^-1 printed there -- 60x closer than the guarantee-anchored row this replaced. It is 33x
+    #   above the sharper 1.48e-06 mm^-1 ceiling the ultraviolet chart prints over 264-400 nm, and a 25 mm
+    #   transmittance is still not a claim this row can be checked against: no vendor printed one.
     "F_SILICA": {
-        "epsilon_inf": 1.08622787,
+        "epsilon_inf": 1.07231617,
         "oscillators": [
-            {"strength": 0.735709775, "resonance_ev": 0.138099272, "damping_ev": 1.68126981e-07},
-            {"strength": 0.360508382, "resonance_ev": 10.5667363, "damping_ev": 1.43494331e-07},
-            {"strength": 0.657358183, "resonance_ev": 16.287576, "damping_ev": 1.38661696e-07},
+            {"strength": 0.630857634, "resonance_ev": 0.148863859, "damping_ev": 9.384363e-06},
+            {"strength": 0.371566322, "resonance_ev": 10.5932038, "damping_ev": 8.01458469e-09},
+            {"strength": 0.66019747, "resonance_ev": 16.596322, "damping_ev": 1e-09},
         ],
     },
     # N-SF11 -- fitted from tools/data/N-SF11-n.csv and tools/data/N-SF11-ti.csv; rms n 4.8e-06.
